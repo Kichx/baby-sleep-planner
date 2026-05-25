@@ -226,6 +226,20 @@ Before considering a SQLite schema change done, verify both cases:
 
 If the app suddenly shows broad load failures after a schema change, suspect migration/table-shape mismatch first. Check the exact SQL reads/writes that now reference new columns before changing UI error handling.
 
+## Implementation lessons from navigation/settings work
+
+Before adding a new "tab" or settings section, inspect the current Expo Router structure first. If the app currently uses a `Stack`, keep the change in that pattern unless the task explicitly asks to introduce a real tab navigator.
+
+When adding a new `src/app` screen:
+- register it in `src/app/_layout.tsx`;
+- add focused navigation entry points from the screens that need them;
+- keep the new screen read-only if the task only asks to move or expose existing information;
+- avoid adding icon libraries only for one button. Prefer a small local presentational icon component built with React Native views.
+
+With Expo Router typed routes, `.expo/types/router.d.ts` can lag behind a newly added file route until Expo regenerates it. Do not edit generated `.expo` files. If TypeScript needs help for a new route, use a narrow named `Href` constant such as `const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href`, then run `npm run typecheck`.
+
+On Windows, before starting Expo/Metro, check whether the default port is already occupied. If an existing Metro server is running, use it instead of spawning duplicates. If background startup fails because of PowerShell environment issues or Expo asks for interactive port confirmation, stop retrying after one alternate port and report the exact limitation; the user can start Expo manually with `cmd /c npm run start -- --port <port>`.
+
 ## Development workflow
 
 Before coding:
