@@ -40,6 +40,9 @@ export interface SleepPlanPreset {
   targetDaySleepMinutes: number;
   bedtimeTargetMinutes: number;
   earlyBedtimeMinutes: number;
+  latestEveningNapEndMinutes: number;
+  maxEveningNapMinutes: number;
+  minNightSleepMinutes: number;
   microNapMinutes: number;
   wakeWindows: WakeWindowPreset[];
 }

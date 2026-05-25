@@ -18,6 +18,7 @@ import {
   dateAtMinutes,
   getDayStart,
   getSessionDurationMinutes,
+  getSessionKindForCalculations,
   inferSleepKindForInterval,
   inferSleepKindForStart,
 } from '@/core/sleepCalculations';
@@ -295,7 +296,14 @@ export default function TodaySleepScreen() {
     [now, sessions, summaryReferenceDate],
   );
   const timelineSegments = useMemo(
-    () => buildSleepTimelineSegments(sessions, selectedDayStart, selectedDayEnd, now),
+    () =>
+      buildSleepTimelineSegments(
+        sessions,
+        selectedDayStart,
+        selectedDayEnd,
+        now,
+        DEFAULT_SLEEP_PLAN,
+      ),
     [now, selectedDayEnd, selectedDayStart, sessions],
   );
   const snapshot = useMemo(
@@ -639,6 +647,11 @@ export default function TodaySleepScreen() {
                 visibleSessions.map((session) => {
                   const startedAt = new Date(session.startedAt);
                   const endedAt = session.endedAt ? new Date(session.endedAt) : null;
+                  const effectiveKind = getSessionKindForCalculations(
+                    session,
+                    endedAt ?? now,
+                    DEFAULT_SLEEP_PLAN,
+                  );
 
                   return (
                     <Pressable
@@ -657,7 +670,7 @@ export default function TodaySleepScreen() {
                       ]}>
                       <View style={styles.sessionInfo}>
                         <Text style={styles.sessionTitle}>
-                          {session.kind === 'night' ? 'Ночной сон' : 'Сон'}
+                          {effectiveKind === 'night' ? 'Ночной сон' : 'Сон'}
                         </Text>
                         <Text style={styles.sessionTime}>
                           {formatClock(startedAt)} - {endedAt ? formatClock(endedAt) : 'идёт'}

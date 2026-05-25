@@ -10,6 +10,9 @@ export const DEFAULT_SLEEP_PLAN: SleepPlanPreset = {
   targetDaySleepMinutes: 3 * 60,
   bedtimeTargetMinutes: 19 * 60 + 30,
   earlyBedtimeMinutes: 18 * 60 + 30,
+  latestEveningNapEndMinutes: 20 * 60,
+  maxEveningNapMinutes: 45,
+  minNightSleepMinutes: 3 * 60,
   microNapMinutes: 20,
   wakeWindows: [
     {

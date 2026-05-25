@@ -39,26 +39,35 @@ export function inferSleepKindForInterval(
   endedAt: Date | null,
   plan: SleepPlanPreset,
 ): SleepKind {
-  const minutesFromMidnight = getMinutesFromMidnight(startedAt);
+  const startMinutesFromMidnight = getMinutesFromMidnight(startedAt);
 
-  if (
-    minutesFromMidnight < plan.dayStartMinutes ||
-    minutesFromMidnight >= plan.earlyBedtimeMinutes
-  ) {
+  if (startMinutesFromMidnight < plan.dayStartMinutes) {
     return 'night';
   }
 
   if (!endedAt) {
-    return 'nap';
+    return startMinutesFromMidnight >= plan.bedtimeTargetMinutes ? 'night' : 'nap';
   }
 
   const endMinutesFromMidnight = getMinutesFromMidnight(endedAt);
+  const durationMinutes = minutesBetween(startedAt, endedAt);
   const crossesMidnight = startedAt.toDateString() !== endedAt.toDateString();
 
+  if (crossesMidnight || startMinutesFromMidnight >= plan.bedtimeTargetMinutes) {
+    return 'night';
+  }
+
+  if (startMinutesFromMidnight >= plan.earlyBedtimeMinutes) {
+    const isShortEveningNap =
+      durationMinutes <= plan.maxEveningNapMinutes &&
+      endMinutesFromMidnight <= plan.latestEveningNapEndMinutes;
+
+    return isShortEveningNap ? 'nap' : 'night';
+  }
+
   if (
-    crossesMidnight ||
-    endMinutesFromMidnight < plan.dayStartMinutes ||
-    endMinutesFromMidnight >= plan.earlyBedtimeMinutes
+    durationMinutes >= plan.minNightSleepMinutes &&
+    endMinutesFromMidnight >= plan.bedtimeTargetMinutes
   ) {
     return 'night';
   }
@@ -95,6 +104,14 @@ export function getSessionDurationMinutes(session: SleepSession, now: Date): num
   return minutesBetween(startedAt, endedAt);
 }
 
+export function getSessionKindForCalculations(
+  session: SleepSession,
+  effectiveEndedAt: Date,
+  plan: SleepPlanPreset,
+): SleepKind {
+  return inferSleepKindForInterval(new Date(session.startedAt), effectiveEndedAt, plan);
+}
+
 function maxDate(first: Date, second: Date): Date {
   return first.getTime() >= second.getTime() ? first : second;
 }
@@ -116,6 +133,7 @@ export function buildSleepTimelineSegments(
   dayStart: Date,
   dayEnd: Date,
   now: Date,
+  plan: SleepPlanPreset,
 ): SleepTimelineSegment[] {
   return sessions
     .map((session) => {
@@ -131,7 +149,7 @@ export function buildSleepTimelineSegments(
 
       return {
         id: session.id,
-        kind: session.kind,
+        kind: getSessionKindForCalculations(session, effectiveEndedAt, plan),
         startOffsetMinutes: minutesBetween(dayStart, visibleStartedAt),
         durationMinutes: minutesBetween(visibleStartedAt, visibleEndedAt),
         actualStartedAt,
@@ -152,7 +170,7 @@ export function buildSleepDaySummary(
 ): SleepDaySummary {
   const dayStart = getDayStart(referenceDate, plan);
   const dayEnd = addMinutes(dayStart, 24 * 60);
-  const segments = buildSleepTimelineSegments(sessions, dayStart, dayEnd, now);
+  const segments = buildSleepTimelineSegments(sessions, dayStart, dayEnd, now, plan);
   const totalDaySleepMinutes = segments.reduce(
     (total, segment) => (segment.kind === 'nap' ? total + segment.durationMinutes : total),
     0,
@@ -204,7 +222,13 @@ export function buildTodaySleepSnapshot(
   });
   const activeSession = getActiveSleepSession(todaySessions);
   const completedSessions = todaySessions.filter((session) => session.endedAt !== null);
-  const completedNaps = completedSessions.filter((session) => session.kind === 'nap').length;
+  const completedNaps = completedSessions.filter((session) => {
+    if (!session.endedAt) {
+      return false;
+    }
+
+    return getSessionKindForCalculations(session, new Date(session.endedAt), plan) === 'nap';
+  }).length;
   const lastCompletedSession = completedSessions[completedSessions.length - 1];
   const statusStartedAt = activeSession
     ? new Date(activeSession.startedAt)
@@ -213,8 +237,12 @@ export function buildTodaySleepSnapshot(
       : dayStart;
 
   const totalDaySleepMinutes = todaySessions.reduce(
-    (total, session) =>
-      session.kind === 'nap' ? total + getSessionDurationMinutes(session, now) : total,
+    (total, session) => {
+      const effectiveEndedAt = session.endedAt ? new Date(session.endedAt) : now;
+      const kind = getSessionKindForCalculations(session, effectiveEndedAt, plan);
+
+      return kind === 'nap' ? total + getSessionDurationMinutes(session, now) : total;
+    },
     0,
   );
   const elapsedDayMinutes = minutesBetween(dayStart, now);
