@@ -183,6 +183,33 @@ At minimum, test:
 
 When changing recommendation logic, update or add tests.
 
+## Implementation lessons from date-based UI work
+
+When adding date navigation or history screens, verify every date mode explicitly:
+- today;
+- yesterday;
+- a date older than yesterday;
+- tomorrow;
+- an active sleep session that started today.
+
+Keep these concepts separate in code:
+- selected screen date;
+- real current date/time;
+- form default date;
+- shortcut preset base date.
+
+Do not reuse one `referenceDate` value for both form defaults and shortcut highlighting unless those concepts are truly the same. For manual sleep entry, "Yesterday / Today / Tomorrow" presets should be relative to the real current day, while the default input date should match the selected screen day. If the selected day is older than yesterday, no date preset should be highlighted by default.
+
+For future-day views, open active sessions must not leak into tomorrow or later dates. When filtering sessions for a selected day, treat an open session as ending at `min(now, dayEnd)` before deciding whether it overlaps the selected day.
+
+When a screen title depends on local screen state, update the Expo Router `Stack.Screen` options from inside the screen instead of relying only on the static title in `_layout.tsx`.
+
+Before considering a UI change done, check the actual vertical space taken by navigation controls. Date switchers and preset rows should be compact because the main screen is used one-handed and should keep the current sleep state visible without unnecessary scrolling.
+
+Do not run `expo lint` unless the project already has an ESLint config and ESLint dependencies installed. Expo CLI may try to auto-install and generate lint configuration, causing unrelated `package.json`, lockfile, or config changes. If lint is not configured, skip it and report that only TypeScript checks were run.
+
+On Windows, if `npm` is blocked by PowerShell execution policy, run package scripts through `cmd /c npm run ...`.
+
 ## Development workflow
 
 Before coding:
@@ -230,6 +257,8 @@ After coding:
 - Clearly state whether any Git actions were performed.
 
 ## Language
+
+The agent must always answer the user and ask clarification questions in Russian.
 
 User-facing text in the app should be in Russian.
 
