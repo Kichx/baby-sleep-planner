@@ -197,6 +197,38 @@ After coding:
 3. Summarize changed files.
 4. Mention any limitations or follow-up tasks.
 
+## Git workflow
+
+The default workflow is optimized for fast local testing in Expo Go.
+
+Working files:
+- The agent may edit project files directly during development so the user can immediately test changes on a phone through Expo Go.
+- Git commits are not required before testing. The working tree can contain in-progress changes.
+- Running local checks such as TypeScript, tests, or Expo/Metro is allowed when useful.
+
+Before changing files:
+1. Run `git status --short --branch`.
+2. Check whether the working tree already has uncommitted changes.
+3. Treat existing changes as user work or previous agent work. Do not revert, overwrite, stash, or move them unless explicitly asked.
+
+Branching:
+- For a new non-trivial task, prefer a task branch with prefix `kichx_c/` and a short kebab-case task name when the working tree is clean.
+- If the working tree is dirty and the task continues the current work, continue on the current branch.
+- If the working tree is dirty and the task is unrelated, ask the user before creating or switching branches.
+
+Commits and history:
+- Do not run `git add`, `git commit`, `git push`, `git reset`, `git checkout --`, or `git restore` unless the user explicitly asks.
+- When asked to commit, stage only files related to the current task. Avoid `git add .` when unrelated changes exist.
+- Before committing, run TypeScript checks and tests if available.
+- Use short, descriptive commit messages in English, for example `Add manual sleep session editor`.
+- Never amend, reset, rebase, force-push, or discard changes unless the user explicitly asks for that exact operation.
+
+After coding:
+- Summarize the current branch.
+- List changed files.
+- Mention checks that were run.
+- Clearly state whether any Git actions were performed.
+
 ## Language
 
 User-facing text in the app should be in Russian.
