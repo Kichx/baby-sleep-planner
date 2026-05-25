@@ -23,6 +23,7 @@ interface SleepSessionEditorModalProps {
   session: SleepSession | null;
   existingSessions: SleepSession[];
   referenceDate: Date;
+  shortcutBaseDate: Date;
   isSaving: boolean;
   onClose: () => void;
   onDelete: () => void;
@@ -205,6 +206,21 @@ function dateWithDateAndTime(dateBase: Date, timeParts: TimeParts): Date {
   return date;
 }
 
+function startOfCalendarDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+}
+
+function addCalendarDays(date: Date, days: number): Date {
+  const nextDate = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0);
+  nextDate.setDate(nextDate.getDate() + days);
+
+  return nextDate;
+}
+
+function isSameCalendarDay(first: Date, second: Date): boolean {
+  return startOfCalendarDay(first).getTime() === startOfCalendarDay(second).getTime();
+}
+
 function hasValidInterval(parsed: ParsedFormDates): boolean {
   return !parsed.endedAt || parsed.endedAt.getTime() > parsed.startedAt.getTime();
 }
@@ -240,6 +256,7 @@ export function SleepSessionEditorModal({
   session,
   existingSessions,
   referenceDate,
+  shortcutBaseDate,
   isSaving,
   onClose,
   onDelete,
@@ -402,8 +419,8 @@ export function SleepSessionEditorModal({
     return { startedAt, endedAt };
   }
 
-  function setRelativeDate(target: 'start' | 'end', offsetDays: number) {
-    const date = addMinutes(referenceDate, offsetDays * 24 * 60);
+  function setShortcutDate(target: 'start' | 'end', offsetDays: number) {
+    const date = addCalendarDays(shortcutBaseDate, offsetDays);
     const dateText = formatDateInput(date);
 
     if (target === 'start') {
@@ -461,15 +478,16 @@ export function SleepSessionEditorModal({
     offsetDays: number,
     selectedDateText: string,
   ) {
-    const date = addMinutes(referenceDate, offsetDays * 24 * 60);
+    const date = addCalendarDays(shortcutBaseDate, offsetDays);
     const dateText = formatDateInput(date);
-    const isActive = selectedDateText === dateText;
+    const selectedDate = parseDateInput(selectedDateText, referenceDate);
+    const isActive = selectedDate ? isSameCalendarDay(selectedDate, date) : false;
 
     return (
       <Pressable
         accessibilityRole="button"
         key={`${target}-${label}`}
-        onPress={() => setRelativeDate(target, offsetDays)}
+        onPress={() => setShortcutDate(target, offsetDays)}
         style={({ pressed }) => [
           styles.dateShortcut,
           isActive ? styles.activeDateShortcut : null,

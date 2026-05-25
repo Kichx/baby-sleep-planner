@@ -1,9 +1,11 @@
 import { buildRecommendationScenarios } from '@/core/recommendations';
 import type {
+  SleepDaySummary,
   SleepKind,
   SleepPlanPreset,
   SleepSession,
   SleepSnapshot,
+  SleepTimelineSegment,
   WakeWindowPreset,
 } from '@/types/sleep';
 
@@ -91,6 +93,101 @@ export function getSessionDurationMinutes(session: SleepSession, now: Date): num
   const endedAt = session.endedAt ? new Date(session.endedAt) : now;
 
   return minutesBetween(startedAt, endedAt);
+}
+
+function maxDate(first: Date, second: Date): Date {
+  return first.getTime() >= second.getTime() ? first : second;
+}
+
+function minDate(first: Date, second: Date): Date {
+  return first.getTime() <= second.getTime() ? first : second;
+}
+
+function getTimelineSessionEnd(session: SleepSession, now: Date, dayEnd: Date): Date {
+  if (session.endedAt) {
+    return new Date(session.endedAt);
+  }
+
+  return minDate(now, dayEnd);
+}
+
+export function buildSleepTimelineSegments(
+  sessions: SleepSession[],
+  dayStart: Date,
+  dayEnd: Date,
+  now: Date,
+): SleepTimelineSegment[] {
+  return sessions
+    .map((session) => {
+      const actualStartedAt = new Date(session.startedAt);
+      const actualEndedAt = session.endedAt ? new Date(session.endedAt) : null;
+      const effectiveEndedAt = getTimelineSessionEnd(session, now, dayEnd);
+      const visibleStartedAt = maxDate(actualStartedAt, dayStart);
+      const visibleEndedAt = minDate(effectiveEndedAt, dayEnd);
+
+      if (visibleEndedAt.getTime() <= visibleStartedAt.getTime()) {
+        return null;
+      }
+
+      return {
+        id: session.id,
+        kind: session.kind,
+        startOffsetMinutes: minutesBetween(dayStart, visibleStartedAt),
+        durationMinutes: minutesBetween(visibleStartedAt, visibleEndedAt),
+        actualStartedAt,
+        actualEndedAt,
+        isClippedStart: actualStartedAt.getTime() < dayStart.getTime(),
+        isClippedEnd: effectiveEndedAt.getTime() > dayEnd.getTime(),
+      };
+    })
+    .filter((segment): segment is SleepTimelineSegment => segment !== null)
+    .sort((first, second) => first.startOffsetMinutes - second.startOffsetMinutes);
+}
+
+export function buildSleepDaySummary(
+  sessions: SleepSession[],
+  referenceDate: Date,
+  now: Date,
+  plan: SleepPlanPreset,
+): SleepDaySummary {
+  const dayStart = getDayStart(referenceDate, plan);
+  const dayEnd = addMinutes(dayStart, 24 * 60);
+  const segments = buildSleepTimelineSegments(sessions, dayStart, dayEnd, now);
+  const totalDaySleepMinutes = segments.reduce(
+    (total, segment) => (segment.kind === 'nap' ? total + segment.durationMinutes : total),
+    0,
+  );
+  const totalNightSleepMinutes = segments.reduce(
+    (total, segment) => (segment.kind === 'night' ? total + segment.durationMinutes : total),
+    0,
+  );
+  const elapsedEnd = minDate(maxDate(now, dayStart), dayEnd);
+  const elapsedMinutes = minutesBetween(dayStart, elapsedEnd);
+  const elapsedSleepMinutes = segments.reduce((total, segment) => {
+    const segmentStart = addMinutes(dayStart, segment.startOffsetMinutes);
+    const segmentEnd = addMinutes(segmentStart, segment.durationMinutes);
+    const countedEnd = minDate(segmentEnd, elapsedEnd);
+
+    if (countedEnd.getTime() <= segmentStart.getTime()) {
+      return total;
+    }
+
+    return total + minutesBetween(segmentStart, countedEnd);
+  }, 0);
+  const totalAwakeMinutes = Math.max(0, elapsedMinutes - elapsedSleepMinutes);
+  const awakeDeltaMinutes = Math.abs(totalAwakeMinutes - plan.targetAwakeMinutes);
+
+  return {
+    totalDaySleepMinutes,
+    totalNightSleepMinutes,
+    totalAwakeMinutes,
+    sleepSessionCount: segments.length,
+    completedNaps: segments.filter(
+      (segment) => segment.kind === 'nap' && segment.actualEndedAt !== null,
+    ).length,
+    onTrackLabel:
+      awakeDeltaMinutes <= 30 ? 'День близко к плану' : 'День уходит от плана',
+  };
 }
 
 export function buildTodaySleepSnapshot(

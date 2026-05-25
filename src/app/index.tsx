@@ -1,16 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Stack } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/PrimaryButton';
+import { SleepDayTimeline } from '@/components/SleepDayTimeline';
 import { SleepSessionEditorModal } from '@/components/SleepSessionEditorModal';
 import { SummaryCard } from '@/components/SummaryCard';
 import { DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
   addMinutes,
+  buildSleepDaySummary,
+  buildSleepTimelineSegments,
   buildTodaySleepSnapshot,
+  dateAtMinutes,
   getDayStart,
   getSessionDurationMinutes,
   inferSleepKindForInterval,
@@ -25,7 +30,7 @@ import {
   stopActiveSleepSession,
   updateSleepSession,
 } from '@/db';
-import type { SleepSession } from '@/types/sleep';
+import type { SleepPlanPreset, SleepSession } from '@/types/sleep';
 
 type EditorState =
   | {
@@ -38,6 +43,14 @@ type EditorState =
       session: SleepSession;
       referenceDate: Date;
     };
+
+type SelectedDayType = 'past' | 'today' | 'future';
+
+const DAY_MINUTES = 24 * 60;
+const dateLabelFormatter = new Intl.DateTimeFormat('ru-RU', {
+  day: 'numeric',
+  month: 'long',
+});
 
 function formatClock(date: Date): string {
   return new Intl.DateTimeFormat('ru-RU', {
@@ -57,24 +70,164 @@ function formatDuration(minutes: number): string {
   return `${hours} ч ${restMinutes} мин`;
 }
 
+function startOfCalendarDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+}
+
+function dateAtNoon(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0);
+}
+
+function addCalendarDays(date: Date, days: number): Date {
+  const nextDate = dateAtNoon(date);
+  nextDate.setDate(nextDate.getDate() + days);
+
+  return nextDate;
+}
+
+function getCalendarDayDiff(first: Date, second: Date): number {
+  const firstStart = startOfCalendarDay(first).getTime();
+  const secondStart = startOfCalendarDay(second).getTime();
+
+  return Math.round((firstStart - secondStart) / (DAY_MINUTES * 60_000));
+}
+
+function getSelectedDayType(selectedDate: Date, now: Date): SelectedDayType {
+  const dayDiff = getCalendarDayDiff(selectedDate, now);
+
+  if (dayDiff < 0) {
+    return 'past';
+  }
+
+  if (dayDiff > 0) {
+    return 'future';
+  }
+
+  return 'today';
+}
+
+function getSleepDayStartForSelection(
+  selectedDate: Date,
+  now: Date,
+  plan: SleepPlanPreset,
+): Date {
+  if (getSelectedDayType(selectedDate, now) === 'today') {
+    return getDayStart(now, plan);
+  }
+
+  return dateAtMinutes(dateAtNoon(selectedDate), plan.dayStartMinutes);
+}
+
+function getVisibleSessionEnd(session: SleepSession, now: Date, dayEnd: Date): Date {
+  if (session.endedAt) {
+    return new Date(session.endedAt);
+  }
+
+  return new Date(Math.min(now.getTime(), dayEnd.getTime()));
+}
+
+function sleepSessionOverlapsDay(
+  session: SleepSession,
+  dayStart: Date,
+  dayEnd: Date,
+  now: Date,
+): boolean {
+  const startedAt = new Date(session.startedAt);
+  const endedAt = getVisibleSessionEnd(session, now, dayEnd);
+
+  return startedAt.getTime() < dayEnd.getTime() && endedAt.getTime() > dayStart.getTime();
+}
+
+function formatDateLabel(date: Date): string {
+  return dateLabelFormatter.format(date);
+}
+
+function formatSelectedDayTitle(selectedDate: Date, now: Date): string {
+  const dayDiff = getCalendarDayDiff(selectedDate, now);
+
+  if (dayDiff === 0) {
+    return 'Сегодня';
+  }
+
+  if (dayDiff === 1) {
+    return `Завтра, ${formatDateLabel(selectedDate)}`;
+  }
+
+  if (dayDiff === -1) {
+    return `Вчера, ${formatDateLabel(selectedDate)}`;
+  }
+
+  if (dayDiff === -2) {
+    return `Позавчера, ${formatDateLabel(selectedDate)}`;
+  }
+
+  return formatDateLabel(selectedDate);
+}
+
+function formatHeaderTitle(selectedDate: Date, now: Date): string {
+  const dayDiff = getCalendarDayDiff(selectedDate, now);
+
+  if (dayDiff === 0) {
+    return 'Сон сегодня';
+  }
+
+  if (dayDiff === 1) {
+    return 'Сон завтра';
+  }
+
+  if (dayDiff === -1) {
+    return 'Сон вчера';
+  }
+
+  if (dayDiff === -2) {
+    return 'Сон позавчера';
+  }
+
+  return `Сон ${formatDateLabel(selectedDate)}`;
+}
+
+function formatCount(value: number, one: string, few: string, many: string): string {
+  const mod10 = value % 10;
+  const mod100 = value % 100;
+  const suffix =
+    mod10 === 1 && mod100 !== 11
+      ? one
+      : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
+        ? few
+        : many;
+
+  return `${value} ${suffix}`;
+}
+
+function formatSessionCount(value: number): string {
+  return formatCount(value, 'запись', 'записи', 'записей');
+}
+
+function formatNapCount(value: number): string {
+  return formatCount(value, 'сон', 'сна', 'снов');
+}
+
 export default function TodaySleepScreen() {
   const db = useSQLiteContext();
   const [sessions, setSessions] = useState<SleepSession[]>([]);
+  const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [now, setNow] = useState(() => new Date());
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [editorState, setEditorState] = useState<EditorState | null>(null);
 
-  const loadSessions = useCallback(
-    async (referenceDate: Date) => {
+  const fetchSessionsForDate = useCallback(
+    async (referenceDate: Date, currentNow: Date) => {
       await ensureDefaultChildProfile(db);
 
-      const dayStart = getDayStart(referenceDate, DEFAULT_SLEEP_PLAN);
-      const dayEnd = addMinutes(dayStart, 24 * 60);
+      const dayStart = getSleepDayStartForSelection(referenceDate, currentNow, DEFAULT_SLEEP_PLAN);
+      const dayEnd = addMinutes(dayStart, DAY_MINUTES);
       const loadedSessions = await listSleepSessionsInRange(db, dayStart, dayEnd);
 
-      setSessions(loadedSessions);
+      return loadedSessions.filter((session) =>
+        sleepSessionOverlapsDay(session, dayStart, dayEnd, currentNow),
+      );
     },
     [db],
   );
@@ -82,18 +235,16 @@ export default function TodaySleepScreen() {
   useEffect(() => {
     let isMounted = true;
 
-    async function loadInitialState() {
-      const referenceDate = new Date();
+    async function loadSelectedDay() {
+      const loadedAt = new Date();
+
+      setIsLoading(true);
 
       try {
-        await ensureDefaultChildProfile(db);
-
-        const dayStart = getDayStart(referenceDate, DEFAULT_SLEEP_PLAN);
-        const dayEnd = addMinutes(dayStart, 24 * 60);
-        const loadedSessions = await listSleepSessionsInRange(db, dayStart, dayEnd);
+        const loadedSessions = await fetchSessionsForDate(selectedDate, loadedAt);
 
         if (isMounted) {
-          setNow(referenceDate);
+          setNow(loadedAt);
           setSessions(loadedSessions);
           setErrorMessage(null);
         }
@@ -108,12 +259,12 @@ export default function TodaySleepScreen() {
       }
     }
 
-    loadInitialState();
+    loadSelectedDay();
 
     return () => {
       isMounted = false;
     };
-  }, [db]);
+  }, [fetchSessionsForDate, selectedDate]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -125,20 +276,82 @@ export default function TodaySleepScreen() {
     };
   }, []);
 
+  const dayType = useMemo(() => getSelectedDayType(selectedDate, now), [now, selectedDate]);
+  const selectedDayTitle = useMemo(
+    () => formatSelectedDayTitle(selectedDate, now),
+    [now, selectedDate],
+  );
+  const headerTitle = useMemo(() => formatHeaderTitle(selectedDate, now), [now, selectedDate]);
+  const selectedDayStart = useMemo(
+    () => getSleepDayStartForSelection(selectedDate, now, DEFAULT_SLEEP_PLAN),
+    [now, selectedDate],
+  );
+  const selectedDayEnd = useMemo(() => addMinutes(selectedDayStart, DAY_MINUTES), [
+    selectedDayStart,
+  ]);
+  const summaryReferenceDate = dayType === 'today' ? now : dateAtNoon(selectedDate);
+  const daySummary = useMemo(
+    () => buildSleepDaySummary(sessions, summaryReferenceDate, now, DEFAULT_SLEEP_PLAN),
+    [now, sessions, summaryReferenceDate],
+  );
+  const timelineSegments = useMemo(
+    () => buildSleepTimelineSegments(sessions, selectedDayStart, selectedDayEnd, now),
+    [now, selectedDayEnd, selectedDayStart, sessions],
+  );
   const snapshot = useMemo(
     () => buildTodaySleepSnapshot(sessions, now, DEFAULT_SLEEP_PLAN),
     [sessions, now],
   );
-  const isSleeping = snapshot.state === 'sleeping';
+  const isToday = dayType === 'today';
+  const isSleeping = isToday && snapshot.state === 'sleeping';
   const buttonLabel = isSaving
     ? 'Сохраняем...'
     : isSleeping
       ? 'Завершить сон'
       : 'Начать сон';
-
   const visibleSessions = useMemo(() => [...sessions].reverse(), [sessions]);
+  const canGoForward = useMemo(() => {
+    const tomorrow = addCalendarDays(now, 1);
+
+    return startOfCalendarDay(selectedDate).getTime() < startOfCalendarDay(tomorrow).getTime();
+  }, [now, selectedDate]);
+
+  async function reloadSelectedDay(referenceDate: Date, currentNow: Date) {
+    const loadedSessions = await fetchSessionsForDate(referenceDate, currentNow);
+
+    setNow(currentNow);
+    setSessions(loadedSessions);
+  }
+
+  function openCreateEditor() {
+    setEditorState({
+      mode: 'create',
+      referenceDate: isToday ? new Date() : dateAtNoon(selectedDate),
+      session: null,
+    });
+  }
+
+  function selectQuickDate(dayOffset: -1 | 0 | 1) {
+    setSelectedDate(dayOffset === 0 ? new Date() : addCalendarDays(now, dayOffset));
+  }
+
+  function goToPreviousDay() {
+    setSelectedDate((currentDate) => addCalendarDays(currentDate, -1));
+  }
+
+  function goToNextDay() {
+    if (!canGoForward) {
+      return;
+    }
+
+    setSelectedDate((currentDate) => addCalendarDays(currentDate, 1));
+  }
 
   async function handleSleepButtonPress() {
+    if (!isToday) {
+      return;
+    }
+
     const actionAt = new Date();
 
     setIsSaving(true);
@@ -161,7 +374,7 @@ export default function TodaySleepScreen() {
         await startSleepSession(db, inferSleepKindForStart(actionAt, DEFAULT_SLEEP_PLAN), actionAt);
       }
 
-      await loadSessions(actionAt);
+      await reloadSelectedDay(selectedDate, actionAt);
     } catch {
       setErrorMessage('Не удалось сохранить сон');
     } finally {
@@ -190,7 +403,7 @@ export default function TodaySleepScreen() {
         await createSleepSession(db, inputWithKind);
       }
 
-      await loadSessions(actionAt);
+      await reloadSelectedDay(selectedDate, actionAt);
       setEditorState(null);
     } catch {
       setErrorMessage('Не удалось сохранить запись');
@@ -212,7 +425,7 @@ export default function TodaySleepScreen() {
 
     try {
       await deleteSleepSession(db, editorState.session.id);
-      await loadSessions(actionAt);
+      await reloadSelectedDay(selectedDate, actionAt);
       setEditorState(null);
     } catch {
       setErrorMessage('Не удалось удалить запись');
@@ -221,88 +434,204 @@ export default function TodaySleepScreen() {
     }
   }
 
+  function renderDateShortcut(label: string, dayOffset: -1 | 0 | 1) {
+    const targetDate = dayOffset === 0 ? now : addCalendarDays(now, dayOffset);
+    const isActive =
+      startOfCalendarDay(targetDate).getTime() === startOfCalendarDay(selectedDate).getTime();
+
+    return (
+      <Pressable
+        accessibilityRole="button"
+        key={label}
+        onPress={() => selectQuickDate(dayOffset)}
+        style={({ pressed }) => [
+          styles.dateShortcut,
+          isActive ? styles.activeDateShortcut : null,
+          pressed ? styles.dateShortcutPressed : null,
+        ]}>
+        <Text style={[styles.dateShortcutText, isActive ? styles.activeDateShortcutText : null]}>
+          {label}
+        </Text>
+      </Pressable>
+    );
+  }
+
   return (
     <>
+      <Stack.Screen options={{ title: headerTitle }} />
       <ScrollView style={styles.screen} contentContainerStyle={styles.scrollContent}>
         <SafeAreaView edges={['bottom']} style={styles.safeArea}>
           {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
-          <View style={styles.hero}>
-            <Text style={styles.status}>
-              {isLoading ? 'Загрузка' : isSleeping ? 'Спит' : 'Бодрствует'}
-            </Text>
-            <Text style={styles.timer}>
-              {isLoading ? '--' : formatDuration(snapshot.currentDurationMinutes)}
-            </Text>
-            <Text style={styles.helper}>с {formatClock(snapshot.statusStartedAt)}</Text>
-          </View>
-
-          <View style={styles.actionRow}>
-            <PrimaryButton
-              compact
-              disabled={isLoading || isSaving}
-              label={buttonLabel}
-              onPress={handleSleepButtonPress}
-              style={styles.timerButton}
-            />
-            <PrimaryButton
-              compact
-              disabled={isLoading || isSaving}
-              label="Внести сон"
-              onPress={() =>
-                setEditorState({ mode: 'create', referenceDate: new Date(), session: null })
-              }
-              style={styles.manualButton}
-              variant="secondary"
-            />
-          </View>
-
-          <View style={styles.grid}>
-            <SummaryCard
-              title="Следующий сон"
-              value={isSleeping ? 'после сна' : formatClock(snapshot.nextSleepAt)}
-              caption={snapshot.onTrackLabel}
-              tone="accent"
-            />
-            <SummaryCard
-              title="Прогноз ночи"
-              value={formatClock(snapshot.predictedBedtimeAt)}
-              caption="по цели бодрствования"
-            />
-          </View>
-
-          <View style={styles.grid}>
-            <SummaryCard
-              title="До цели бодрствования"
-              value={formatDuration(snapshot.remainingAwakeMinutes)}
-              caption={`всего ${formatDuration(snapshot.totalAwakeMinutes)}`}
-            />
-            <SummaryCard
-              title="Сон днём"
-              value={formatDuration(snapshot.totalDaySleepMinutes)}
-              caption={`${snapshot.completedNaps} сна сегодня`}
-            />
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Сценарии</Text>
-            <View style={styles.scenarioList}>
-              {snapshot.scenarios.map((scenario) => (
-                <View
-                  key={scenario.id}
+          <View style={styles.datePickerBlock}>
+            <View style={styles.dayNavigator}>
+              <Pressable
+                accessibilityLabel="Предыдущий день"
+                accessibilityRole="button"
+                onPress={goToPreviousDay}
+                style={({ pressed }) => [
+                  styles.dayArrow,
+                  pressed ? styles.dayArrowPressed : null,
+                ]}>
+                <Text style={styles.dayArrowText}>{'<'}</Text>
+              </Pressable>
+              <Text numberOfLines={1} style={styles.dayTitle}>
+                {selectedDayTitle}
+              </Text>
+              <Pressable
+                accessibilityLabel="Следующий день"
+                accessibilityRole="button"
+                disabled={!canGoForward}
+                onPress={goToNextDay}
+                style={({ pressed }) => [
+                  styles.dayArrow,
+                  pressed && canGoForward ? styles.dayArrowPressed : null,
+                  !canGoForward ? styles.dayArrowDisabled : null,
+                ]}>
+                <Text
                   style={[
-                    styles.scenario,
-                    scenario.priority === 'primary' ? styles.primaryScenario : null,
+                    styles.dayArrowText,
+                    !canGoForward ? styles.dayArrowTextDisabled : null,
                   ]}>
-                  <Text style={styles.scenarioTitle}>{scenario.title}</Text>
-                  <Text style={styles.scenarioText}>{scenario.detail}</Text>
-                </View>
-              ))}
+                  {'>'}
+                </Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.dateShortcutRow}>
+              {renderDateShortcut('Сегодня', 0)}
+              {renderDateShortcut('Вчера', -1)}
+              {renderDateShortcut('Завтра', 1)}
             </View>
           </View>
 
+          {isToday ? (
+            <>
+              <View style={styles.hero}>
+                <Text style={styles.status}>
+                  {isLoading ? 'Загрузка' : isSleeping ? 'Спит' : 'Бодрствует'}
+                </Text>
+                <Text style={styles.timer}>
+                  {isLoading ? '--' : formatDuration(snapshot.currentDurationMinutes)}
+                </Text>
+                <Text style={styles.helper}>с {formatClock(snapshot.statusStartedAt)}</Text>
+              </View>
+
+              <View style={styles.actionRow}>
+                <PrimaryButton
+                  compact
+                  disabled={isLoading || isSaving}
+                  label={buttonLabel}
+                  onPress={handleSleepButtonPress}
+                  style={styles.timerButton}
+                />
+                <PrimaryButton
+                  compact
+                  disabled={isLoading || isSaving}
+                  label="Внести сон"
+                  onPress={openCreateEditor}
+                  style={styles.manualButton}
+                  variant="secondary"
+                />
+              </View>
+
+              <View style={styles.grid}>
+                <SummaryCard
+                  title="Следующий сон"
+                  value={isSleeping ? 'после сна' : formatClock(snapshot.nextSleepAt)}
+                  caption={snapshot.onTrackLabel}
+                  tone="accent"
+                />
+                <SummaryCard
+                  title="Прогноз ночи"
+                  value={formatClock(snapshot.predictedBedtimeAt)}
+                  caption="по цели бодрствования"
+                />
+              </View>
+
+              <View style={styles.grid}>
+                <SummaryCard
+                  title="До цели бодрств."
+                  value={formatDuration(snapshot.remainingAwakeMinutes)}
+                  caption={`всего ${formatDuration(snapshot.totalAwakeMinutes)}`}
+                />
+                <SummaryCard
+                  title="Сон днем"
+                  value={formatDuration(snapshot.totalDaySleepMinutes)}
+                  caption={`${snapshot.completedNaps} сна сегодня`}
+                />
+              </View>
+
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Сценарии</Text>
+                <View style={styles.scenarioList}>
+                  {snapshot.scenarios.map((scenario) => (
+                    <View
+                      key={scenario.id}
+                      style={[
+                        styles.scenario,
+                        scenario.priority === 'primary' ? styles.primaryScenario : null,
+                      ]}>
+                      <Text style={styles.scenarioTitle}>{scenario.title}</Text>
+                      <Text style={styles.scenarioText}>{scenario.detail}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.historyHero}>
+                <Text style={styles.status}>
+                  {dayType === 'future' ? 'План на завтра' : 'Итоги дня'}
+                </Text>
+                <Text style={styles.historyValue}>
+                  {formatDuration(daySummary.totalDaySleepMinutes)}
+                </Text>
+                <Text style={styles.helper}>
+                  {daySummary.sleepSessionCount === 0
+                    ? 'Пока нет записей сна'
+                    : `${formatSessionCount(daySummary.sleepSessionCount)} сна`}
+                </Text>
+              </View>
+
+              <View style={styles.grid}>
+                <SummaryCard
+                  title="Сон днем"
+                  value={formatDuration(daySummary.totalDaySleepMinutes)}
+                  caption={formatNapCount(daySummary.completedNaps)}
+                  tone={dayType === 'future' ? 'accent' : 'default'}
+                />
+                <SummaryCard
+                  title={dayType === 'future' ? 'Цель бодрств.' : 'Бодрствование'}
+                  value={formatDuration(
+                    dayType === 'future'
+                      ? DEFAULT_SLEEP_PLAN.targetAwakeMinutes
+                      : daySummary.totalAwakeMinutes,
+                  )}
+                  caption={dayType === 'future' ? 'план дня' : daySummary.onTrackLabel}
+                />
+              </View>
+
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Таймлайн</Text>
+                <SleepDayTimeline dayStart={selectedDayStart} segments={timelineSegments} />
+              </View>
+
+              <PrimaryButton
+                compact
+                disabled={isLoading || isSaving}
+                label="Внести сон"
+                onPress={openCreateEditor}
+                variant="secondary"
+              />
+            </>
+          )}
+
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Записи сегодня</Text>
+            <Text style={styles.sectionTitle}>
+              {isToday ? 'Записи сегодня' : dayType === 'future' ? 'Записи завтра' : 'Записи дня'}
+            </Text>
             <View style={styles.sessionList}>
               {visibleSessions.length === 0 ? (
                 <Text style={styles.emptyText}>Пока нет записей сна</Text>
@@ -316,7 +645,11 @@ export default function TodaySleepScreen() {
                       accessibilityRole="button"
                       key={session.id}
                       onPress={() =>
-                        setEditorState({ mode: 'edit', referenceDate: new Date(), session })
+                        setEditorState({
+                          mode: 'edit',
+                          referenceDate: isToday ? new Date() : dateAtNoon(selectedDate),
+                          session,
+                        })
                       }
                       style={({ pressed }) => [
                         styles.sessionRow,
@@ -351,6 +684,7 @@ export default function TodaySleepScreen() {
         onDelete={handleEditorDelete}
         onSave={handleEditorSave}
         referenceDate={editorState?.referenceDate ?? now}
+        shortcutBaseDate={now}
         session={editorState?.session ?? null}
         visible={editorState !== null}
       />
@@ -373,8 +707,86 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: spacing.xl,
   },
+  datePickerBlock: {
+    gap: spacing.xs,
+  },
+  dayNavigator: {
+    minHeight: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  dayArrow: {
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  dayArrowPressed: {
+    backgroundColor: colors.primarySoft,
+  },
+  dayArrowDisabled: {
+    opacity: 0.45,
+  },
+  dayArrowText: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  dayArrowTextDisabled: {
+    color: colors.textMuted,
+  },
+  dayTitle: {
+    flex: 1,
+    color: colors.text,
+    textAlign: 'center',
+    fontSize: 19,
+    fontWeight: '900',
+  },
+  dateShortcutRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  dateShortcut: {
+    minHeight: 34,
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  activeDateShortcut: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  dateShortcutPressed: {
+    backgroundColor: colors.surfaceMuted,
+  },
+  dateShortcutText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  activeDateShortcutText: {
+    color: colors.primary,
+  },
   hero: {
     minHeight: 172,
+    borderRadius: radius.lg,
+    padding: spacing.xl,
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  historyHero: {
+    minHeight: 138,
     borderRadius: radius.lg,
     padding: spacing.xl,
     justifyContent: 'center',
@@ -391,6 +803,12 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     color: colors.text,
     fontSize: 44,
+    fontWeight: '900',
+  },
+  historyValue: {
+    marginTop: spacing.sm,
+    color: colors.text,
+    fontSize: 38,
     fontWeight: '900',
   },
   helper: {

@@ -64,3 +64,23 @@ export interface SleepSnapshot {
   onTrackLabel: string;
   scenarios: RecommendationScenario[];
 }
+
+export interface SleepDaySummary {
+  totalDaySleepMinutes: number;
+  totalNightSleepMinutes: number;
+  totalAwakeMinutes: number;
+  sleepSessionCount: number;
+  completedNaps: number;
+  onTrackLabel: string;
+}
+
+export interface SleepTimelineSegment {
+  id: string;
+  kind: SleepKind;
+  startOffsetMinutes: number;
+  durationMinutes: number;
+  actualStartedAt: Date;
+  actualEndedAt: Date | null;
+  isClippedStart: boolean;
+  isClippedEnd: boolean;
+}
