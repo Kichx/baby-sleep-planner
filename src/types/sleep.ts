@@ -1,0 +1,66 @@
+export type ISODateString = string;
+
+export type SleepKind = 'nap' | 'night';
+
+export type SleepState = 'awake' | 'sleeping';
+
+export type RecommendationScenarioId =
+  | 'normal'
+  | 'microNap'
+  | 'earlyBedtime'
+  | 'stretchWakeWindow'
+  | 'capLastNap';
+
+export type ScenarioPriority = 'primary' | 'secondary' | 'caution';
+
+export interface ChildProfile {
+  id: string;
+  name: string;
+  createdAt: ISODateString;
+}
+
+export interface SleepSession {
+  id: string;
+  childId: string;
+  kind: SleepKind;
+  startedAt: ISODateString;
+  endedAt: ISODateString | null;
+}
+
+export interface WakeWindowPreset {
+  napNumber: number;
+  minWakeMinutes: number;
+  targetWakeMinutes: number;
+  maxWakeMinutes: number;
+}
+
+export interface SleepPlanPreset {
+  dayStartMinutes: number;
+  targetAwakeMinutes: number;
+  targetDaySleepMinutes: number;
+  bedtimeTargetMinutes: number;
+  earlyBedtimeMinutes: number;
+  microNapMinutes: number;
+  wakeWindows: WakeWindowPreset[];
+}
+
+export interface RecommendationScenario {
+  id: RecommendationScenarioId;
+  title: string;
+  detail: string;
+  priority: ScenarioPriority;
+}
+
+export interface SleepSnapshot {
+  state: SleepState;
+  statusStartedAt: Date;
+  currentDurationMinutes: number;
+  nextSleepAt: Date;
+  predictedBedtimeAt: Date;
+  totalAwakeMinutes: number;
+  remainingAwakeMinutes: number;
+  totalDaySleepMinutes: number;
+  completedNaps: number;
+  onTrackLabel: string;
+  scenarios: RecommendationScenario[];
+}
