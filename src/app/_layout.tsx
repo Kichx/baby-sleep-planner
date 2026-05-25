@@ -35,6 +35,12 @@ export default function RootLayout() {
               title: 'Профиль',
             }}
           />
+          <Stack.Screen
+            name="sleep-plan"
+            options={{
+              title: 'План сна',
+            }}
+          />
         </Stack>
       </SQLiteProvider>
       <StatusBar style="dark" />

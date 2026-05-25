@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Stack, useFocusEffect, useRouter } from 'expo-router';
+import { Stack, type Href, useFocusEffect, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/PrimaryButton';
+import { SleepPlanIcon } from '@/components/SleepPlanIcon';
 import { SleepDayTimeline } from '@/components/SleepDayTimeline';
 import { SleepSessionEditorModal } from '@/components/SleepSessionEditorModal';
 import { SummaryCard } from '@/components/SummaryCard';
@@ -49,6 +50,7 @@ type EditorState =
 type SelectedDayType = 'past' | 'today' | 'future';
 
 const DAY_MINUTES = 24 * 60;
+const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
 const dateLabelFormatter = new Intl.DateTimeFormat('ru-RU', {
   day: 'numeric',
   month: 'long',
@@ -375,6 +377,10 @@ export default function TodaySleepScreen() {
     router.push('/profile');
   }
 
+  function openSleepPlan() {
+    router.push(SLEEP_PLAN_ROUTE);
+  }
+
   function openCreateEditor() {
     setEditorState({
       mode: 'create',
@@ -513,17 +519,30 @@ export default function TodaySleepScreen() {
       <Stack.Screen
         options={{
           headerRight: () => (
-            <Pressable
-              accessibilityLabel="Профиль и настройки"
-              accessibilityRole="button"
-              hitSlop={8}
-              onPress={openProfile}
-              style={({ pressed }) => [
-                styles.profileButton,
-                pressed ? styles.profileButtonPressed : null,
-              ]}>
-              <Text style={styles.profileButtonText}>{profileInitial}</Text>
-            </Pressable>
+            <View style={styles.headerActions}>
+              <Pressable
+                accessibilityLabel="План сна"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={openSleepPlan}
+                style={({ pressed }) => [
+                  styles.sleepPlanButton,
+                  pressed ? styles.headerIconButtonPressed : null,
+                ]}>
+                <SleepPlanIcon backgroundColor={colors.surface} />
+              </Pressable>
+              <Pressable
+                accessibilityLabel="Профиль и настройки"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={openProfile}
+                style={({ pressed }) => [
+                  styles.profileButton,
+                  pressed ? styles.headerIconButtonPressed : null,
+                ]}>
+                <Text style={styles.profileButtonText}>{profileInitial}</Text>
+              </Pressable>
+            </View>
           ),
           title: headerTitle,
         }}
@@ -771,6 +790,21 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  sleepPlanButton: {
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
   profileButton: {
     width: 38,
     height: 38,
@@ -781,7 +815,7 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
     backgroundColor: colors.primarySoft,
   },
-  profileButtonPressed: {
+  headerIconButtonPressed: {
     backgroundColor: colors.surfaceMuted,
   },
   profileButtonText: {

@@ -1,36 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
-import { Stack } from 'expo-router';
+import { Stack, type Href, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/PrimaryButton';
-import { DEFAULT_CHILD_NAME, DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
+import { SleepPlanIcon } from '@/components/SleepPlanIcon';
+import { DEFAULT_CHILD_NAME } from '@/constants/sleep';
 import { colors, radius, spacing } from '@/constants/theme';
 import { getChildProfile, updateChildProfile } from '@/db';
 
-function formatDuration(minutes: number): string {
-  const hours = Math.floor(minutes / 60);
-  const restMinutes = minutes % 60;
-
-  if (hours === 0) {
-    return `${restMinutes} мин`;
-  }
-
-  if (restMinutes === 0) {
-    return `${hours} ч`;
-  }
-
-  return `${hours} ч ${restMinutes} мин`;
-}
-
-function formatClockMinutes(minutes: number): string {
-  const hours = Math.floor(minutes / 60);
-  const restMinutes = minutes % 60;
-
-  return `${String(hours).padStart(2, '0')}:${String(restMinutes).padStart(2, '0')}`;
-}
+const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
 
 function formatBirthDate(date: Date): string {
   return new Intl.DateTimeFormat('ru-RU', {
@@ -146,6 +127,7 @@ function InfoRow({ label, value }: InfoRowProps) {
 
 export default function ProfileScreen() {
   const db = useSQLiteContext();
+  const router = useRouter();
   const [profileName, setProfileName] = useState(DEFAULT_CHILD_NAME);
   const [birthDate, setBirthDate] = useState<string | null>(null);
   const [draftName, setDraftName] = useState(DEFAULT_CHILD_NAME);
@@ -271,6 +253,10 @@ export default function ProfileScreen() {
     }
   }
 
+  function openSleepPlan() {
+    router.push(SLEEP_PLAN_ROUTE);
+  }
+
   return (
     <>
       <Stack.Screen options={{ title: 'Профиль' }} />
@@ -339,28 +325,20 @@ export default function ProfileScreen() {
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>План сна</Text>
-            <View style={styles.infoList}>
-              <InfoRow
-                label="Цель бодрствования"
-                value={formatDuration(DEFAULT_SLEEP_PLAN.targetAwakeMinutes)}
-              />
-              <InfoRow
-                label="Дневной сон"
-                value={formatDuration(DEFAULT_SLEEP_PLAN.targetDaySleepMinutes)}
-              />
-              <InfoRow
-                label="Ночной сон"
-                value={`от ${formatDuration(DEFAULT_SLEEP_PLAN.minNightSleepMinutes)}`}
-              />
-              <InfoRow
-                label="Ранний ночной"
-                value={formatClockMinutes(DEFAULT_SLEEP_PLAN.earlyBedtimeMinutes)}
-              />
-              <InfoRow
-                label="Микросон"
-                value={formatDuration(DEFAULT_SLEEP_PLAN.microNapMinutes)}
-              />
-            </View>
+            <Pressable
+              accessibilityLabel="Открыть план сна"
+              accessibilityRole="button"
+              onPress={openSleepPlan}
+              style={({ pressed }) => [styles.planLink, pressed ? styles.planLinkPressed : null]}>
+              <View style={styles.planLinkIcon}>
+                <SleepPlanIcon backgroundColor={colors.primarySoft} />
+              </View>
+              <View style={styles.planLinkTextBlock}>
+                <Text style={styles.planLinkTitle}>Открыть план сна</Text>
+                <Text style={styles.planLinkSubtitle}>Окна, микросон и ранний ночной</Text>
+              </View>
+              <Text style={styles.planLinkArrow}>{'>'}</Text>
+            </Pressable>
           </View>
 
           <View style={styles.section}>
@@ -489,6 +467,48 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '900',
     textAlign: 'right',
+  },
+  planLink: {
+    minHeight: 74,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  planLinkPressed: {
+    backgroundColor: colors.primarySoft,
+  },
+  planLinkIcon: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 22,
+    backgroundColor: colors.primarySoft,
+  },
+  planLinkTextBlock: {
+    flex: 1,
+    gap: spacing.xs,
+    minWidth: 0,
+  },
+  planLinkTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  planLinkSubtitle: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  planLinkArrow: {
+    color: colors.primary,
+    fontSize: 24,
+    fontWeight: '900',
   },
   infoList: {
     gap: spacing.xs,
