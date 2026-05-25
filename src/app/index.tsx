@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Stack } from 'expo-router';
+import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,7 +8,7 @@ import { PrimaryButton } from '@/components/PrimaryButton';
 import { SleepDayTimeline } from '@/components/SleepDayTimeline';
 import { SleepSessionEditorModal } from '@/components/SleepSessionEditorModal';
 import { SummaryCard } from '@/components/SummaryCard';
-import { DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
+import { DEFAULT_CHILD_NAME, DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
   addMinutes,
@@ -26,6 +26,7 @@ import {
   createSleepSession,
   deleteSleepSession,
   ensureDefaultChildProfile,
+  getChildProfile,
   listSleepSessionsInRange,
   startSleepSession,
   stopActiveSleepSession,
@@ -208,9 +209,21 @@ function formatNapCount(value: number): string {
   return formatCount(value, 'сон', 'сна', 'снов');
 }
 
+function getProfileInitial(name: string): string {
+  const trimmedName = name.trim();
+
+  if (trimmedName.length === 0) {
+    return DEFAULT_CHILD_NAME.slice(0, 1).toUpperCase();
+  }
+
+  return trimmedName.slice(0, 1).toUpperCase();
+}
+
 export default function TodaySleepScreen() {
   const db = useSQLiteContext();
+  const router = useRouter();
   const [sessions, setSessions] = useState<SleepSession[]>([]);
+  const [childName, setChildName] = useState(DEFAULT_CHILD_NAME);
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [now, setNow] = useState(() => new Date());
   const [isLoading, setIsLoading] = useState(true);
@@ -231,6 +244,32 @@ export default function TodaySleepScreen() {
       );
     },
     [db],
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      let isActive = true;
+
+      async function loadChildProfile() {
+        try {
+          const profile = await getChildProfile(db);
+
+          if (isActive) {
+            setChildName(profile.name);
+          }
+        } catch {
+          if (isActive) {
+            setChildName(DEFAULT_CHILD_NAME);
+          }
+        }
+      }
+
+      loadChildProfile();
+
+      return () => {
+        isActive = false;
+      };
+    }, [db]),
   );
 
   useEffect(() => {
@@ -283,6 +322,7 @@ export default function TodaySleepScreen() {
     [now, selectedDate],
   );
   const headerTitle = useMemo(() => formatHeaderTitle(selectedDate, now), [now, selectedDate]);
+  const profileInitial = useMemo(() => getProfileInitial(childName), [childName]);
   const selectedDayStart = useMemo(
     () => getSleepDayStartForSelection(selectedDate, now, DEFAULT_SLEEP_PLAN),
     [now, selectedDate],
@@ -329,6 +369,10 @@ export default function TodaySleepScreen() {
 
     setNow(currentNow);
     setSessions(loadedSessions);
+  }
+
+  function openProfile() {
+    router.push('/profile');
   }
 
   function openCreateEditor() {
@@ -466,7 +510,24 @@ export default function TodaySleepScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: headerTitle }} />
+      <Stack.Screen
+        options={{
+          headerRight: () => (
+            <Pressable
+              accessibilityLabel="Профиль и настройки"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={openProfile}
+              style={({ pressed }) => [
+                styles.profileButton,
+                pressed ? styles.profileButtonPressed : null,
+              ]}>
+              <Text style={styles.profileButtonText}>{profileInitial}</Text>
+            </Pressable>
+          ),
+          title: headerTitle,
+        }}
+      />
       <ScrollView style={styles.screen} contentContainerStyle={styles.scrollContent}>
         <SafeAreaView edges={['bottom']} style={styles.safeArea}>
           {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
@@ -709,6 +770,24 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  profileButton: {
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  profileButtonPressed: {
+    backgroundColor: colors.surfaceMuted,
+  },
+  profileButtonText: {
+    color: colors.primary,
+    fontSize: 16,
+    fontWeight: '900',
   },
   scrollContent: {
     flexGrow: 1,

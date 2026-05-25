@@ -5,8 +5,11 @@ export {
   deleteSleepSession,
   ensureDefaultChildProfile,
   getActiveSleepSession,
+  getChildProfile,
   listSleepSessionsInRange,
   startSleepSession,
   stopActiveSleepSession,
+  updateChildProfile,
+  updateChildProfileName,
   updateSleepSession,
 } from '@/db/sleepRepository';

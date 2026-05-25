@@ -1,6 +1,6 @@
 export const DATABASE_NAME = 'baby_sleep_planner.db';
 
-export const DATABASE_VERSION = 1;
+export const DATABASE_VERSION = 2;
 
 export const INITIAL_SCHEMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -9,6 +9,7 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS child_profile (
   id TEXT PRIMARY KEY NOT NULL,
   name TEXT NOT NULL,
+  birth_date TEXT,
   created_at TEXT NOT NULL
 );
 

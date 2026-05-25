@@ -29,6 +29,12 @@ export default function RootLayout() {
               title: 'Сон сегодня',
             }}
           />
+          <Stack.Screen
+            name="profile"
+            options={{
+              title: 'Профиль',
+            }}
+          />
         </Stack>
       </SQLiteProvider>
       <StatusBar style="dark" />

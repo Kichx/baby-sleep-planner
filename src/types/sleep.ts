@@ -16,6 +16,7 @@ export type ScenarioPriority = 'primary' | 'secondary' | 'caution';
 export interface ChildProfile {
   id: string;
   name: string;
+  birthDate: ISODateString | null;
   createdAt: ISODateString;
 }
 

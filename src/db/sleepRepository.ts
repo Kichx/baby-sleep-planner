@@ -1,7 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { DEFAULT_CHILD_ID, DEFAULT_CHILD_NAME } from '@/constants/sleep';
-import type { SleepKind, SleepSession } from '@/types/sleep';
+import type { ChildProfile, SleepKind, SleepSession } from '@/types/sleep';
 
 interface SaveSleepSessionInput {
   kind: SleepKind;
@@ -15,6 +15,22 @@ interface SleepSessionRow {
   kind: SleepKind;
   started_at: string;
   ended_at: string | null;
+}
+
+interface ChildProfileRow {
+  id: string;
+  name: string;
+  birth_date: string | null;
+  created_at: string;
+}
+
+interface SaveChildProfileInput {
+  name: string;
+  birthDate: string | null;
+}
+
+interface TableInfoRow {
+  name: string;
 }
 
 function createLocalId(prefix: string, date: Date): string {
@@ -33,13 +49,95 @@ function mapSleepSessionRow(row: SleepSessionRow): SleepSession {
   };
 }
 
+function mapChildProfileRow(row: ChildProfileRow): ChildProfile {
+  return {
+    id: row.id,
+    name: row.name,
+    birthDate: row.birth_date,
+    createdAt: row.created_at,
+  };
+}
+
+async function ensureChildProfileBirthDateColumn(db: SQLiteDatabase): Promise<void> {
+  const rows = await db.getAllAsync<TableInfoRow>('PRAGMA table_info(child_profile)');
+  const hasBirthDate = rows.some((row) => row.name === 'birth_date');
+
+  if (!hasBirthDate) {
+    await db.execAsync('ALTER TABLE child_profile ADD COLUMN birth_date TEXT');
+  }
+}
+
 export async function ensureDefaultChildProfile(db: SQLiteDatabase): Promise<void> {
+  await ensureChildProfileBirthDateColumn(db);
+
   await db.runAsync(
     `
-    INSERT OR IGNORE INTO child_profile (id, name, created_at)
-    VALUES (?, ?, ?)
+    INSERT OR IGNORE INTO child_profile (id, name, birth_date, created_at)
+    VALUES (?, ?, ?, ?)
     `,
-    [DEFAULT_CHILD_ID, DEFAULT_CHILD_NAME, new Date().toISOString()],
+    [DEFAULT_CHILD_ID, DEFAULT_CHILD_NAME, null, new Date().toISOString()],
+  );
+}
+
+export async function getChildProfile(
+  db: SQLiteDatabase,
+  childId = DEFAULT_CHILD_ID,
+): Promise<ChildProfile> {
+  await ensureDefaultChildProfile(db);
+
+  const row = await db.getFirstAsync<ChildProfileRow>(
+    `
+    SELECT id, name, birth_date, created_at
+    FROM child_profile
+    WHERE id = ?
+    LIMIT 1
+    `,
+    [childId],
+  );
+
+  if (row) {
+    return mapChildProfileRow(row);
+  }
+
+  return {
+    id: childId,
+    name: DEFAULT_CHILD_NAME,
+    birthDate: null,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+export async function updateChildProfile(
+  db: SQLiteDatabase,
+  input: SaveChildProfileInput,
+  childId = DEFAULT_CHILD_ID,
+): Promise<void> {
+  await ensureDefaultChildProfile(db);
+
+  await db.runAsync(
+    `
+    UPDATE child_profile
+    SET name = ?, birth_date = ?
+    WHERE id = ?
+    `,
+    [input.name.trim(), input.birthDate, childId],
+  );
+}
+
+export async function updateChildProfileName(
+  db: SQLiteDatabase,
+  name: string,
+  childId = DEFAULT_CHILD_ID,
+): Promise<void> {
+  await ensureDefaultChildProfile(db);
+
+  await db.runAsync(
+    `
+    UPDATE child_profile
+    SET name = ?
+    WHERE id = ?
+    `,
+    [name.trim(), childId],
   );
 }
 
