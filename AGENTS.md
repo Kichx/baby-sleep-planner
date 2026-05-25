@@ -210,6 +210,22 @@ Do not run `expo lint` unless the project already has an ESLint config and ESLin
 
 On Windows, if `npm` is blocked by PowerShell execution policy, run package scripts through `cmd /c npm run ...`.
 
+## Implementation lessons from SQLite profile/settings work
+
+When adding a column to an existing SQLite table, update both paths:
+- fresh installs: `INITIAL_SCHEMA_SQL`;
+- existing installs: an idempotent migration that checks `PRAGMA table_info(...)` before `ALTER TABLE`.
+
+Do not put a schema fix only behind `if (currentVersion < nextVersion)`. During Expo Go development, Fast Refresh, failed starts, or partial local migrations can leave `PRAGMA user_version` ahead of the actual table shape. Critical column-existence fixes should run before any early return based on `user_version`.
+
+If repository code starts reading or writing a new column in a central helper such as `ensureDefaultChildProfile`, make that helper resilient to an older local table shape or verify that migration has definitely completed before the helper can run. Otherwise one missing column can break unrelated screens that only wanted to load existing sleep data.
+
+Before considering a SQLite schema change done, verify both cases:
+- a fresh database;
+- an existing database from the previous app version with real local data.
+
+If the app suddenly shows broad load failures after a schema change, suspect migration/table-shape mismatch first. Check the exact SQL reads/writes that now reference new columns before changing UI error handling.
+
 ## Development workflow
 
 Before coding:
