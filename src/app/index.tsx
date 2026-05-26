@@ -1156,7 +1156,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   timerButton: {
-    flex: 1.25,
+    flex: 1,
   },
   manualButton: {
     flex: 1,
