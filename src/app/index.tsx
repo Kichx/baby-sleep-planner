@@ -22,6 +22,7 @@ import {
   getSessionKindForCalculations,
   inferSleepKindForInterval,
   inferSleepKindForStart,
+  minutesBetween,
 } from '@/core/sleepCalculations';
 import {
   createSleepSession,
@@ -87,6 +88,20 @@ function formatDuration(minutes: number): string {
   }
 
   return `${hours} ч ${restMinutes} мин`;
+}
+
+function formatNextSleepWaitLabel(isSleeping: boolean, now: Date, nextSleepAt: Date): string {
+  if (isSleeping) {
+    return 'сейчас спит';
+  }
+
+  const minutesUntilSleep = minutesBetween(now, nextSleepAt);
+
+  if (minutesUntilSleep === 0) {
+    return 'пора спать';
+  }
+
+  return `до сна ${formatDuration(minutesUntilSleep)}`;
 }
 
 function startOfCalendarDay(date: Date): Date {
@@ -519,6 +534,7 @@ export default function TodaySleepScreen() {
   );
   const isToday = dayType === 'today';
   const isSleeping = isToday && snapshot.state === 'sleeping';
+  const nextSleepWaitLabel = formatNextSleepWaitLabel(isSleeping, now, snapshot.nextSleepAt);
   const buttonLabel = isSaving
     ? 'Сохраняем...'
     : isSleeping
@@ -803,6 +819,7 @@ export default function TodaySleepScreen() {
                 <SummaryCard
                   title="Следующий сон"
                   value={isSleeping ? 'после сна' : formatClock(snapshot.nextSleepAt)}
+                  detail={nextSleepWaitLabel}
                   caption={snapshot.onTrackLabel}
                   tone="accent"
                 />

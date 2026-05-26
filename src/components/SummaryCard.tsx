@@ -6,10 +6,17 @@ interface SummaryCardProps {
   title: string;
   value: string;
   caption?: string;
+  detail?: string;
   tone?: 'default' | 'accent' | 'warning';
 }
 
-export function SummaryCard({ title, value, caption, tone = 'default' }: SummaryCardProps) {
+export function SummaryCard({
+  title,
+  value,
+  caption,
+  detail,
+  tone = 'default',
+}: SummaryCardProps) {
   return (
     <View
       style={[
@@ -18,7 +25,10 @@ export function SummaryCard({ title, value, caption, tone = 'default' }: Summary
         tone === 'warning' ? styles.warning : null,
       ]}>
       <Text style={styles.title}>{title}</Text>
-      <Text style={styles.value}>{value}</Text>
+      <View style={styles.valueBlock}>
+        <Text style={styles.value}>{value}</Text>
+        {detail ? <Text style={styles.detail}>{detail}</Text> : null}
+      </View>
       {caption ? <Text style={styles.caption}>{caption}</Text> : null}
     </View>
   );
@@ -52,6 +62,15 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 26,
     fontWeight: '800',
+  },
+  valueBlock: {
+    gap: spacing.xs,
+  },
+  detail: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
   },
   caption: {
     color: colors.textMuted,
