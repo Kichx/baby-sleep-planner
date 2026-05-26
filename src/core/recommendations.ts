@@ -30,7 +30,7 @@ export function buildRecommendationScenarios(input: RecommendationInput): Recomm
       },
       {
         id: 'earlyBedtime',
-        title: 'Ранний ночной',
+        title: 'Отбой раньше',
         detail: 'Если следующий сон будет коротким, лучше сдвинуть ночь раньше.',
         priority: 'secondary',
       },
@@ -41,7 +41,7 @@ export function buildRecommendationScenarios(input: RecommendationInput): Recomm
     return [
       {
         id: 'earlyBedtime',
-        title: 'Ранний ночной',
+        title: 'Отбой раньше',
         detail: 'До цели бодрствования осталось мало времени. День можно закрыть раньше.',
         priority: 'primary',
       },

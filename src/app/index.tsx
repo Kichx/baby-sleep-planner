@@ -28,6 +28,7 @@ import {
   deleteSleepSession,
   ensureDefaultChildProfile,
   getChildProfile,
+  getTargetDayPlan,
   listSleepSessionsInRange,
   startSleepSession,
   stopActiveSleepSession,
@@ -310,6 +311,7 @@ export default function TodaySleepScreen() {
   const [sessions, setSessions] = useState<SleepSession[]>([]);
   const [nearbySessions, setNearbySessions] = useState<SleepSession[]>([]);
   const [childName, setChildName] = useState(DEFAULT_CHILD_NAME);
+  const [sleepPlan, setSleepPlan] = useState(DEFAULT_SLEEP_PLAN);
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [now, setNow] = useState(() => new Date());
   const [isLoading, setIsLoading] = useState(true);
@@ -318,10 +320,14 @@ export default function TodaySleepScreen() {
   const [editorState, setEditorState] = useState<EditorState | null>(null);
 
   const fetchSessionsForDate = useCallback(
-    async (referenceDate: Date, currentNow: Date): Promise<LoadedSessionsForDate> => {
+    async (
+      referenceDate: Date,
+      currentNow: Date,
+      plan: SleepPlanPreset,
+    ): Promise<LoadedSessionsForDate> => {
       await ensureDefaultChildProfile(db);
 
-      const dayStart = getSleepDayStartForSelection(referenceDate, currentNow, DEFAULT_SLEEP_PLAN);
+      const dayStart = getSleepDayStartForSelection(referenceDate, currentNow, plan);
       const dayEnd = addMinutes(dayStart, DAY_MINUTES);
       const previousDayStart = addMinutes(dayStart, -DAY_MINUTES);
       const loadedSessions = await listSleepSessionsInRange(db, previousDayStart, dayEnd);
@@ -357,7 +363,22 @@ export default function TodaySleepScreen() {
         }
       }
 
+      async function loadSleepPlan() {
+        try {
+          const plan = await getTargetDayPlan(db);
+
+          if (isActive) {
+            setSleepPlan(plan);
+          }
+        } catch {
+          if (isActive) {
+            setSleepPlan(DEFAULT_SLEEP_PLAN);
+          }
+        }
+      }
+
       loadChildProfile();
+      loadSleepPlan();
 
       return () => {
         isActive = false;
@@ -374,7 +395,7 @@ export default function TodaySleepScreen() {
       setIsLoading(true);
 
       try {
-        const loadedSessions = await fetchSessionsForDate(selectedDate, loadedAt);
+        const loadedSessions = await fetchSessionsForDate(selectedDate, loadedAt, sleepPlan);
 
         if (isMounted) {
           setNow(loadedAt);
@@ -398,7 +419,7 @@ export default function TodaySleepScreen() {
     return () => {
       isMounted = false;
     };
-  }, [fetchSessionsForDate, selectedDate]);
+  }, [fetchSessionsForDate, selectedDate, sleepPlan]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -418,8 +439,8 @@ export default function TodaySleepScreen() {
   const headerTitle = useMemo(() => formatHeaderTitle(selectedDate, now), [now, selectedDate]);
   const profileInitial = useMemo(() => getProfileInitial(childName), [childName]);
   const selectedDayStart = useMemo(
-    () => getSleepDayStartForSelection(selectedDate, now, DEFAULT_SLEEP_PLAN),
-    [now, selectedDate],
+    () => getSleepDayStartForSelection(selectedDate, now, sleepPlan),
+    [now, selectedDate, sleepPlan],
   );
   const selectedDayEnd = useMemo(() => addMinutes(selectedDayStart, DAY_MINUTES), [
     selectedDayStart,
@@ -472,8 +493,8 @@ export default function TodaySleepScreen() {
   }, [nearbySessions, sessions]);
   const summaryReferenceDate = dayType === 'today' ? now : dateAtNoon(selectedDate);
   const daySummary = useMemo(
-    () => buildSleepDaySummary(sessions, summaryReferenceDate, now, DEFAULT_SLEEP_PLAN),
-    [now, sessions, summaryReferenceDate],
+    () => buildSleepDaySummary(sessions, summaryReferenceDate, now, sleepPlan),
+    [now, sessions, sleepPlan, summaryReferenceDate],
   );
   const timelineSegments = useMemo(
     () =>
@@ -482,13 +503,13 @@ export default function TodaySleepScreen() {
         selectedDayStart,
         selectedDayEnd,
         now,
-        DEFAULT_SLEEP_PLAN,
+        sleepPlan,
       ),
-    [now, selectedDayEnd, selectedDayStart, sessions],
+    [now, selectedDayEnd, selectedDayStart, sessions, sleepPlan],
   );
   const snapshot = useMemo(
-    () => buildTodaySleepSnapshot(sessions, now, DEFAULT_SLEEP_PLAN),
-    [sessions, now],
+    () => buildTodaySleepSnapshot(sessions, now, sleepPlan),
+    [sessions, now, sleepPlan],
   );
   const isToday = dayType === 'today';
   const isSleeping = isToday && snapshot.state === 'sleeping';
@@ -512,7 +533,7 @@ export default function TodaySleepScreen() {
   }
 
   async function reloadSelectedDay(referenceDate: Date, currentNow: Date) {
-    const loadedSessions = await fetchSessionsForDate(referenceDate, currentNow);
+    const loadedSessions = await fetchSessionsForDate(referenceDate, currentNow, sleepPlan);
 
     setNow(currentNow);
     setSessions(loadedSessions.selectedSessions);
@@ -569,13 +590,13 @@ export default function TodaySleepScreen() {
           ? inferSleepKindForInterval(
               new Date(activeSession.startedAt),
               actionAt,
-              DEFAULT_SLEEP_PLAN,
+              sleepPlan,
             )
           : undefined;
 
         await stopActiveSleepSession(db, actionAt, sleepKind);
       } else {
-        await startSleepSession(db, inferSleepKindForStart(actionAt, DEFAULT_SLEEP_PLAN), actionAt);
+        await startSleepSession(db, inferSleepKindForStart(actionAt, sleepPlan), actionAt);
       }
 
       await reloadSelectedDay(selectedDate, actionAt);
@@ -593,7 +614,7 @@ export default function TodaySleepScreen() {
     const actionAt = new Date();
     const inputWithKind = {
       ...input,
-      kind: inferSleepKindForInterval(input.startedAt, input.endedAt, DEFAULT_SLEEP_PLAN),
+      kind: inferSleepKindForInterval(input.startedAt, input.endedAt, sleepPlan),
     };
 
     setIsSaving(true);
@@ -840,7 +861,7 @@ export default function TodaySleepScreen() {
                   title={dayType === 'future' ? 'Цель бодрств.' : 'Бодрствование'}
                   value={formatDuration(
                     dayType === 'future'
-                      ? DEFAULT_SLEEP_PLAN.targetAwakeMinutes
+                      ? sleepPlan.targetAwakeMinutes
                       : daySummary.totalAwakeMinutes,
                   )}
                   caption={dayType === 'future' ? 'план дня' : daySummary.onTrackLabel}
@@ -903,7 +924,7 @@ export default function TodaySleepScreen() {
                       const effectiveKind = getSessionKindForCalculations(
                         session,
                         endedAt ?? now,
-                        DEFAULT_SLEEP_PLAN,
+                        sleepPlan,
                       );
 
                       return (

@@ -335,7 +335,7 @@ export default function ProfileScreen() {
               </View>
               <View style={styles.planLinkTextBlock}>
                 <Text style={styles.planLinkTitle}>Открыть план сна</Text>
-                <Text style={styles.planLinkSubtitle}>Окна, микросон и ранний ночной</Text>
+                <Text style={styles.planLinkSubtitle}>График и прогноз отбоя</Text>
               </View>
               <Text style={styles.planLinkArrow}>{'>'}</Text>
             </Pressable>

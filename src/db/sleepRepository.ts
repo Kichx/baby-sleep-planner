@@ -1,7 +1,8 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { DEFAULT_CHILD_ID, DEFAULT_CHILD_NAME } from '@/constants/sleep';
-import type { ChildProfile, SleepKind, SleepSession } from '@/types/sleep';
+import { DEFAULT_CHILD_ID, DEFAULT_CHILD_NAME, DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
+import { buildSleepPlanPreset } from '@/core/sleepPlan';
+import type { ChildProfile, SleepKind, SleepPlanPreset, SleepSession } from '@/types/sleep';
 
 interface SaveSleepSessionInput {
   kind: SleepKind;
@@ -24,6 +25,19 @@ interface ChildProfileRow {
   created_at: string;
 }
 
+interface TargetDayPlanRow {
+  wake_up_start_minutes: number | null;
+  wake_up_end_minutes: number | null;
+  target_awake_min_minutes: number | null;
+  target_awake_max_minutes: number | null;
+  target_awake_minutes: number;
+  nap_count: number | null;
+  target_day_sleep_min_minutes: number | null;
+  target_day_sleep_max_minutes: number | null;
+  target_day_sleep_minutes: number;
+  bedtime_target_minutes: number;
+}
+
 interface SaveChildProfileInput {
   name: string;
   birthDate: string | null;
@@ -32,6 +46,17 @@ interface SaveChildProfileInput {
 interface TableInfoRow {
   name: string;
 }
+
+const TARGET_DAY_PLAN_ID = 'default-target-day-plan';
+const TARGET_DAY_PLAN_COLUMNS = [
+  'wake_up_start_minutes',
+  'wake_up_end_minutes',
+  'target_awake_min_minutes',
+  'target_awake_max_minutes',
+  'nap_count',
+  'target_day_sleep_min_minutes',
+  'target_day_sleep_max_minutes',
+] as const;
 
 function createLocalId(prefix: string, date: Date): string {
   const randomPart = Math.random().toString(36).slice(2, 8);
@@ -58,12 +83,65 @@ function mapChildProfileRow(row: ChildProfileRow): ChildProfile {
   };
 }
 
+function coalesceNumber(value: number | null | undefined, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function mapTargetDayPlanRow(row: TargetDayPlanRow): SleepPlanPreset {
+  const targetAwakeMinutes = coalesceNumber(
+    row.target_awake_minutes,
+    DEFAULT_SLEEP_PLAN.targetAwakeMinutes,
+  );
+  const targetDaySleepMinutes = coalesceNumber(
+    row.target_day_sleep_minutes,
+    DEFAULT_SLEEP_PLAN.targetDaySleepMinutes,
+  );
+  const legacyWakeUpMinutes =
+    row.bedtime_target_minutes - targetAwakeMinutes - targetDaySleepMinutes;
+  const canUseLegacyWakeUp = legacyWakeUpMinutes >= 0 && legacyWakeUpMinutes < 24 * 60;
+  const wakeUpStartMinutes = coalesceNumber(
+    row.wake_up_start_minutes,
+    canUseLegacyWakeUp ? legacyWakeUpMinutes : DEFAULT_SLEEP_PLAN.wakeUpStartMinutes,
+  );
+
+  return buildSleepPlanPreset({
+    latestEveningNapEndMinutes: DEFAULT_SLEEP_PLAN.latestEveningNapEndMinutes,
+    maxEveningNapMinutes: DEFAULT_SLEEP_PLAN.maxEveningNapMinutes,
+    microNapMinutes: DEFAULT_SLEEP_PLAN.microNapMinutes,
+    minNightSleepMinutes: DEFAULT_SLEEP_PLAN.minNightSleepMinutes,
+    napCount: coalesceNumber(row.nap_count, DEFAULT_SLEEP_PLAN.napCount),
+    targetAwakeMaxMinutes: coalesceNumber(row.target_awake_max_minutes, targetAwakeMinutes),
+    targetAwakeMinMinutes: coalesceNumber(row.target_awake_min_minutes, targetAwakeMinutes),
+    targetDaySleepMaxMinutes: coalesceNumber(
+      row.target_day_sleep_max_minutes,
+      targetDaySleepMinutes,
+    ),
+    targetDaySleepMinMinutes: coalesceNumber(
+      row.target_day_sleep_min_minutes,
+      targetDaySleepMinutes,
+    ),
+    wakeUpEndMinutes: coalesceNumber(row.wake_up_end_minutes, wakeUpStartMinutes),
+    wakeUpStartMinutes,
+  });
+}
+
 async function ensureChildProfileBirthDateColumn(db: SQLiteDatabase): Promise<void> {
   const rows = await db.getAllAsync<TableInfoRow>('PRAGMA table_info(child_profile)');
   const hasBirthDate = rows.some((row) => row.name === 'birth_date');
 
   if (!hasBirthDate) {
     await db.execAsync('ALTER TABLE child_profile ADD COLUMN birth_date TEXT');
+  }
+}
+
+async function ensureTargetDayPlanColumns(db: SQLiteDatabase): Promise<void> {
+  const rows = await db.getAllAsync<TableInfoRow>('PRAGMA table_info(target_day_plan)');
+  const columnNames = new Set(rows.map((row) => row.name));
+
+  for (const columnName of TARGET_DAY_PLAN_COLUMNS) {
+    if (!columnNames.has(columnName)) {
+      await db.execAsync(`ALTER TABLE target_day_plan ADD COLUMN ${columnName} INTEGER`);
+    }
   }
 }
 
@@ -76,6 +154,81 @@ export async function ensureDefaultChildProfile(db: SQLiteDatabase): Promise<voi
     VALUES (?, ?, ?, ?)
     `,
     [DEFAULT_CHILD_ID, DEFAULT_CHILD_NAME, null, new Date().toISOString()],
+  );
+}
+
+export async function getTargetDayPlan(
+  db: SQLiteDatabase,
+  childId = DEFAULT_CHILD_ID,
+): Promise<SleepPlanPreset> {
+  await ensureDefaultChildProfile(db);
+  await ensureTargetDayPlanColumns(db);
+
+  const row = await db.getFirstAsync<TargetDayPlanRow>(
+    `
+    SELECT
+      wake_up_start_minutes,
+      wake_up_end_minutes,
+      target_awake_min_minutes,
+      target_awake_max_minutes,
+      target_awake_minutes,
+      nap_count,
+      target_day_sleep_min_minutes,
+      target_day_sleep_max_minutes,
+      target_day_sleep_minutes,
+      bedtime_target_minutes
+    FROM target_day_plan
+    WHERE id = ? AND child_id = ?
+    LIMIT 1
+    `,
+    [TARGET_DAY_PLAN_ID, childId],
+  );
+
+  return row ? mapTargetDayPlanRow(row) : DEFAULT_SLEEP_PLAN;
+}
+
+export async function saveTargetDayPlan(
+  db: SQLiteDatabase,
+  plan: SleepPlanPreset,
+  childId = DEFAULT_CHILD_ID,
+): Promise<void> {
+  await ensureDefaultChildProfile(db);
+  await ensureTargetDayPlanColumns(db);
+
+  await db.runAsync(
+    `
+    INSERT OR REPLACE INTO target_day_plan (
+      id,
+      child_id,
+      wake_up_start_minutes,
+      wake_up_end_minutes,
+      target_awake_min_minutes,
+      target_awake_max_minutes,
+      target_awake_minutes,
+      nap_count,
+      target_day_sleep_min_minutes,
+      target_day_sleep_max_minutes,
+      target_day_sleep_minutes,
+      bedtime_target_minutes,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      TARGET_DAY_PLAN_ID,
+      childId,
+      plan.wakeUpStartMinutes,
+      plan.wakeUpEndMinutes,
+      plan.targetAwakeMinMinutes,
+      plan.targetAwakeMaxMinutes,
+      plan.targetAwakeMinutes,
+      plan.napCount,
+      plan.targetDaySleepMinMinutes,
+      plan.targetDaySleepMaxMinutes,
+      plan.targetDaySleepMinutes,
+      plan.bedtimeTargetMinutes,
+      new Date().toISOString(),
+    ],
   );
 }
 

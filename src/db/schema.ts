@@ -1,6 +1,6 @@
 export const DATABASE_NAME = 'baby_sleep_planner.db';
 
-export const DATABASE_VERSION = 2;
+export const DATABASE_VERSION = 3;
 
 export const INITIAL_SCHEMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -28,7 +28,14 @@ ON sleep_sessions(child_id, started_at);
 CREATE TABLE IF NOT EXISTS target_day_plan (
   id TEXT PRIMARY KEY NOT NULL,
   child_id TEXT NOT NULL,
+  wake_up_start_minutes INTEGER,
+  wake_up_end_minutes INTEGER,
+  target_awake_min_minutes INTEGER,
+  target_awake_max_minutes INTEGER,
   target_awake_minutes INTEGER NOT NULL,
+  nap_count INTEGER,
+  target_day_sleep_min_minutes INTEGER,
+  target_day_sleep_max_minutes INTEGER,
   target_day_sleep_minutes INTEGER NOT NULL,
   bedtime_target_minutes INTEGER NOT NULL,
   updated_at TEXT NOT NULL,

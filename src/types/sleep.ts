@@ -37,7 +37,14 @@ export interface WakeWindowPreset {
 
 export interface SleepPlanPreset {
   dayStartMinutes: number;
+  wakeUpStartMinutes: number;
+  wakeUpEndMinutes: number;
+  targetAwakeMinMinutes: number;
+  targetAwakeMaxMinutes: number;
   targetAwakeMinutes: number;
+  napCount: number;
+  targetDaySleepMinMinutes: number;
+  targetDaySleepMaxMinutes: number;
   targetDaySleepMinutes: number;
   bedtimeTargetMinutes: number;
   earlyBedtimeMinutes: number;
