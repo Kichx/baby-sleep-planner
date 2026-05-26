@@ -312,6 +312,24 @@ export async function getActiveSleepSession(
   return row ? mapSleepSessionRow(row) : null;
 }
 
+export async function getLatestSleepSession(
+  db: SQLiteDatabase,
+  childId = DEFAULT_CHILD_ID,
+): Promise<SleepSession | null> {
+  const row = await db.getFirstAsync<SleepSessionRow>(
+    `
+    SELECT id, child_id, kind, started_at, ended_at
+    FROM sleep_sessions
+    WHERE child_id = ?
+    ORDER BY started_at DESC
+    LIMIT 1
+    `,
+    [childId],
+  );
+
+  return row ? mapSleepSessionRow(row) : null;
+}
+
 export async function listSleepSessionsInRange(
   db: SQLiteDatabase,
   rangeStart: Date,

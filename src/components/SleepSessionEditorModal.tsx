@@ -22,6 +22,7 @@ interface SleepSessionEditorModalProps {
   mode: EditorMode;
   session: SleepSession | null;
   existingSessions: SleepSession[];
+  latestSleepSessionId: string | null;
   referenceDate: Date;
   shortcutBaseDate: Date;
   isSaving: boolean;
@@ -255,6 +256,7 @@ export function SleepSessionEditorModal({
   mode,
   session,
   existingSessions,
+  latestSleepSessionId,
   referenceDate,
   shortcutBaseDate,
   isSaving,
@@ -266,11 +268,24 @@ export function SleepSessionEditorModal({
   const [startedAtText, setStartedAtText] = useState('');
   const [endedDateText, setEndedDateText] = useState('');
   const [endedAtText, setEndedAtText] = useState('');
+  const [isEndOngoing, setIsEndOngoing] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   const isEditingActiveSession = mode === 'edit' && session?.endedAt === null;
+  const canCreateOngoingEnd =
+    mode === 'create' && isSameCalendarDay(referenceDate, shortcutBaseDate);
+  const isLatestEditableSession = mode === 'edit' && session?.id === latestSleepSessionId;
+  const showOngoingEndButton = mode === 'edit' || canCreateOngoingEnd;
+  const canUseOngoingEnd =
+    isEditingActiveSession ||
+    (mode === 'edit' && isLatestEditableSession) ||
+    canCreateOngoingEnd;
   const modalTitle = mode === 'edit' ? 'Редактировать сон' : 'Внести сон';
-  const saveLabel = isSaving ? 'Сохраняем...' : 'Сохранить';
+  const saveLabel = isSaving
+    ? 'Сохраняем...'
+    : mode === 'create' && isEndOngoing
+      ? 'Начать сон'
+      : 'Сохранить';
 
   useEffect(() => {
     if (!visible) {
@@ -287,6 +302,7 @@ export function SleepSessionEditorModal({
       setStartedAtText(formatTimeInput(startedAt));
       setEndedDateText(formatDateInput(endedAt));
       setEndedAtText(session.endedAt ? formatTimeInput(endedAt) : '');
+      setIsEndOngoing(session.endedAt === null);
 
       return;
     }
@@ -298,13 +314,22 @@ export function SleepSessionEditorModal({
     setStartedAtText(formatTimeInput(defaultStartedAt));
     setEndedDateText(formatDateInput(defaultEndedAt));
     setEndedAtText(formatTimeInput(defaultEndedAt));
+    setIsEndOngoing(false);
   }, [mode, referenceDate, session, visible]);
 
   const durationLabel = useMemo(() => {
     const parsed = parseFormDates();
 
-    if (!parsed || !parsed.endedAt || !hasValidInterval(parsed)) {
-      return isEditingActiveSession ? 'идёт' : null;
+    if (!parsed) {
+      return null;
+    }
+
+    if (!parsed.endedAt) {
+      return isEndOngoing ? 'идёт' : null;
+    }
+
+    if (!hasValidInterval(parsed)) {
+      return null;
     }
 
     const minutes = minutesBetween(parsed.startedAt, parsed.endedAt);
@@ -315,7 +340,7 @@ export function SleepSessionEditorModal({
   }, [
     endedAtText,
     endedDateText,
-    isEditingActiveSession,
+    isEndOngoing,
     referenceDate,
     session,
     startedAtText,
@@ -343,7 +368,7 @@ export function SleepSessionEditorModal({
   }, [
     endedAtText,
     endedDateText,
-    isEditingActiveSession,
+    isEndOngoing,
     referenceDate,
     session,
     startedAtText,
@@ -375,7 +400,7 @@ export function SleepSessionEditorModal({
     endedAtText,
     endedDateText,
     existingSessions,
-    isEditingActiveSession,
+    isEndOngoing,
     referenceDate,
     session,
     startedAtText,
@@ -400,7 +425,7 @@ export function SleepSessionEditorModal({
     const startedAt = dateWithDateAndTime(startedDate, startedAtParts);
     const trimmedEnd = endedAtText.trim();
 
-    if (trimmedEnd.length === 0 && isEditingActiveSession) {
+    if (isEndOngoing) {
       return { startedAt, endedAt: null };
     }
 
@@ -417,6 +442,15 @@ export function SleepSessionEditorModal({
     const endedAt = dateWithDateAndTime(endedDate, endedAtParts);
 
     return { startedAt, endedAt };
+  }
+
+  function handleOngoingToggle() {
+    if (!canUseOngoingEnd || isSaving) {
+      return;
+    }
+
+    setFormError(null);
+    setIsEndOngoing((currentValue) => !currentValue);
   }
 
   function setShortcutDate(target: 'start' | 'end', offsetDays: number) {
@@ -477,23 +511,31 @@ export function SleepSessionEditorModal({
     label: string,
     offsetDays: number,
     selectedDateText: string,
+    disabled = false,
   ) {
     const date = addCalendarDays(shortcutBaseDate, offsetDays);
     const dateText = formatDateInput(date);
     const selectedDate = parseDateInput(selectedDateText, referenceDate);
-    const isActive = selectedDate ? isSameCalendarDay(selectedDate, date) : false;
+    const isActive = !disabled && selectedDate ? isSameCalendarDay(selectedDate, date) : false;
 
     return (
       <Pressable
         accessibilityRole="button"
+        disabled={disabled}
         key={`${target}-${label}`}
         onPress={() => setShortcutDate(target, offsetDays)}
         style={({ pressed }) => [
           styles.dateShortcut,
           isActive ? styles.activeDateShortcut : null,
-          pressed ? styles.dateShortcutPressed : null,
+          disabled ? styles.disabledShortcut : null,
+          pressed && !disabled ? styles.dateShortcutPressed : null,
         ]}>
-        <Text style={[styles.dateShortcutText, isActive ? styles.activeDateShortcutText : null]}>
+        <Text
+          style={[
+            styles.dateShortcutText,
+            isActive ? styles.activeDateShortcutText : null,
+            disabled ? styles.disabledText : null,
+          ]}>
           {label}
         </Text>
       </Pressable>
@@ -507,6 +549,9 @@ export function SleepSessionEditorModal({
     timePlaceholder,
     timeText,
     title,
+    showOngoingToggle = false,
+    canToggleOngoing = false,
+    isOngoing = false,
   }: {
     dateText: string;
     onTimeChange: (value: string) => void;
@@ -514,43 +559,88 @@ export function SleepSessionEditorModal({
     timePlaceholder: string;
     timeText: string;
     title: string;
+    showOngoingToggle?: boolean;
+    canToggleOngoing?: boolean;
+    isOngoing?: boolean;
   }) {
+    const areFieldsDisabled = isOngoing;
+    const isOngoingButtonDisabled = isSaving || !canToggleOngoing;
+
     return (
       <View style={styles.endpointCard}>
-        <Text style={styles.endpointTitle}>{title}</Text>
+        <View style={styles.endpointHeader}>
+          <Text style={styles.endpointTitle}>{title}</Text>
+          {showOngoingToggle ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{
+                disabled: isOngoingButtonDisabled,
+                selected: isOngoing,
+              }}
+              disabled={isOngoingButtonDisabled}
+              onPress={handleOngoingToggle}
+              style={({ pressed }) => [
+                styles.ongoingButton,
+                isOngoing ? styles.activeOngoingButton : null,
+                pressed && !isOngoingButtonDisabled ? styles.ongoingButtonPressed : null,
+                isOngoingButtonDisabled ? styles.disabledButton : null,
+              ]}>
+              <Text
+                style={[
+                  styles.ongoingButtonText,
+                  isOngoing ? styles.activeOngoingButtonText : null,
+                  isOngoingButtonDisabled && !isOngoing ? styles.disabledText : null,
+                ]}>
+                Идёт
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
         <View style={styles.endpointInputs}>
           <Pressable
             accessibilityRole="button"
+            disabled={areFieldsDisabled}
             onPress={() => openDatePicker(target)}
             style={({ pressed }) => [
               styles.valueField,
               styles.dateField,
-              pressed ? styles.valueFieldPressed : null,
+              areFieldsDisabled ? styles.disabledField : null,
+              pressed && !areFieldsDisabled ? styles.valueFieldPressed : null,
             ]}>
-            <Text style={styles.compactLabel}>Дата</Text>
-            <Text style={styles.dateButtonText}>
+            <Text style={[styles.compactLabel, areFieldsDisabled ? styles.disabledText : null]}>
+              Дата
+            </Text>
+            <Text style={[styles.dateButtonText, areFieldsDisabled ? styles.disabledText : null]}>
               {formatRussianDateLabel(getSelectedDate(target))}
             </Text>
           </Pressable>
-          <View style={[styles.valueField, styles.timeField]}>
-            <Text style={styles.compactLabel}>Время</Text>
+          <View
+            style={[
+              styles.valueField,
+              styles.timeField,
+              areFieldsDisabled ? styles.disabledField : null,
+            ]}>
+            <Text style={[styles.compactLabel, areFieldsDisabled ? styles.disabledText : null]}>
+              Время
+            </Text>
             <TextInput
+              editable={!areFieldsDisabled}
               keyboardType="number-pad"
               maxLength={5}
               onChangeText={(value) => onTimeChange(normalizeTimeInput(value))}
               placeholder={timePlaceholder}
               placeholderTextColor={colors.textMuted}
-              selectTextOnFocus
-              style={styles.timeInput}
+              selectTextOnFocus={!areFieldsDisabled}
+              style={[styles.timeInput, areFieldsDisabled ? styles.disabledText : null]}
               underlineColorAndroid="transparent"
-              value={timeText}
+              value={areFieldsDisabled ? '' : timeText}
             />
           </View>
         </View>
         <View style={styles.dateShortcutsRow}>
-          {renderDateShortcut(target, 'Вчера', -1, dateText)}
-          {renderDateShortcut(target, 'Сегодня', 0, dateText)}
-          {renderDateShortcut(target, 'Завтра', 1, dateText)}
+          {renderDateShortcut(target, 'Вчера', -1, dateText, areFieldsDisabled)}
+          {renderDateShortcut(target, 'Сегодня', 0, dateText, areFieldsDisabled)}
+          {renderDateShortcut(target, 'Завтра', 1, dateText, areFieldsDisabled)}
         </View>
       </View>
     );
@@ -564,7 +654,7 @@ export function SleepSessionEditorModal({
   }
 
   async function handleSavePress() {
-    if (endedAtText.trim().length === 0 && !isEditingActiveSession) {
+    if (!isEndOngoing && endedAtText.trim().length === 0) {
       setFormError('Укажите конец сна');
       return;
     }
@@ -581,7 +671,7 @@ export function SleepSessionEditorModal({
       return;
     }
 
-    if (!parsed.endedAt && !isEditingActiveSession) {
+    if (!parsed.endedAt && !isEndOngoing) {
       setFormError('Укажите конец сна');
       return;
     }
@@ -655,9 +745,12 @@ export function SleepSessionEditorModal({
             dateText: endedDateText,
             onTimeChange: setEndedAtText,
             target: 'end',
-            timePlaceholder: isEditingActiveSession ? 'идёт' : '1015',
+            timePlaceholder: isEndOngoing ? 'идёт' : '1015',
             timeText: endedAtText,
             title: 'Конец',
+            showOngoingToggle: showOngoingEndButton,
+            canToggleOngoing: canUseOngoingEnd,
+            isOngoing: isEndOngoing,
           })}
 
           {durationLabel ? (
@@ -749,10 +842,43 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     backgroundColor: colors.surface,
   },
+  endpointHeader: {
+    minHeight: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
   endpointTitle: {
+    flex: 1,
     color: colors.text,
     fontSize: 18,
     fontWeight: '900',
+  },
+  ongoingButton: {
+    minHeight: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  activeOngoingButton: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+  ongoingButtonPressed: {
+    backgroundColor: colors.primarySoft,
+  },
+  ongoingButtonText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  activeOngoingButtonText: {
+    color: colors.surface,
   },
   endpointInputs: {
     flexDirection: 'row',
@@ -771,6 +897,9 @@ const styles = StyleSheet.create({
   },
   valueFieldPressed: {
     backgroundColor: colors.primarySoft,
+  },
+  disabledField: {
+    opacity: 0.5,
   },
   dateField: {
     flex: 0.88,
@@ -817,6 +946,10 @@ const styles = StyleSheet.create({
   dateShortcutPressed: {
     backgroundColor: colors.surfaceMuted,
   },
+  disabledShortcut: {
+    backgroundColor: colors.surfaceMuted,
+    opacity: 0.5,
+  },
   dateShortcutText: {
     color: colors.textMuted,
     fontSize: 13,
@@ -824,6 +957,9 @@ const styles = StyleSheet.create({
   },
   activeDateShortcutText: {
     color: colors.primary,
+  },
+  disabledText: {
+    color: colors.textMuted,
   },
   duration: {
     color: colors.textMuted,

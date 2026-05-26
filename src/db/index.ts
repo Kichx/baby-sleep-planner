@@ -6,6 +6,7 @@ export {
   ensureDefaultChildProfile,
   getActiveSleepSession,
   getChildProfile,
+  getLatestSleepSession,
   getTargetDayPlan,
   listSleepSessionsInRange,
   saveTargetDayPlan,

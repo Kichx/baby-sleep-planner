@@ -28,6 +28,7 @@ import {
   deleteSleepSession,
   ensureDefaultChildProfile,
   getChildProfile,
+  getLatestSleepSession,
   getTargetDayPlan,
   listSleepSessionsInRange,
   startSleepSession,
@@ -51,6 +52,7 @@ type EditorState =
 type SelectedDayType = 'past' | 'today' | 'future';
 
 interface LoadedSessionsForDate {
+  latestSleepSessionId: string | null;
   selectedSessions: SleepSession[];
   nearbySessions: SleepSession[];
 }
@@ -310,6 +312,7 @@ export default function TodaySleepScreen() {
   const router = useRouter();
   const [sessions, setSessions] = useState<SleepSession[]>([]);
   const [nearbySessions, setNearbySessions] = useState<SleepSession[]>([]);
+  const [latestSleepSessionId, setLatestSleepSessionId] = useState<string | null>(null);
   const [childName, setChildName] = useState(DEFAULT_CHILD_NAME);
   const [sleepPlan, setSleepPlan] = useState(DEFAULT_SLEEP_PLAN);
   const [selectedDate, setSelectedDate] = useState(() => new Date());
@@ -331,11 +334,13 @@ export default function TodaySleepScreen() {
       const dayEnd = addMinutes(dayStart, DAY_MINUTES);
       const previousDayStart = addMinutes(dayStart, -DAY_MINUTES);
       const loadedSessions = await listSleepSessionsInRange(db, previousDayStart, dayEnd);
+      const latestSleepSession = await getLatestSleepSession(db);
       const nearbySessionsForDisplay = loadedSessions.filter((session) =>
         sleepSessionOverlapsDay(session, previousDayStart, dayEnd, currentNow),
       );
 
       return {
+        latestSleepSessionId: latestSleepSession?.id ?? null,
         nearbySessions: nearbySessionsForDisplay,
         selectedSessions: nearbySessionsForDisplay.filter((session) =>
           sleepSessionOverlapsDay(session, dayStart, dayEnd, currentNow),
@@ -401,6 +406,7 @@ export default function TodaySleepScreen() {
           setNow(loadedAt);
           setSessions(loadedSessions.selectedSessions);
           setNearbySessions(loadedSessions.nearbySessions);
+          setLatestSleepSessionId(loadedSessions.latestSleepSessionId);
           setErrorMessage(null);
         }
       } catch {
@@ -538,6 +544,7 @@ export default function TodaySleepScreen() {
     setNow(currentNow);
     setSessions(loadedSessions.selectedSessions);
     setNearbySessions(loadedSessions.nearbySessions);
+    setLatestSleepSessionId(loadedSessions.latestSleepSessionId);
   }
 
   function openProfile() {
@@ -624,6 +631,8 @@ export default function TodaySleepScreen() {
     try {
       if (editorState?.mode === 'edit') {
         await updateSleepSession(db, editorState.session.id, inputWithKind);
+      } else if (!input.endedAt) {
+        await startSleepSession(db, inputWithKind.kind, input.startedAt);
       } else {
         await createSleepSession(db, inputWithKind);
       }
@@ -963,6 +972,7 @@ export default function TodaySleepScreen() {
       <SleepSessionEditorModal
         existingSessions={editModalSessions}
         isSaving={isSaving}
+        latestSleepSessionId={latestSleepSessionId}
         mode={editorState?.mode ?? 'create'}
         onClose={() => setEditorState(null)}
         onDelete={handleEditorDelete}
