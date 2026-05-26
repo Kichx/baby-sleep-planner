@@ -55,6 +55,15 @@ export interface SleepPlanPreset {
   wakeWindows: WakeWindowPreset[];
 }
 
+export interface TargetDayPlan {
+  id: string;
+  childId: string;
+  name: string;
+  isActive: boolean;
+  plan: SleepPlanPreset;
+  updatedAt: ISODateString;
+}
+
 export interface RecommendationScenario {
   id: RecommendationScenarioId;
   title: string;

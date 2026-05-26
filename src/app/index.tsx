@@ -729,7 +729,7 @@ export default function TodaySleepScreen() {
           headerRight: () => (
             <View style={styles.headerActions}>
               <Pressable
-                accessibilityLabel="План сна"
+                accessibilityLabel="План дня"
                 accessibilityRole="button"
                 hitSlop={8}
                 onPress={openSleepPlan}

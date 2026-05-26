@@ -38,7 +38,7 @@ export default function RootLayout() {
           <Stack.Screen
             name="sleep-plan"
             options={{
-              title: 'План сна',
+              title: 'План дня',
             }}
           />
         </Stack>
