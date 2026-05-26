@@ -210,6 +210,44 @@ Do not run `expo lint` unless the project already has an ESLint config and ESLin
 
 On Windows, if `npm` is blocked by PowerShell execution policy, run package scripts through `cmd /c npm run ...`.
 
+## Implementation lessons from manual active sleep editing
+
+When adding manual controls that can start or resume active sleep, treat `endedAt: null` as the same active-tracking state used by the main "Начать сон" button. For creating a new ongoing manual sleep, use the repository start path such as `startSleepSession` so the existing active-session guard is reused instead of inserting a second open session through the generic create path.
+
+Do not derive global concepts such as "latest sleep", "current sleep", or "can become active" from UI display arrays like selected-day sessions, nearby sessions, or history ranges. Those arrays are intentionally scoped for display and calculations. Add or reuse a repository query over the full local database, such as ordering `sleep_sessions` by `started_at DESC LIMIT 1`, and pass only the needed stable value into UI state.
+
+Only allow a completed record to become ongoing when it is the latest sleep record globally. Older records must not be allowed to clear their end time, because that would create an active sleep before newer completed sleep and break timeline assumptions.
+
+Keep ongoing-end state explicit in the form. Do not overload an empty end-time string as the only source of truth. When ongoing is enabled, disable the end date/time fields and shortcuts, ignore end values in parsing and saving, and make duration/validation/overlap behavior read from the explicit ongoing state.
+
+Before considering manual ongoing sleep editing done, verify:
+- creating an ongoing sleep with a manually chosen start time;
+- editing the latest completed sleep and marking it as ongoing;
+- editing an older completed sleep where "Идёт" is visible but disabled or unavailable;
+- editing an already active sleep keeps the end controls disabled and saves with `endedAt: null`;
+- returning to the main screen reloads the latest-sleep eligibility after save, delete, start, or stop.
+
+## Implementation lessons from cross-day sleep record lists
+
+When expanding a UI list to show more than the selected sleep day, keep display data separate from calculation data. Day summaries, timelines, recommendations, and start/stop state should continue to receive only the sessions for the selected sleep day unless the task explicitly asks to change the calculations.
+
+For a "selected day plus previous day" sleep log, load the database range from `selectedDayStart - 24h` through `selectedDayEnd`, then derive:
+- selected-day sessions from overlap with `[selectedDayStart, selectedDayEnd)`;
+- display-only nearby sessions from overlap with `[previousDayStart, selectedDayEnd)`.
+
+Use the same open-session guard as the day filter: an active session should end at `min(now, rangeEnd)` before deciding whether it overlaps a displayed range. This prevents active sleep from appearing in tomorrow or later future-day views.
+
+Group cross-day log rows by the sleep-day window they start in, not by the raw query result order. For sleep that crosses midnight, show enough date context in the time range, for example `22:10 вчера - 06:40 сегодня`, so parents can understand the overnight transition without opening the editor.
+
+If a record list can edit sessions from both the selected day and the previous day, pass that expanded set to the editor overlap checks. Keep the editor reference date tied to the actual session being edited, such as the session end time or `now` for an active session.
+
+Before considering this UI done, verify:
+- today with yesterday's completed night sleep;
+- yesterday with the day before visible;
+- a date older than yesterday;
+- tomorrow without active-session leakage;
+- an active sleep session that started today.
+
 ## Implementation lessons from SQLite profile/settings work
 
 When adding a column to an existing SQLite table, update both paths:
@@ -225,6 +263,30 @@ Before considering a SQLite schema change done, verify both cases:
 - an existing database from the previous app version with real local data.
 
 If the app suddenly shows broad load failures after a schema change, suspect migration/table-shape mismatch first. Check the exact SQL reads/writes that now reference new columns before changing UI error handling.
+
+## Implementation lessons from editable sleep plan work
+
+For the "План сна" screen, keep the primary parameters as compact metric cards, not always-visible form rows. Editing should happen from a tap on the relevant card so the screen stays scannable and one-handed.
+
+If each plan parameter is edited independently, do not add a separate global "Сохранить план" button. Save the validated parameter when the editor is confirmed, and save dropdown choices immediately after selection. If saving fails, keep the editor open and show the error instead of silently closing it.
+
+Keep draft display values separate from the last saved plan. Derived UI such as "Предполагаемый отбой" and the ideal ВБ/сон schedule should recalculate immediately from the current draft values, while persisted app calculations should use the saved plan after a successful write.
+
+For plan time inputs, reuse the same forgiving input behavior as manual sleep entry: accept digits such as `730`, `1030`, and `330`, normalize them for display, and do not require users to type dots, commas, or colons.
+
+Use a simple dropdown/choice list for the number of daytime sleeps, limited to 1-5. Do not make parents type this value unless the UI explicitly needs free text.
+
+When plan settings affect day calculations, load the saved plan anywhere those calculations run, not only on the settings screen. The main screen, history summaries, sleep kind inference, and predicted bedtime should not keep using stale defaults after the plan changes.
+
+Keep plan-derived schedule construction in `src/core` as pure TypeScript. UI components can format and render the ideal schedule, but the sequence of ВБ/сон blocks should be generated outside React Native/SQLite code.
+
+Before considering sleep-plan editing done, verify:
+- each metric card opens only its own editor;
+- `730`, `0730`, `1030`, and `330` parse as expected;
+- invalid `from > to` ranges do not save or close the editor;
+- daytime sleep count works for 1 and 5;
+- "Предполагаемый отбой" and the ideal schedule update after every edit;
+- returning to the main screen uses the saved plan values.
 
 ## Implementation lessons from navigation/settings work
 
@@ -276,6 +338,7 @@ Branching:
 - For a new non-trivial task, prefer a task branch with prefix `kichx_c/` and a short kebab-case task name when the working tree is clean.
 - If the working tree is dirty and the task continues the current work, continue on the current branch.
 - If the working tree is dirty and the task is unrelated, ask the user before creating or switching branches.
+- On this Windows checkout, creating slash-prefixed branches such as `kichx_c/example` may fail with `cannot lock ref ... unable to create directory` even when refs look clean. Try once, inspect refs only if useful, then continue on the current branch and report the limitation. Do not manually edit `.git` refs.
 
 Commits and history:
 - Do not run `git add`, `git commit`, `git push`, `git reset`, `git checkout --`, or `git restore` unless the user explicitly asks.
@@ -309,4 +372,4 @@ Examples:
 - "До цели бодрствования"
 - "Прогноз ночи"
 - "Микросон"
-- "Ранний ночной"
+- "Отбой раньше"
