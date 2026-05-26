@@ -264,6 +264,46 @@ Before considering a SQLite schema change done, verify both cases:
 
 If the app suddenly shows broad load failures after a schema change, suspect migration/table-shape mismatch first. Check the exact SQL reads/writes that now reference new columns before changing UI error handling.
 
+## Implementation lessons from APK builds and local data preservation
+
+APK builds are standalone Android apps, not Expo Go sessions. Data entered through Expo Go is not expected to appear after the first APK install. After the first APK install, local sleep data must be treated as user data that should survive normal app updates.
+
+For direct phone testing without Expo Go, use an EAS internal APK build. Keep `eas.json` with a `preview` profile that produces an APK, for example `distribution: "internal"` and/or `android.buildType: "apk"`. AAB files are for store distribution and are not the normal artifact for direct installation on a phone.
+
+Treat `android.package` in `app.json` as permanent once a user has installed the APK. The current package is `com.kichx.babysleepplanner`. Do not change it unless the user explicitly accepts that Android will treat the result as a different app with separate local data.
+
+Keep Android signing credentials stable across builds. Prefer EAS-managed credentials for this project and do not reset, replace, or locally regenerate the Android keystore for an already installed package. Android updates require the same package/application id and a compatible signing identity; if an APK update fails with a package/signature conflict, stop and explain the data risk instead of telling the user to uninstall.
+
+Use app/build versioning deliberately:
+- keep `cli.appVersionSource` in `eas.json` as `remote` unless there is a clear reason to manage version codes locally;
+- keep APK build profiles with `autoIncrement: true` so Android `versionCode` moves forward for every build;
+- bump the user-visible `expo.version` when preparing a meaningful release, not for every tiny local experiment;
+- never downgrade Android `versionCode` for a build intended to update an installed APK.
+
+When giving build commands on Windows, prefer:
+- `cmd /c npx eas-cli@latest login`
+- `cmd /c npx eas-cli@latest build --platform android --profile preview`
+
+When installing a new APK over an existing APK, the expected path is an update over the installed app. Do not ask the user to uninstall, clear app storage, or delete app data unless they explicitly accept losing local sleep history. If using adb, use an update install such as `adb install -r path\to\app.apk`.
+
+SQLite data preservation depends on keeping the same app identity and database identity. Do not rename `DATABASE_NAME` from `baby_sleep_planner.db` unless the task explicitly includes a data migration or export/import plan. Do not move sleep data to another storage mechanism without a migration plan.
+
+For database migrations in APK-era development:
+- every schema change must support fresh installs and existing installs with real data;
+- migrations must be idempotent and safe to run after partial Expo Go or APK startup failures;
+- critical table/column shape checks must run before any early return based only on `PRAGMA user_version`;
+- do not use `DROP TABLE`, broad `DELETE FROM`, database deletion, or reset-style migrations for user data;
+- if a rename or destructive SQLite table rebuild is truly required, first write an explicit copy-preserving migration and tests that prove existing sleep rows survive.
+
+Before considering an APK-affecting change ready, verify:
+- `app.json` still contains the same `android.package`;
+- `eas.json` still has an APK-producing preview profile;
+- `DATABASE_NAME` is unchanged unless an explicit migration exists;
+- TypeScript checks pass;
+- core tests pass;
+- fresh-database startup works;
+- migration from the previous database version with existing sleep rows preserves those rows.
+
 ## Implementation lessons from editable sleep plan work
 
 For the "План сна" screen, keep the primary parameters as compact metric cards, not always-visible form rows. Editing should happen from a tap on the relevant card so the screen stays scannable and one-handed.
