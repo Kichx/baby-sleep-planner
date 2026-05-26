@@ -437,7 +437,7 @@ export default function SleepPlanScreen() {
 
   function openEditor(editorType: EditorType) {
     setActiveEditor(editorType);
-    setIsNapDropdownOpen(editorType === 'napCount');
+    setIsNapDropdownOpen(false);
   }
 
   function closeEditorWithoutSaving() {
