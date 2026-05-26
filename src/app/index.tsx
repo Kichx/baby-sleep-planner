@@ -49,6 +49,18 @@ type EditorState =
 
 type SelectedDayType = 'past' | 'today' | 'future';
 
+interface LoadedSessionsForDate {
+  selectedSessions: SleepSession[];
+  nearbySessions: SleepSession[];
+}
+
+interface SessionDayGroup {
+  key: 'selected' | 'previous';
+  title: string;
+  subtitle: string;
+  sessions: SleepSession[];
+}
+
 const DAY_MINUTES = 24 * 60;
 const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
 const dateLabelFormatter = new Intl.DateTimeFormat('ru-RU', {
@@ -76,6 +88,10 @@ function formatDuration(minutes: number): string {
 
 function startOfCalendarDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+}
+
+function isSameCalendarDay(first: Date, second: Date): boolean {
+  return startOfCalendarDay(first).getTime() === startOfCalendarDay(second).getTime();
 }
 
 function dateAtNoon(date: Date): Date {
@@ -190,6 +206,60 @@ function formatHeaderTitle(selectedDate: Date, now: Date): string {
   return `Сон ${formatDateLabel(selectedDate)}`;
 }
 
+function formatSessionGroupTitle(date: Date, now: Date): string {
+  const dayDiff = getCalendarDayDiff(date, now);
+
+  if (dayDiff === 0) {
+    return 'Сегодня';
+  }
+
+  if (dayDiff === 1) {
+    return 'Завтра';
+  }
+
+  if (dayDiff === -1) {
+    return 'Вчера';
+  }
+
+  if (dayDiff === -2) {
+    return 'Позавчера';
+  }
+
+  return formatDateLabel(date);
+}
+
+function formatRangeDateLabel(date: Date, now: Date): string {
+  const dayDiff = getCalendarDayDiff(date, now);
+
+  if (dayDiff === 0) {
+    return 'сегодня';
+  }
+
+  if (dayDiff === 1) {
+    return 'завтра';
+  }
+
+  if (dayDiff === -1) {
+    return 'вчера';
+  }
+
+  return formatDateLabel(date);
+}
+
+function formatSessionTimeRange(startedAt: Date, endedAt: Date | null, now: Date): string {
+  if (!endedAt) {
+    return `${formatClock(startedAt)} - идёт`;
+  }
+
+  if (isSameCalendarDay(startedAt, endedAt)) {
+    return `${formatClock(startedAt)} - ${formatClock(endedAt)}`;
+  }
+
+  return `${formatClock(startedAt)} ${formatRangeDateLabel(startedAt, now)} - ${formatClock(
+    endedAt,
+  )} ${formatRangeDateLabel(endedAt, now)}`;
+}
+
 function formatCount(value: number, one: string, few: string, many: string): string {
   const mod10 = value % 10;
   const mod100 = value % 100;
@@ -221,10 +291,24 @@ function getProfileInitial(name: string): string {
   return trimmedName.slice(0, 1).toUpperCase();
 }
 
+function sortSessionsNewestFirst(sessions: SleepSession[]): SleepSession[] {
+  return [...sessions].sort(
+    (first, second) =>
+      new Date(second.startedAt).getTime() - new Date(first.startedAt).getTime(),
+  );
+}
+
+function sessionStartsInRange(session: SleepSession, rangeStart: Date, rangeEnd: Date): boolean {
+  const startedAt = new Date(session.startedAt);
+
+  return startedAt.getTime() >= rangeStart.getTime() && startedAt.getTime() < rangeEnd.getTime();
+}
+
 export default function TodaySleepScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const [sessions, setSessions] = useState<SleepSession[]>([]);
+  const [nearbySessions, setNearbySessions] = useState<SleepSession[]>([]);
   const [childName, setChildName] = useState(DEFAULT_CHILD_NAME);
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [now, setNow] = useState(() => new Date());
@@ -234,16 +318,23 @@ export default function TodaySleepScreen() {
   const [editorState, setEditorState] = useState<EditorState | null>(null);
 
   const fetchSessionsForDate = useCallback(
-    async (referenceDate: Date, currentNow: Date) => {
+    async (referenceDate: Date, currentNow: Date): Promise<LoadedSessionsForDate> => {
       await ensureDefaultChildProfile(db);
 
       const dayStart = getSleepDayStartForSelection(referenceDate, currentNow, DEFAULT_SLEEP_PLAN);
       const dayEnd = addMinutes(dayStart, DAY_MINUTES);
-      const loadedSessions = await listSleepSessionsInRange(db, dayStart, dayEnd);
-
-      return loadedSessions.filter((session) =>
-        sleepSessionOverlapsDay(session, dayStart, dayEnd, currentNow),
+      const previousDayStart = addMinutes(dayStart, -DAY_MINUTES);
+      const loadedSessions = await listSleepSessionsInRange(db, previousDayStart, dayEnd);
+      const nearbySessionsForDisplay = loadedSessions.filter((session) =>
+        sleepSessionOverlapsDay(session, previousDayStart, dayEnd, currentNow),
       );
+
+      return {
+        nearbySessions: nearbySessionsForDisplay,
+        selectedSessions: nearbySessionsForDisplay.filter((session) =>
+          sleepSessionOverlapsDay(session, dayStart, dayEnd, currentNow),
+        ),
+      };
     },
     [db],
   );
@@ -287,7 +378,8 @@ export default function TodaySleepScreen() {
 
         if (isMounted) {
           setNow(loadedAt);
-          setSessions(loadedSessions);
+          setSessions(loadedSessions.selectedSessions);
+          setNearbySessions(loadedSessions.nearbySessions);
           setErrorMessage(null);
         }
       } catch {
@@ -332,6 +424,52 @@ export default function TodaySleepScreen() {
   const selectedDayEnd = useMemo(() => addMinutes(selectedDayStart, DAY_MINUTES), [
     selectedDayStart,
   ]);
+  const sessionDayGroups = useMemo<SessionDayGroup[]>(() => {
+    const previousDayStart = addMinutes(selectedDayStart, -DAY_MINUTES);
+    const previousDate = addCalendarDays(selectedDate, -1);
+    const selectedGroupSessions = nearbySessions.filter((session) =>
+      sessionStartsInRange(session, selectedDayStart, selectedDayEnd),
+    );
+    const previousGroupSessions = nearbySessions.filter((session) => {
+      if (sessionStartsInRange(session, selectedDayStart, selectedDayEnd)) {
+        return false;
+      }
+
+      return sleepSessionOverlapsDay(session, previousDayStart, selectedDayStart, now);
+    });
+
+    return [
+      {
+        key: 'selected',
+        sessions: sortSessionsNewestFirst(selectedGroupSessions),
+        subtitle: formatDateLabel(selectedDate),
+        title: formatSessionGroupTitle(selectedDate, now),
+      },
+      {
+        key: 'previous',
+        sessions: sortSessionsNewestFirst(previousGroupSessions),
+        subtitle: formatDateLabel(previousDate),
+        title: formatSessionGroupTitle(previousDate, now),
+      },
+    ];
+  }, [nearbySessions, now, selectedDate, selectedDayEnd, selectedDayStart]);
+  const displayedSessionCount = useMemo(
+    () => sessionDayGroups.reduce((total, group) => total + group.sessions.length, 0),
+    [sessionDayGroups],
+  );
+  const displayedSessionCountLabel =
+    displayedSessionCount === 0
+      ? 'Пока нет записей'
+      : `Всего ${formatSessionCount(displayedSessionCount)}`;
+  const editModalSessions = useMemo(() => {
+    const uniqueSessions = new Map<string, SleepSession>();
+
+    [...nearbySessions, ...sessions].forEach((session) => {
+      uniqueSessions.set(session.id, session);
+    });
+
+    return Array.from(uniqueSessions.values());
+  }, [nearbySessions, sessions]);
   const summaryReferenceDate = dayType === 'today' ? now : dateAtNoon(selectedDate);
   const daySummary = useMemo(
     () => buildSleepDaySummary(sessions, summaryReferenceDate, now, DEFAULT_SLEEP_PLAN),
@@ -359,18 +497,26 @@ export default function TodaySleepScreen() {
     : isSleeping
       ? 'Завершить сон'
       : 'Начать сон';
-  const visibleSessions = useMemo(() => [...sessions].reverse(), [sessions]);
   const canGoForward = useMemo(() => {
     const tomorrow = addCalendarDays(now, 1);
 
     return startOfCalendarDay(selectedDate).getTime() < startOfCalendarDay(tomorrow).getTime();
   }, [now, selectedDate]);
 
+  function openEditEditor(session: SleepSession) {
+    setEditorState({
+      mode: 'edit',
+      referenceDate: session.endedAt ? new Date(session.endedAt) : now,
+      session,
+    });
+  }
+
   async function reloadSelectedDay(referenceDate: Date, currentNow: Date) {
     const loadedSessions = await fetchSessionsForDate(referenceDate, currentNow);
 
     setNow(currentNow);
-    setSessions(loadedSessions);
+    setSessions(loadedSessions.selectedSessions);
+    setNearbySessions(loadedSessions.nearbySessions);
   }
 
   function openProfile() {
@@ -717,60 +863,84 @@ export default function TodaySleepScreen() {
           )}
 
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>
-              {isToday ? 'Записи сегодня' : dayType === 'future' ? 'Записи завтра' : 'Записи дня'}
-            </Text>
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.sectionTitle, styles.sectionHeaderTitle]}>
+                Записи за два дня
+              </Text>
+              <Text style={styles.sectionMeta}>{displayedSessionCountLabel}</Text>
+            </View>
             <View style={styles.sessionList}>
-              {visibleSessions.length === 0 ? (
-                <Text style={styles.emptyText}>Пока нет записей сна</Text>
-              ) : (
-                visibleSessions.map((session) => {
-                  const startedAt = new Date(session.startedAt);
-                  const endedAt = session.endedAt ? new Date(session.endedAt) : null;
-                  const effectiveKind = getSessionKindForCalculations(
-                    session,
-                    endedAt ?? now,
-                    DEFAULT_SLEEP_PLAN,
-                  );
-
-                  return (
-                    <Pressable
-                      accessibilityRole="button"
-                      key={session.id}
-                      onPress={() =>
-                        setEditorState({
-                          mode: 'edit',
-                          referenceDate: isToday ? new Date() : dateAtNoon(selectedDate),
-                          session,
-                        })
-                      }
-                      style={({ pressed }) => [
-                        styles.sessionRow,
-                        pressed ? styles.sessionRowPressed : null,
-                      ]}>
-                      <View style={styles.sessionInfo}>
-                        <Text style={styles.sessionTitle}>
-                          {effectiveKind === 'night' ? 'Ночной сон' : 'Сон'}
-                        </Text>
-                        <Text style={styles.sessionTime}>
-                          {formatClock(startedAt)} - {endedAt ? formatClock(endedAt) : 'идёт'}
-                        </Text>
+              {sessionDayGroups.map((group) => (
+                <View key={group.key} style={styles.sessionDayGroup}>
+                  <View style={styles.sessionDayHeader}>
+                    <View style={styles.sessionDayTitleRow}>
+                      <View
+                        style={[
+                          styles.sessionDayMarker,
+                          group.key === 'selected'
+                            ? styles.selectedSessionDayMarker
+                            : styles.previousSessionDayMarker,
+                        ]}
+                      />
+                      <View>
+                        <Text style={styles.sessionDayTitle}>{group.title}</Text>
+                        <Text style={styles.sessionDaySubtitle}>{group.subtitle}</Text>
                       </View>
-                      <Text style={styles.sessionDuration}>
-                        {formatDuration(getSessionDurationMinutes(session, now))}
-                      </Text>
-                      <Text style={styles.sessionAction}>Изменить</Text>
-                    </Pressable>
-                  );
-                })
-              )}
+                    </View>
+                    <Text style={styles.sessionDayCount}>
+                      {group.sessions.length === 0
+                        ? 'нет'
+                        : formatSessionCount(group.sessions.length)}
+                    </Text>
+                  </View>
+
+                  {group.sessions.length === 0 ? (
+                    <Text style={styles.groupEmptyText}>Нет записей</Text>
+                  ) : (
+                    group.sessions.map((session) => {
+                      const startedAt = new Date(session.startedAt);
+                      const endedAt = session.endedAt ? new Date(session.endedAt) : null;
+                      const effectiveKind = getSessionKindForCalculations(
+                        session,
+                        endedAt ?? now,
+                        DEFAULT_SLEEP_PLAN,
+                      );
+
+                      return (
+                        <Pressable
+                          accessibilityRole="button"
+                          key={session.id}
+                          onPress={() => openEditEditor(session)}
+                          style={({ pressed }) => [
+                            styles.sessionRow,
+                            group.key === 'previous' ? styles.previousSessionRow : null,
+                            pressed ? styles.sessionRowPressed : null,
+                          ]}>
+                          <View style={styles.sessionInfo}>
+                            <Text style={styles.sessionTitle}>
+                              {effectiveKind === 'night' ? 'Ночной сон' : 'Сон'}
+                            </Text>
+                            <Text style={styles.sessionTime}>
+                              {formatSessionTimeRange(startedAt, endedAt, now)}
+                            </Text>
+                          </View>
+                          <Text style={styles.sessionDuration}>
+                            {formatDuration(getSessionDurationMinutes(session, now))}
+                          </Text>
+                          <Text style={styles.sessionAction}>Изменить</Text>
+                        </Pressable>
+                      );
+                    })
+                  )}
+                </View>
+              ))}
             </View>
           </View>
         </SafeAreaView>
       </ScrollView>
 
       <SleepSessionEditorModal
-        existingSessions={sessions}
+        existingSessions={editModalSessions}
         isSaving={isSaving}
         mode={editorState?.mode ?? 'create'}
         onClose={() => setEditorState(null)}
@@ -967,10 +1137,25 @@ const styles = StyleSheet.create({
   section: {
     gap: spacing.md,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
   sectionTitle: {
     color: colors.text,
     fontSize: 20,
     fontWeight: '800',
+  },
+  sectionHeaderTitle: {
+    flex: 1,
+  },
+  sectionMeta: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+    textAlign: 'right',
   },
   scenarioList: {
     gap: spacing.sm,
@@ -997,16 +1182,61 @@ const styles = StyleSheet.create({
     lineHeight: 21,
   },
   sessionList: {
+    gap: spacing.lg,
+  },
+  sessionDayGroup: {
     gap: spacing.sm,
   },
-  emptyText: {
+  sessionDayHeader: {
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    paddingHorizontal: spacing.xs,
+  },
+  sessionDayTitleRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  sessionDayMarker: {
+    width: 5,
+    height: 30,
+    borderRadius: 3,
+  },
+  selectedSessionDayMarker: {
+    backgroundColor: colors.primary,
+  },
+  previousSessionDayMarker: {
+    backgroundColor: colors.border,
+  },
+  sessionDayTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  sessionDaySubtitle: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  sessionDayCount: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  groupEmptyText: {
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     color: colors.textMuted,
     backgroundColor: colors.surface,
-    fontSize: 15,
+    fontSize: 14,
+    fontWeight: '700',
   },
   sessionRow: {
     minHeight: 72,
@@ -1022,6 +1252,9 @@ const styles = StyleSheet.create({
   },
   sessionRowPressed: {
     backgroundColor: colors.primarySoft,
+  },
+  previousSessionRow: {
+    backgroundColor: colors.surfaceMuted,
   },
   sessionInfo: {
     flex: 1,
