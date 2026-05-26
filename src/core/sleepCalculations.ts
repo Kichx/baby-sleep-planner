@@ -5,12 +5,34 @@ import type {
   SleepPlanPreset,
   SleepSession,
   SleepSnapshot,
+  SleepState,
   SleepTimelineSegment,
   WakeWindowPreset,
 } from '@/types/sleep';
 
 const MS_PER_MINUTE = 60_000;
 const MAX_NAP_INDEX_OFFSET = 1;
+const DAY_MINUTES = 24 * 60;
+
+interface BedtimeProjectionInput {
+  activeSession: SleepSession | undefined;
+  activeSessionKind: SleepKind | null;
+  completedNaps: number;
+  dayStart: Date;
+  now: Date;
+  plan: SleepPlanPreset;
+  remainingAwakeMinutes: number;
+  state: SleepState;
+  statusStartedAt: Date;
+  totalDaySleepMinutes: number;
+}
+
+interface BedtimeProjection {
+  nextSleepAt: Date;
+  nextSleepKind: SleepKind;
+  predictedBedtimeAt: Date;
+  projectedRemainingDaySleepMinutes: number;
+}
 
 export function minutesBetween(start: Date, end: Date): number {
   return Math.max(0, Math.round((end.getTime() - start.getTime()) / MS_PER_MINUTE));
@@ -82,7 +104,7 @@ export function getDayStart(now: Date, plan: SleepPlanPreset): Date {
     return dayStart;
   }
 
-  return addMinutes(dayStart, -24 * 60);
+  return addMinutes(dayStart, -DAY_MINUTES);
 }
 
 export function getWakeWindowForNextNap(
@@ -118,6 +140,166 @@ function maxDate(first: Date, second: Date): Date {
 
 function minDate(first: Date, second: Date): Date {
   return first.getTime() <= second.getTime() ? first : second;
+}
+
+function getSessionOverlapMinutes(session: SleepSession, rangeStart: Date, rangeEnd: Date): number {
+  const startedAt = maxDate(new Date(session.startedAt), rangeStart);
+  const endedAt = minDate(session.endedAt ? new Date(session.endedAt) : rangeEnd, rangeEnd);
+
+  if (endedAt.getTime() <= startedAt.getTime()) {
+    return 0;
+  }
+
+  return minutesBetween(startedAt, endedAt);
+}
+
+function dateAtSleepDayMinutes(dayStart: Date, minutesFromMidnight: number): Date {
+  const date = dateAtMinutes(dayStart, minutesFromMidnight);
+
+  if (date.getTime() < dayStart.getTime()) {
+    return addMinutes(date, DAY_MINUTES);
+  }
+
+  return date;
+}
+
+function getTargetNapMinutes(plan: SleepPlanPreset): number {
+  return Math.max(0, Math.round(plan.targetDaySleepMinutes / Math.max(1, plan.napCount)));
+}
+
+function canProjectPlannedNap(
+  napStartAt: Date,
+  napDurationMinutes: number,
+  earlyBedtimeAt: Date,
+  latestEveningNapEndAt: Date,
+): boolean {
+  const napEndAt = addMinutes(napStartAt, napDurationMinutes);
+
+  return (
+    napStartAt.getTime() < earlyBedtimeAt.getTime() &&
+    napEndAt.getTime() <= latestEveningNapEndAt.getTime()
+  );
+}
+
+function buildBedtimeProjection(input: BedtimeProjectionInput): BedtimeProjection {
+  if (input.activeSession && input.activeSessionKind === 'night') {
+    return {
+      nextSleepAt: new Date(input.activeSession.startedAt),
+      nextSleepKind: 'night',
+      predictedBedtimeAt: new Date(input.activeSession.startedAt),
+      projectedRemainingDaySleepMinutes: 0,
+    };
+  }
+
+  const earlyBedtimeAt = dateAtSleepDayMinutes(input.dayStart, input.plan.earlyBedtimeMinutes);
+  const latestEveningNapEndAt = dateAtSleepDayMinutes(
+    input.dayStart,
+    input.plan.latestEveningNapEndMinutes,
+  );
+  const targetNapMinutes = getTargetNapMinutes(input.plan);
+  let cursor = input.now;
+  let awakeLeft = input.remainingAwakeMinutes;
+  let usedNaps = input.completedNaps;
+  let sleepDeficitMinutes = Math.max(
+    0,
+    input.plan.targetDaySleepMinutes - input.totalDaySleepMinutes,
+  );
+  let nextSleepAt: Date | null = null;
+  let nextSleepKind: SleepKind = 'night';
+  let projectedRemainingDaySleepMinutes = 0;
+  let wakeStartedAt = input.state === 'awake' ? input.statusStartedAt : cursor;
+
+  if (input.activeSession && input.activeSessionKind === 'nap') {
+    const activeNapDurationMinutes = minutesBetween(new Date(input.activeSession.startedAt), cursor);
+    const activeNapRemainingMinutes = Math.min(
+      sleepDeficitMinutes,
+      Math.max(0, targetNapMinutes - activeNapDurationMinutes),
+      Math.max(0, minutesBetween(cursor, latestEveningNapEndAt)),
+    );
+
+    if (activeNapRemainingMinutes > 0) {
+      cursor = addMinutes(cursor, activeNapRemainingMinutes);
+      projectedRemainingDaySleepMinutes += activeNapRemainingMinutes;
+      sleepDeficitMinutes -= activeNapRemainingMinutes;
+    }
+
+    usedNaps += 1;
+    wakeStartedAt = cursor;
+  }
+
+  while (awakeLeft > 0 && usedNaps < input.plan.napCount && sleepDeficitMinutes > 0) {
+    const wakeWindow = getWakeWindowForNextNap(usedNaps, input.plan);
+    const currentWakeMinutes = minutesBetween(wakeStartedAt, cursor);
+    const awakeBeforeNextNap = Math.max(0, wakeWindow.targetWakeMinutes - currentWakeMinutes);
+
+    if (awakeLeft <= awakeBeforeNextNap) {
+      break;
+    }
+
+    const napStartAt = addMinutes(cursor, awakeBeforeNextNap);
+    const napDurationMinutes = Math.min(targetNapMinutes, sleepDeficitMinutes);
+
+    if (
+      napDurationMinutes <= 0 ||
+      !canProjectPlannedNap(
+        napStartAt,
+        napDurationMinutes,
+        earlyBedtimeAt,
+        latestEveningNapEndAt,
+      )
+    ) {
+      break;
+    }
+
+    if (!nextSleepAt) {
+      nextSleepAt = napStartAt;
+      nextSleepKind = 'nap';
+    }
+
+    cursor = addMinutes(napStartAt, napDurationMinutes);
+    awakeLeft -= awakeBeforeNextNap;
+    sleepDeficitMinutes -= napDurationMinutes;
+    projectedRemainingDaySleepMinutes += napDurationMinutes;
+    usedNaps += 1;
+    wakeStartedAt = cursor;
+  }
+
+  if (awakeLeft > 0 && usedNaps >= input.plan.napCount && input.plan.microNapMinutes > 0) {
+    const wakeWindow = getWakeWindowForNextNap(usedNaps, input.plan);
+    const currentWakeMinutes = minutesBetween(wakeStartedAt, cursor);
+    const finalWakeMinutes = currentWakeMinutes + awakeLeft;
+    const awakeBeforeMicroNap = Math.max(0, wakeWindow.targetWakeMinutes - currentWakeMinutes);
+    const microNapStartAt = addMinutes(cursor, awakeBeforeMicroNap);
+    const microNapEndAt = addMinutes(microNapStartAt, input.plan.microNapMinutes);
+    const canAddMicroNap =
+      finalWakeMinutes > wakeWindow.maxWakeMinutes &&
+      awakeLeft > awakeBeforeMicroNap &&
+      microNapEndAt.getTime() <= latestEveningNapEndAt.getTime() &&
+      input.totalDaySleepMinutes +
+        projectedRemainingDaySleepMinutes +
+        input.plan.microNapMinutes <=
+        input.plan.targetDaySleepMaxMinutes;
+
+    if (canAddMicroNap) {
+      if (!nextSleepAt) {
+        nextSleepAt = microNapStartAt;
+        nextSleepKind = 'nap';
+      }
+
+      cursor = microNapEndAt;
+      awakeLeft -= awakeBeforeMicroNap;
+      projectedRemainingDaySleepMinutes += input.plan.microNapMinutes;
+    }
+  }
+
+  const predictedBedtimeAt = maxDate(addMinutes(cursor, awakeLeft), earlyBedtimeAt);
+
+  return {
+    nextSleepAt: nextSleepAt ?? predictedBedtimeAt,
+    nextSleepKind,
+    predictedBedtimeAt,
+    projectedRemainingDaySleepMinutes,
+  };
 }
 
 function getTimelineSessionEnd(session: SleepSession, now: Date, dayEnd: Date): Date {
@@ -241,19 +423,38 @@ export function buildTodaySleepSnapshot(
       const effectiveEndedAt = session.endedAt ? new Date(session.endedAt) : now;
       const kind = getSessionKindForCalculations(session, effectiveEndedAt, plan);
 
-      return kind === 'nap' ? total + getSessionDurationMinutes(session, now) : total;
+      return kind === 'nap' ? total + getSessionOverlapMinutes(session, dayStart, now) : total;
     },
     0,
   );
   const elapsedDayMinutes = minutesBetween(dayStart, now);
-  const totalAwakeMinutes = Math.max(0, elapsedDayMinutes - totalDaySleepMinutes);
+  const totalSleepMinutes = todaySessions.reduce(
+    (total, session) => total + getSessionOverlapMinutes(session, dayStart, now),
+    0,
+  );
+  const totalAwakeMinutes = Math.max(0, elapsedDayMinutes - totalSleepMinutes);
   const remainingAwakeMinutes = Math.max(0, plan.targetAwakeMinutes - totalAwakeMinutes);
   const wakeWindow = getWakeWindowForNextNap(completedNaps, plan);
   const state = activeSession ? 'sleeping' : 'awake';
+  const activeSessionKind = activeSession
+    ? getSessionKindForCalculations(activeSession, now, plan)
+    : null;
   const currentDurationMinutes = minutesBetween(statusStartedAt, now);
-  const nextSleepAt =
-    state === 'sleeping' ? now : addMinutes(statusStartedAt, wakeWindow.targetWakeMinutes);
-  const predictedBedtimeAt = addMinutes(now, remainingAwakeMinutes);
+  const bedtimeProjection = buildBedtimeProjection({
+    activeSession,
+    activeSessionKind,
+    completedNaps,
+    dayStart,
+    now,
+    plan,
+    remainingAwakeMinutes,
+    state,
+    statusStartedAt,
+    totalDaySleepMinutes,
+  });
+  const nextSleepAt = state === 'sleeping' ? now : bedtimeProjection.nextSleepAt;
+  const nextSleepKind =
+    state === 'sleeping' ? (activeSessionKind ?? 'nap') : bedtimeProjection.nextSleepKind;
   const onTrackLabel =
     currentDurationMinutes > wakeWindow.maxWakeMinutes || remainingAwakeMinutes === 0
       ? 'День уходит от плана'
@@ -264,7 +465,9 @@ export function buildTodaySleepSnapshot(
     statusStartedAt,
     currentDurationMinutes,
     nextSleepAt,
-    predictedBedtimeAt,
+    nextSleepKind,
+    predictedBedtimeAt: bedtimeProjection.predictedBedtimeAt,
+    projectedRemainingDaySleepMinutes: bedtimeProjection.projectedRemainingDaySleepMinutes,
     totalAwakeMinutes,
     remainingAwakeMinutes,
     totalDaySleepMinutes,

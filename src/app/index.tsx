@@ -36,7 +36,7 @@ import {
   stopActiveSleepSession,
   updateSleepSession,
 } from '@/db';
-import type { SleepPlanPreset, SleepSession } from '@/types/sleep';
+import type { SleepKind, SleepPlanPreset, SleepSession } from '@/types/sleep';
 
 type EditorState =
   | {
@@ -90,7 +90,12 @@ function formatDuration(minutes: number): string {
   return `${hours} ч ${restMinutes} мин`;
 }
 
-function formatNextSleepWaitLabel(isSleeping: boolean, now: Date, nextSleepAt: Date): string {
+function formatNextSleepWaitLabel(
+  isSleeping: boolean,
+  now: Date,
+  nextSleepAt: Date,
+  nextSleepKind: SleepKind,
+): string {
   if (isSleeping) {
     return 'сейчас спит';
   }
@@ -98,10 +103,12 @@ function formatNextSleepWaitLabel(isSleeping: boolean, now: Date, nextSleepAt: D
   const minutesUntilSleep = minutesBetween(now, nextSleepAt);
 
   if (minutesUntilSleep === 0) {
-    return 'пора спать';
+    return nextSleepKind === 'night' ? 'пора на ночь' : 'пора спать';
   }
 
-  return `до сна ${formatDuration(minutesUntilSleep)}`;
+  return `${nextSleepKind === 'night' ? 'до отбоя' : 'до сна'} ${formatDuration(
+    minutesUntilSleep,
+  )}`;
 }
 
 function startOfCalendarDay(date: Date): Date {
@@ -532,9 +539,18 @@ export default function TodaySleepScreen() {
     () => buildTodaySleepSnapshot(sessions, now, sleepPlan),
     [sessions, now, sleepPlan],
   );
+  const predictedBedtimeCaption =
+    snapshot.projectedRemainingDaySleepMinutes > 0
+      ? `ещё сна днём ${formatDuration(snapshot.projectedRemainingDaySleepMinutes)}`
+      : 'с учётом сна днём';
   const isToday = dayType === 'today';
   const isSleeping = isToday && snapshot.state === 'sleeping';
-  const nextSleepWaitLabel = formatNextSleepWaitLabel(isSleeping, now, snapshot.nextSleepAt);
+  const nextSleepWaitLabel = formatNextSleepWaitLabel(
+    isSleeping,
+    now,
+    snapshot.nextSleepAt,
+    snapshot.nextSleepKind,
+  );
   const buttonLabel = isSaving
     ? 'Сохраняем...'
     : isSleeping
@@ -826,7 +842,7 @@ export default function TodaySleepScreen() {
                 <SummaryCard
                   title="Прогноз ночи"
                   value={formatClock(snapshot.predictedBedtimeAt)}
-                  caption="по цели бодрствования"
+                  caption={predictedBedtimeCaption}
                 />
               </View>
 

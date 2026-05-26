@@ -67,7 +67,9 @@ export interface SleepSnapshot {
   statusStartedAt: Date;
   currentDurationMinutes: number;
   nextSleepAt: Date;
+  nextSleepKind: SleepKind;
   predictedBedtimeAt: Date;
+  projectedRemainingDaySleepMinutes: number;
   totalAwakeMinutes: number;
   remainingAwakeMinutes: number;
   totalDaySleepMinutes: number;
