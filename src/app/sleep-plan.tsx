@@ -1027,7 +1027,7 @@ export default function SleepPlanScreen() {
             )}
           </View>
 
-          <View style={styles.hero}>
+          <View style={[styles.hero, !selectedPlan?.isActive ? styles.heroCompact : null]}>
             <View style={styles.heroIcon}>
               <SleepPlanIcon backgroundColor={colors.primarySoft} />
             </View>
@@ -1050,9 +1050,11 @@ export default function SleepPlanScreen() {
                   <Text style={styles.editNameIcon}>✎</Text>
                 </Pressable>
               </View>
-              <Text numberOfLines={1} adjustsFontSizeToFit style={styles.heroText}>
-                Используется для расчётов и рекомендаций текущего дня.
-              </Text>
+              {selectedPlan?.isActive ? (
+                <Text numberOfLines={1} adjustsFontSizeToFit style={styles.heroText}>
+                  Используется для расчётов и рекомендаций текущего дня.
+                </Text>
+              ) : null}
             </View>
           </View>
 
@@ -1391,6 +1393,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     backgroundColor: colors.primarySoft,
+  },
+  heroCompact: {
+    minHeight: 58,
   },
   heroIcon: {
     width: 34,

@@ -328,6 +328,28 @@ Before considering sleep-plan editing done, verify:
 - "Предполагаемый отбой" and the ideal schedule update after every edit;
 - returning to the main screen uses the saved plan values.
 
+## Implementation lessons from multiple sleep-plan work
+
+Keep "selected plan" and "active plan" separate. The selected plan is only the plan currently displayed or edited on the "План дня" screen. The active plan is the persisted plan used by current-day calculations and recommendations. Do not make carousel highlighting depend on `isActive`; highlight the selected card, and show active state separately as a badge or short status text.
+
+Keep `getTargetDayPlan()` as the source of the active plan for calculations. Screens that calculate wake windows, sleep kind, summaries, bedtime projections, or recommendations should not read a UI-selected plan unless the user has explicitly made it active.
+
+When activating a selected plan, save any valid pending edits first, then switch `is_active`. Database code must preserve exactly one active plan after create, update, activation, migration, and deletion.
+
+For multiple-plan SQLite changes, update both fresh-install schema and idempotent migrations. Existing single-plan data should become one named active plan. If deleting plans is supported, require confirmation, prevent deleting the only plan, and when deleting the active plan choose another plan as active.
+
+For creating a new plan, ask for the name before inserting the row. Pre-fill a short sequential default such as "План 2", "План 3", and keep the dialog compact. Use a centered compact modal for short name prompts; reserve bottom sheets for larger time/range editors.
+
+The selected-plan summary block should stay compact. Avoid repeating active/selected labels in several nearby places; if the carousel and header already show active state, the summary block should focus on the plan name, edit affordance, and one short disclaimer such as "Используется для расчётов и рекомендаций текущего дня." Verify on a real narrow phone viewport or screenshot when changing this area.
+
+Before considering multiple-plan UI done, verify:
+- selecting a non-active plan changes the highlighted carousel card and editor contents without changing current-day calculations;
+- the active plan remains visibly marked even when it is not selected;
+- "Сделать активным" saves pending valid edits and then updates calculations after returning to the main screen;
+- creating a plan prompts for a name with a sensible default;
+- deleting a selected plan requires confirmation and leaves one active plan;
+- compact plan summary text does not wrap into an oversized block on small Android screens.
+
 ## Implementation lessons from navigation/settings work
 
 Before adding a new "tab" or settings section, inspect the current Expo Router structure first. If the app currently uses a `Stack`, keep the change in that pattern unless the task explicitly asks to introduce a real tab navigator.
