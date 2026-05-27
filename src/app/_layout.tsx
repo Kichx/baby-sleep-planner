@@ -4,11 +4,13 @@ import { StatusBar } from 'expo-status-bar';
 
 import { colors } from '@/constants/theme';
 import { DATABASE_NAME, migrateDatabase } from '@/db';
+import { ActiveSleepNotificationSync } from '@/notifications/ActiveSleepNotificationSync';
 
 export default function RootLayout() {
   return (
     <>
       <SQLiteProvider databaseName={DATABASE_NAME} onInit={migrateDatabase}>
+        <ActiveSleepNotificationSync />
         <Stack
           screenOptions={{
             headerStyle: {
