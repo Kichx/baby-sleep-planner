@@ -66,6 +66,7 @@ interface SessionDayGroup {
 }
 
 const DAY_MINUTES = 24 * 60;
+const MAX_PAST_DAY_FEEDBACK_LINES = 3;
 const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
 const dateLabelFormatter = new Intl.DateTimeFormat('ru-RU', {
   day: 'numeric',
@@ -88,6 +89,87 @@ function formatDuration(minutes: number): string {
   }
 
   return `${hours} ч ${restMinutes} мин`;
+}
+
+function formatClockMinutes(minutes: number): string {
+  const normalizedMinutes = ((minutes % DAY_MINUTES) + DAY_MINUTES) % DAY_MINUTES;
+  const hours = Math.floor(normalizedMinutes / 60);
+  const restMinutes = normalizedMinutes % 60;
+
+  return `${String(hours).padStart(2, '0')}:${String(restMinutes).padStart(2, '0')}`;
+}
+
+function formatClockRange(startMinutes: number, endMinutes: number): string {
+  const start = formatClockMinutes(startMinutes);
+  const end = formatClockMinutes(endMinutes);
+
+  return start === end ? start : `${start}-${end}`;
+}
+
+function formatDurationDelta(deltaMinutes: number): string {
+  if (Math.abs(deltaMinutes) <= 30) {
+    return 'близко к цели';
+  }
+
+  const sign = deltaMinutes > 0 ? '+' : '-';
+
+  return `${sign}${formatDuration(Math.abs(deltaMinutes))} к цели`;
+}
+
+function formatNapDelta(delta: number): string {
+  if (delta === 0) {
+    return 'по плану';
+  }
+
+  return `${delta > 0 ? '+' : ''}${delta} к плану`;
+}
+
+function formatBedtimeDelta(deltaMinutes: number | null): string {
+  if (deltaMinutes === null) {
+    return 'нет ночного сна';
+  }
+
+  if (Math.abs(deltaMinutes) <= 30) {
+    return 'в плане';
+  }
+
+  return `${formatDuration(Math.abs(deltaMinutes))} ${deltaMinutes > 0 ? 'позже' : 'раньше'}`;
+}
+
+function isDurationOffPlan(deltaMinutes: number): boolean {
+  return Math.abs(deltaMinutes) > 30;
+}
+
+function getDateDeltaOutsideRange(date: Date, rangeStart: Date, rangeEnd: Date): number {
+  if (date.getTime() < rangeStart.getTime()) {
+    return -minutesBetween(date, rangeStart);
+  }
+
+  if (date.getTime() > rangeEnd.getTime()) {
+    return minutesBetween(rangeEnd, date);
+  }
+
+  return 0;
+}
+
+function getWakeUpDeltaMinutes(
+  wakeUpAt: Date | null,
+  dayStart: Date,
+  plan: SleepPlanPreset,
+): number | null {
+  if (!wakeUpAt) {
+    return null;
+  }
+
+  const nextMorning = addMinutes(dayStart, DAY_MINUTES);
+  const rangeStart = dateAtMinutes(nextMorning, plan.wakeUpStartMinutes);
+  let rangeEnd = dateAtMinutes(nextMorning, plan.wakeUpEndMinutes);
+
+  if (rangeEnd.getTime() < rangeStart.getTime()) {
+    rangeEnd = addMinutes(rangeEnd, DAY_MINUTES);
+  }
+
+  return getDateDeltaOutsideRange(wakeUpAt, rangeStart, rangeEnd);
 }
 
 function formatNextSleepWaitLabel(
@@ -556,6 +638,69 @@ export default function TodaySleepScreen() {
     : isSleeping
       ? 'Завершить сон'
       : 'Начать сон';
+  const hasPastDayRecords = daySummary.sleepSessionCount > 0;
+  const pastDayFeedbackLines = daySummary.feedbackLines.slice(0, MAX_PAST_DAY_FEEDBACK_LINES);
+  const pastDayMetrics = useMemo(() => {
+    const wakeUpDeltaMinutes = getWakeUpDeltaMinutes(
+      daySummary.wakeUpAt,
+      selectedDayStart,
+      sleepPlan,
+    );
+
+    return [
+      {
+        caption: hasPastDayRecords
+          ? formatDurationDelta(daySummary.targetAwakeDeltaMinutes)
+          : undefined,
+        isAttention:
+          hasPastDayRecords && isDurationOffPlan(daySummary.targetAwakeDeltaMinutes),
+        label: 'Бодрствование',
+        value: hasPastDayRecords ? formatDuration(daySummary.totalAwakeMinutes) : '--',
+      },
+      {
+        caption: hasPastDayRecords
+          ? formatDurationDelta(daySummary.targetDaySleepDeltaMinutes)
+          : undefined,
+        isAttention:
+          hasPastDayRecords && isDurationOffPlan(daySummary.targetDaySleepDeltaMinutes),
+        label: 'Сон днем',
+        value: hasPastDayRecords ? formatDuration(daySummary.totalDaySleepMinutes) : '--',
+      },
+      {
+        caption: hasPastDayRecords ? 'за сутки' : undefined,
+        isAttention: false,
+        label: 'Ночной сон',
+        value: hasPastDayRecords ? formatDuration(daySummary.totalNightSleepMinutes) : '--',
+      },
+      {
+        caption: hasPastDayRecords ? formatNapDelta(daySummary.napCountDelta) : undefined,
+        isAttention: hasPastDayRecords && daySummary.napCountDelta !== 0,
+        label: 'Сны',
+        value: hasPastDayRecords ? `${daySummary.completedNaps}/${sleepPlan.napCount}` : '--',
+      },
+      {
+        caption: hasPastDayRecords
+          ? formatBedtimeDelta(daySummary.targetBedtimeDeltaMinutes)
+          : undefined,
+        isAttention:
+          hasPastDayRecords &&
+          daySummary.targetBedtimeDeltaMinutes !== null &&
+          isDurationOffPlan(daySummary.targetBedtimeDeltaMinutes),
+        label: 'Отбой',
+        value:
+          hasPastDayRecords && daySummary.bedtimeAt ? formatClock(daySummary.bedtimeAt) : '--',
+      },
+      {
+        caption: hasPastDayRecords
+          ? `план ${formatClockRange(sleepPlan.wakeUpStartMinutes, sleepPlan.wakeUpEndMinutes)}`
+          : undefined,
+        isAttention:
+          hasPastDayRecords && wakeUpDeltaMinutes !== null && wakeUpDeltaMinutes !== 0,
+        label: 'Подъем',
+        value: hasPastDayRecords && daySummary.wakeUpAt ? formatClock(daySummary.wakeUpAt) : '--',
+      },
+    ];
+  }, [daySummary, hasPastDayRecords, selectedDayStart, sleepPlan]);
   const canGoForward = useMemo(() => {
     const tomorrow = addCalendarDays(now, 1);
 
@@ -875,12 +1020,10 @@ export default function TodaySleepScreen() {
                 </View>
               </View>
             </>
-          ) : (
+          ) : dayType === 'future' ? (
             <>
               <View style={styles.historyHero}>
-                <Text style={styles.status}>
-                  {dayType === 'future' ? 'План на завтра' : 'Итоги дня'}
-                </Text>
+                <Text style={styles.status}>План на завтра</Text>
                 <Text style={styles.historyValue}>
                   {formatDuration(daySummary.totalDaySleepMinutes)}
                 </Text>
@@ -896,17 +1039,70 @@ export default function TodaySleepScreen() {
                   title="Сон днем"
                   value={formatDuration(daySummary.totalDaySleepMinutes)}
                   caption={formatNapCount(daySummary.completedNaps)}
-                  tone={dayType === 'future' ? 'accent' : 'default'}
+                  tone="accent"
                 />
                 <SummaryCard
-                  title={dayType === 'future' ? 'Цель бодрств.' : 'Бодрствование'}
-                  value={formatDuration(
-                    dayType === 'future'
-                      ? sleepPlan.targetAwakeMinutes
-                      : daySummary.totalAwakeMinutes,
-                  )}
-                  caption={dayType === 'future' ? 'план дня' : daySummary.onTrackLabel}
+                  title="Цель бодрств."
+                  value={formatDuration(sleepPlan.targetAwakeMinutes)}
+                  caption="план дня"
                 />
+              </View>
+
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Таймлайн</Text>
+                <SleepDayTimeline dayStart={selectedDayStart} segments={timelineSegments} />
+              </View>
+
+              <PrimaryButton
+                compact
+                disabled={isLoading || isSaving}
+                label="Внести сон"
+                onPress={openCreateEditor}
+                variant="secondary"
+              />
+            </>
+          ) : (
+            <>
+              <View style={styles.pastDayHero}>
+                <Text style={styles.status}>Итоги дня</Text>
+                <Text
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.78}
+                  numberOfLines={2}
+                  style={styles.pastVerdict}>
+                  {daySummary.verdictLabel}
+                </Text>
+                <View style={styles.pastFeedbackList}>
+                  {pastDayFeedbackLines.map((line) => (
+                    <View key={line} style={styles.pastFeedbackRow}>
+                      <Text style={styles.pastFeedbackBullet}>•</Text>
+                      <Text numberOfLines={2} style={styles.pastFeedbackText}>
+                        {line}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+
+              <View style={styles.pastMetricGrid}>
+                {pastDayMetrics.map((metric) => (
+                  <View
+                    key={metric.label}
+                    style={[
+                      styles.pastMetricCard,
+                      metric.isAttention ? styles.pastMetricCardAttention : null,
+                    ]}>
+                    <Text style={styles.pastMetricTitle}>{metric.label}</Text>
+                    <Text adjustsFontSizeToFit numberOfLines={1} style={styles.pastMetricValue}>
+                      {metric.value}
+                    </Text>
+                    {metric.caption ? (
+                      <Text numberOfLines={2} style={styles.pastMetricCaption}>
+                        {metric.caption}
+                      </Text>
+                    ) : null}
+                  </View>
+                ))}
               </View>
 
               <View style={styles.section}>
@@ -1174,6 +1370,46 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 16,
   },
+  pastDayHero: {
+    minHeight: 150,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.sm,
+  },
+  pastVerdict: {
+    color: colors.text,
+    fontSize: 30,
+    fontWeight: '900',
+    lineHeight: 34,
+  },
+  pastFeedbackList: {
+    gap: spacing.xs,
+  },
+  pastFeedbackRow: {
+    minHeight: 20,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.xs,
+  },
+  pastFeedbackBullet: {
+    width: 12,
+    color: colors.primary,
+    fontSize: 17,
+    fontWeight: '900',
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  pastFeedbackText: {
+    flex: 1,
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
   errorText: {
     borderRadius: radius.sm,
     padding: spacing.md,
@@ -1195,6 +1431,43 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: 'row',
     gap: spacing.md,
+  },
+  pastMetricGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  pastMetricCard: {
+    minHeight: 92,
+    flexBasis: '47%',
+    flexGrow: 1,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+    justifyContent: 'space-between',
+    gap: spacing.xs,
+  },
+  pastMetricCardAttention: {
+    borderColor: colors.warning,
+    backgroundColor: colors.warningSoft,
+  },
+  pastMetricTitle: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  pastMetricValue: {
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  pastMetricCaption: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
   },
   section: {
     gap: spacing.md,

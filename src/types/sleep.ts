@@ -93,6 +93,14 @@ export interface SleepDaySummary {
   totalAwakeMinutes: number;
   sleepSessionCount: number;
   completedNaps: number;
+  targetAwakeDeltaMinutes: number;
+  targetDaySleepDeltaMinutes: number;
+  napCountDelta: number;
+  targetBedtimeDeltaMinutes: number | null;
+  bedtimeAt: Date | null;
+  wakeUpAt: Date | null;
+  verdictLabel: string;
+  feedbackLines: string[];
   onTrackLabel: string;
 }
 
