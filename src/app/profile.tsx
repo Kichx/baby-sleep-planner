@@ -39,6 +39,7 @@ import {
 } from '@/db';
 
 const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
+const INFO_ROUTE = '/info' as Href;
 
 function formatBirthDate(date: Date): string {
   return new Intl.DateTimeFormat('ru-RU', {
@@ -172,6 +173,15 @@ function InfoRow({ label, value }: InfoRowProps) {
     <View style={styles.infoRow}>
       <Text style={styles.infoLabel}>{label}</Text>
       <Text style={styles.infoValue}>{value}</Text>
+    </View>
+  );
+}
+
+function InfoIcon() {
+  return (
+    <View style={styles.infoIcon}>
+      <View style={styles.infoIconDot} />
+      <View style={styles.infoIconLine} />
     </View>
   );
 }
@@ -490,6 +500,10 @@ export default function ProfileScreen() {
     router.push(SLEEP_PLAN_ROUTE);
   }
 
+  function openInfo() {
+    router.push(INFO_ROUTE);
+  }
+
   return (
     <>
       <Stack.Screen options={{ title: 'Профиль' }} />
@@ -655,6 +669,20 @@ export default function ProfileScreen() {
                 <Text style={styles.aboutTitle}>Планировщик сна</Text>
                 <Text style={styles.aboutText}>Версия 1.0.0</Text>
               </View>
+              <Pressable
+                accessibilityLabel="Открыть справку"
+                accessibilityRole="button"
+                onPress={openInfo}
+                style={({ pressed }) => [styles.planLink, pressed ? styles.planLinkPressed : null]}>
+                <View style={styles.planLinkIcon}>
+                  <InfoIcon />
+                </View>
+                <View style={styles.planLinkTextBlock}>
+                  <Text style={styles.planLinkTitle}>Справка</Text>
+                  <Text style={styles.planLinkSubtitle}>Информация о работе приложения</Text>
+                </View>
+                <Text style={styles.planLinkArrow}>{'>'}</Text>
+              </Pressable>
             </View>
           </SafeAreaView>
         </ScrollView>
@@ -852,6 +880,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '900',
     textAlign: 'right',
+  },
+  infoIcon: {
+    width: 26,
+    height: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 13,
+    borderWidth: 2,
+    borderColor: colors.primary,
+  },
+  infoIconDot: {
+    width: 4,
+    height: 4,
+    marginBottom: 3,
+    borderRadius: 2,
+    backgroundColor: colors.primary,
+  },
+  infoIconLine: {
+    width: 4,
+    height: 11,
+    borderRadius: 2,
+    backgroundColor: colors.primary,
   },
   transferBlock: {
     gap: spacing.md,
