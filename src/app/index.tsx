@@ -67,9 +67,9 @@ interface SessionDayGroup {
 }
 
 const DAY_MINUTES = 24 * 60;
-const ACTIVE_SLEEP_MARK_SECONDS = 5 * 60;
+const ACTIVE_SLEEP_DETAIL_SECONDS = 5 * 60;
 const DEFAULT_TIMER_REFRESH_MS = 30_000;
-const ACTIVE_SLEEP_MARK_REFRESH_MS = 1_000;
+const ACTIVE_SLEEP_DETAIL_REFRESH_MS = 1_000;
 const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
 const dateLabelFormatter = new Intl.DateTimeFormat('ru-RU', {
   day: 'numeric',
@@ -98,15 +98,11 @@ function getElapsedSeconds(start: Date, end: Date): number {
   return Math.max(0, Math.floor((end.getTime() - start.getTime()) / 1_000));
 }
 
-function formatCountdownSeconds(seconds: number): string {
+function formatDurationWithSeconds(seconds: number): string {
   const minutes = Math.floor(seconds / 60);
   const restSeconds = seconds % 60;
 
-  if (minutes === 0) {
-    return `${restSeconds} сек`;
-  }
-
-  return `${minutes}:${String(restSeconds).padStart(2, '0')}`;
+  return `${minutes} мин ${restSeconds} сек`;
 }
 
 function formatNextSleepWaitLabel(
@@ -549,19 +545,17 @@ export default function TodaySleepScreen() {
   const activeSleepElapsedSeconds = isSleeping
     ? getElapsedSeconds(snapshot.statusStartedAt, now)
     : 0;
-  const activeSleepMarkRemainingSeconds = isSleeping
-    ? Math.max(0, ACTIVE_SLEEP_MARK_SECONDS - activeSleepElapsedSeconds)
-    : 0;
+  const shouldShowActiveSleepSeconds =
+    isSleeping && activeSleepElapsedSeconds < ACTIVE_SLEEP_DETAIL_SECONDS;
   const timerDurationMinutes = isSleeping
     ? Math.floor(activeSleepElapsedSeconds / 60)
     : snapshot.currentDurationMinutes;
-  const activeSleepMarkLabel =
-    !isLoading && activeSleepMarkRemainingSeconds > 0
-      ? `до 5 мин: ${formatCountdownSeconds(activeSleepMarkRemainingSeconds)}`
-      : null;
+  const timerValue = shouldShowActiveSleepSeconds
+    ? formatDurationWithSeconds(activeSleepElapsedSeconds)
+    : formatDuration(timerDurationMinutes);
   const timerRefreshMs =
-    activeSleepMarkRemainingSeconds > 0
-      ? ACTIVE_SLEEP_MARK_REFRESH_MS
+    shouldShowActiveSleepSeconds
+      ? ACTIVE_SLEEP_DETAIL_REFRESH_MS
       : DEFAULT_TIMER_REFRESH_MS;
   const nextSleepWaitLabel = formatNextSleepWaitLabel(
     isSleeping,
@@ -836,12 +830,9 @@ export default function TodaySleepScreen() {
                   {isLoading ? 'Загрузка' : isSleeping ? 'Спит' : 'Бодрствует'}
                 </Text>
                 <Text style={styles.timer}>
-                  {isLoading ? '--' : formatDuration(timerDurationMinutes)}
+                  {isLoading ? '--' : timerValue}
                 </Text>
                 <Text style={styles.helper}>с {formatClock(snapshot.statusStartedAt)}</Text>
-                {activeSleepMarkLabel ? (
-                  <Text style={styles.markCountdown}>{activeSleepMarkLabel}</Text>
-                ) : null}
               </View>
 
               <View style={styles.actionRow}>
@@ -1201,12 +1192,6 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
     color: colors.textMuted,
     fontSize: 16,
-  },
-  markCountdown: {
-    marginTop: spacing.xs,
-    color: colors.primary,
-    fontSize: 16,
-    fontWeight: '800',
   },
   errorText: {
     borderRadius: radius.sm,
