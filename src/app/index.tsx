@@ -595,7 +595,7 @@ export default function TodaySleepScreen() {
     });
   }
 
-  function selectQuickDate(dayOffset: -1 | 0 | 1) {
+  function selectQuickDate(dayOffset: -1 | 0) {
     setSelectedDate(dayOffset === 0 ? new Date() : addCalendarDays(now, dayOffset));
   }
 
@@ -700,7 +700,7 @@ export default function TodaySleepScreen() {
     }
   }
 
-  function renderDateShortcut(label: string, dayOffset: -1 | 0 | 1) {
+  function renderDateShortcut(label: string, dayOffset: -1 | 0) {
     const targetDate = dayOffset === 0 ? now : addCalendarDays(now, dayOffset);
     const isActive =
       startOfCalendarDay(targetDate).getTime() === startOfCalendarDay(selectedDate).getTime();
@@ -708,6 +708,7 @@ export default function TodaySleepScreen() {
     return (
       <Pressable
         accessibilityRole="button"
+        hitSlop={4}
         key={label}
         onPress={() => selectQuickDate(dayOffset)}
         style={({ pressed }) => [
@@ -764,6 +765,7 @@ export default function TodaySleepScreen() {
               <Pressable
                 accessibilityLabel="Предыдущий день"
                 accessibilityRole="button"
+                hitSlop={4}
                 onPress={goToPreviousDay}
                 style={({ pressed }) => [
                   styles.dayArrow,
@@ -778,6 +780,7 @@ export default function TodaySleepScreen() {
                 accessibilityLabel="Следующий день"
                 accessibilityRole="button"
                 disabled={!canGoForward}
+                hitSlop={4}
                 onPress={goToNextDay}
                 style={({ pressed }) => [
                   styles.dayArrow,
@@ -792,12 +795,8 @@ export default function TodaySleepScreen() {
                   {'>'}
                 </Text>
               </Pressable>
-            </View>
-
-            <View style={styles.dateShortcutRow}>
               {renderDateShortcut('Сегодня', 0)}
               {renderDateShortcut('Вчера', -1)}
-              {renderDateShortcut('Завтра', 1)}
             </View>
           </View>
 
@@ -1068,17 +1067,17 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xl,
   },
   datePickerBlock: {
-    gap: spacing.xs,
+    minHeight: 34,
   },
   dayNavigator: {
-    minHeight: 40,
+    minHeight: 34,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: 4,
   },
   dayArrow: {
-    width: 38,
-    height: 38,
+    width: 32,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.sm,
@@ -1094,7 +1093,7 @@ const styles = StyleSheet.create({
   },
   dayArrowText: {
     color: colors.text,
-    fontSize: 20,
+    fontSize: 17,
     fontWeight: '900',
   },
   dayArrowTextDisabled: {
@@ -1102,20 +1101,19 @@ const styles = StyleSheet.create({
   },
   dayTitle: {
     flex: 1,
+    minWidth: 0,
     color: colors.text,
     textAlign: 'center',
-    fontSize: 19,
+    fontSize: 16,
     fontWeight: '900',
   },
-  dateShortcutRow: {
-    flexDirection: 'row',
-    gap: spacing.xs,
-  },
   dateShortcut: {
-    minHeight: 34,
-    flex: 1,
+    minWidth: 72,
+    minHeight: 32,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
+    paddingHorizontal: spacing.sm,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
