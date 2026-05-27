@@ -65,6 +65,25 @@ export interface TargetDayPlan {
   updatedAt: ISODateString;
 }
 
+export interface SleepDayPlanSnapshot {
+  childId: string;
+  sleepDayDate: string;
+  sourcePlanId: string | null;
+  sourcePlanName: string;
+  plan: SleepPlanPreset;
+  capturedAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export interface SleepDayPlan {
+  childId: string;
+  sleepDayDate: string;
+  sourcePlanId: string | null;
+  sourcePlanName: string;
+  plan: SleepPlanPreset;
+  isSnapshot: boolean;
+}
+
 export interface RecommendationScenario {
   id: RecommendationScenarioId;
   title: string;

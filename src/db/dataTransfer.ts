@@ -2,12 +2,18 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { DEFAULT_CHILD_ID } from '@/constants/sleep';
 import { DATABASE_VERSION } from '@/db/schema';
-import { ensureDefaultChildProfile, getTargetDayPlan } from '@/db/sleepRepository';
+import {
+  backfillMissingSleepDayPlanSnapshots,
+  ensureDefaultChildProfile,
+  ensureSleepDayPlanSnapshotStorage,
+  getTargetDayPlan,
+} from '@/db/sleepRepository';
 import type { SleepKind } from '@/types/sleep';
 
 export const APP_DATA_BACKUP_FORMAT = 'baby-sleep-planner-backup';
-export const APP_DATA_BACKUP_FORMAT_VERSION = 1;
+export const APP_DATA_BACKUP_FORMAT_VERSION = 2;
 export const APP_DATA_BACKUP_MIME_TYPE = 'application/json';
+const SUPPORTED_BACKUP_FORMAT_VERSIONS = new Set([1, APP_DATA_BACKUP_FORMAT_VERSION]);
 
 type DataTransferErrorCode = 'invalid-json' | 'unsupported-format' | 'invalid-data';
 
@@ -44,13 +50,39 @@ interface TargetDayPlanBackupRow {
   updated_at: string;
 }
 
+interface SleepDayPlanSnapshotBackupRow {
+  child_id: string;
+  sleep_day_date: string;
+  source_plan_id: string | null;
+  source_plan_name: string;
+  day_start_minutes: number;
+  wake_up_start_minutes: number;
+  wake_up_end_minutes: number;
+  target_awake_min_minutes: number;
+  target_awake_max_minutes: number;
+  target_awake_minutes: number;
+  nap_count: number;
+  target_day_sleep_min_minutes: number;
+  target_day_sleep_max_minutes: number;
+  target_day_sleep_minutes: number;
+  bedtime_target_minutes: number;
+  early_bedtime_minutes: number;
+  latest_evening_nap_end_minutes: number;
+  max_evening_nap_minutes: number;
+  min_night_sleep_minutes: number;
+  micro_nap_minutes: number;
+  captured_at: string;
+  updated_at: string;
+}
+
 export interface AppDataBackup {
   format: typeof APP_DATA_BACKUP_FORMAT;
-  formatVersion: typeof APP_DATA_BACKUP_FORMAT_VERSION;
+  formatVersion: number;
   databaseVersion: number;
   exportedAt: string;
   data: {
     childProfiles: ChildProfileBackupRow[];
+    sleepDayPlanSnapshots: SleepDayPlanSnapshotBackupRow[];
     sleepSessions: SleepSessionBackupRow[];
     targetDayPlans: TargetDayPlanBackupRow[];
   };
@@ -58,6 +90,7 @@ export interface AppDataBackup {
 
 export interface AppDataRestoreSummary {
   childProfiles: number;
+  sleepDayPlanSnapshots: number;
   sleepSessions: number;
   targetDayPlans: number;
 }
@@ -151,6 +184,26 @@ function readNullableIsoDateString(
   return value;
 }
 
+function readSleepDayDate(row: Record<string, unknown>): string {
+  const value = readString(row, 'sleep_day_date');
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+  if (!match) {
+    failInvalidData('Invalid sleep day date');
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    failInvalidData('Invalid sleep day date');
+  }
+
+  return value;
+}
+
 function readSleepKind(row: Record<string, unknown>): SleepKind {
   const value = row.kind;
 
@@ -179,6 +232,14 @@ function assertRecordArray(value: unknown, label: string): Record<string, unknow
   return value;
 }
 
+function readOptionalRecordArray(value: unknown, label: string): Record<string, unknown>[] {
+  if (value === undefined) {
+    return [];
+  }
+
+  return assertRecordArray(value, label);
+}
+
 function assertUniqueIds(rows: { id: string }[], label: string): void {
   const ids = new Set<string>();
 
@@ -188,6 +249,22 @@ function assertUniqueIds(rows: { id: string }[], label: string): void {
     }
 
     ids.add(row.id);
+  }
+}
+
+function assertUniqueSleepDayPlanSnapshots(
+  rows: SleepDayPlanSnapshotBackupRow[],
+): void {
+  const keys = new Set<string>();
+
+  for (const row of rows) {
+    const key = `${row.child_id}:${row.sleep_day_date}`;
+
+    if (keys.has(key)) {
+      failInvalidData('Duplicate sleep day plan snapshot');
+    }
+
+    keys.add(key);
   }
 }
 
@@ -282,15 +359,56 @@ function parseTargetDayPlans(
   return rows;
 }
 
+function parseSleepDayPlanSnapshots(
+  value: unknown,
+  childProfileIds: Set<string>,
+): SleepDayPlanSnapshotBackupRow[] {
+  const rows = readOptionalRecordArray(value, 'sleepDayPlanSnapshots').map((row) => {
+    const childId = readString(row, 'child_id');
+
+    if (!childProfileIds.has(childId)) {
+      failInvalidData('Sleep day plan snapshot references an unknown child profile');
+    }
+
+    return {
+      bedtime_target_minutes: readInteger(row, 'bedtime_target_minutes'),
+      captured_at: readIsoDateString(row, 'captured_at'),
+      child_id: childId,
+      day_start_minutes: readInteger(row, 'day_start_minutes'),
+      early_bedtime_minutes: readInteger(row, 'early_bedtime_minutes'),
+      latest_evening_nap_end_minutes: readInteger(row, 'latest_evening_nap_end_minutes'),
+      max_evening_nap_minutes: readInteger(row, 'max_evening_nap_minutes'),
+      micro_nap_minutes: readInteger(row, 'micro_nap_minutes'),
+      min_night_sleep_minutes: readInteger(row, 'min_night_sleep_minutes'),
+      nap_count: readInteger(row, 'nap_count'),
+      sleep_day_date: readSleepDayDate(row),
+      source_plan_id: readNullableString(row, 'source_plan_id'),
+      source_plan_name: readString(row, 'source_plan_name'),
+      target_awake_max_minutes: readInteger(row, 'target_awake_max_minutes'),
+      target_awake_min_minutes: readInteger(row, 'target_awake_min_minutes'),
+      target_awake_minutes: readInteger(row, 'target_awake_minutes'),
+      target_day_sleep_max_minutes: readInteger(row, 'target_day_sleep_max_minutes'),
+      target_day_sleep_min_minutes: readInteger(row, 'target_day_sleep_min_minutes'),
+      target_day_sleep_minutes: readInteger(row, 'target_day_sleep_minutes'),
+      updated_at: readIsoDateString(row, 'updated_at'),
+      wake_up_end_minutes: readInteger(row, 'wake_up_end_minutes'),
+      wake_up_start_minutes: readInteger(row, 'wake_up_start_minutes'),
+    };
+  });
+
+  assertUniqueSleepDayPlanSnapshots(rows);
+
+  return rows;
+}
+
 function normalizeBackup(value: unknown): AppDataBackup {
   if (!isRecord(value)) {
     throw new DataTransferError('unsupported-format', 'Backup root must be an object');
   }
 
-  if (
-    value.format !== APP_DATA_BACKUP_FORMAT ||
-    value.formatVersion !== APP_DATA_BACKUP_FORMAT_VERSION
-  ) {
+  const formatVersion = readInteger(value, 'formatVersion');
+
+  if (value.format !== APP_DATA_BACKUP_FORMAT || !SUPPORTED_BACKUP_FORMAT_VERSIONS.has(formatVersion)) {
     throw new DataTransferError('unsupported-format', 'Unsupported backup format');
   }
 
@@ -306,17 +424,22 @@ function normalizeBackup(value: unknown): AppDataBackup {
   const childProfileIds = new Set(childProfiles.map((profile) => profile.id));
   const sleepSessions = parseSleepSessions(data.sleepSessions, childProfileIds);
   const targetDayPlans = parseTargetDayPlans(data.targetDayPlans, childProfileIds);
+  const sleepDayPlanSnapshots = parseSleepDayPlanSnapshots(
+    data.sleepDayPlanSnapshots,
+    childProfileIds,
+  );
 
   return {
     data: {
       childProfiles,
+      sleepDayPlanSnapshots,
       sleepSessions,
       targetDayPlans,
     },
     databaseVersion,
     exportedAt,
     format: APP_DATA_BACKUP_FORMAT,
-    formatVersion: APP_DATA_BACKUP_FORMAT_VERSION,
+    formatVersion,
   };
 }
 
@@ -376,6 +499,7 @@ async function normalizeImportedTargetDayPlans(db: SQLiteDatabase): Promise<void
 export async function buildAppDataBackup(db: SQLiteDatabase): Promise<AppDataBackup> {
   await ensureDefaultChildProfile(db);
   await getTargetDayPlan(db);
+  await ensureSleepDayPlanSnapshotStorage(db);
 
   const childProfiles = await db.getAllAsync<ChildProfileBackupRow>(
     `
@@ -413,10 +537,40 @@ export async function buildAppDataBackup(db: SQLiteDatabase): Promise<AppDataBac
     ORDER BY is_active DESC, updated_at DESC, id ASC
     `,
   );
+  const sleepDayPlanSnapshots = await db.getAllAsync<SleepDayPlanSnapshotBackupRow>(
+    `
+    SELECT
+      child_id,
+      sleep_day_date,
+      source_plan_id,
+      source_plan_name,
+      day_start_minutes,
+      wake_up_start_minutes,
+      wake_up_end_minutes,
+      target_awake_min_minutes,
+      target_awake_max_minutes,
+      target_awake_minutes,
+      nap_count,
+      target_day_sleep_min_minutes,
+      target_day_sleep_max_minutes,
+      target_day_sleep_minutes,
+      bedtime_target_minutes,
+      early_bedtime_minutes,
+      latest_evening_nap_end_minutes,
+      max_evening_nap_minutes,
+      min_night_sleep_minutes,
+      micro_nap_minutes,
+      captured_at,
+      updated_at
+    FROM sleep_day_plan_snapshot
+    ORDER BY sleep_day_date ASC, child_id ASC
+    `,
+  );
 
   return normalizeBackup({
     data: {
       childProfiles,
+      sleepDayPlanSnapshots,
       sleepSessions,
       targetDayPlans,
     },
@@ -449,7 +603,10 @@ export async function restoreAppDataBackup(
 ): Promise<AppDataRestoreSummary> {
   const normalizedBackup = normalizeBackup(backup);
 
+  await ensureSleepDayPlanSnapshotStorage(db);
+
   await db.withTransactionAsync(async () => {
+    await db.runAsync('DELETE FROM sleep_day_plan_snapshot');
     await db.runAsync('DELETE FROM target_day_plan');
     await db.runAsync('DELETE FROM sleep_sessions');
     await db.runAsync('DELETE FROM child_profile');
@@ -516,11 +673,76 @@ export async function restoreAppDataBackup(
       );
     }
 
+    for (const snapshot of normalizedBackup.data.sleepDayPlanSnapshots) {
+      await db.runAsync(
+        `
+        INSERT INTO sleep_day_plan_snapshot (
+          child_id,
+          sleep_day_date,
+          source_plan_id,
+          source_plan_name,
+          day_start_minutes,
+          wake_up_start_minutes,
+          wake_up_end_minutes,
+          target_awake_min_minutes,
+          target_awake_max_minutes,
+          target_awake_minutes,
+          nap_count,
+          target_day_sleep_min_minutes,
+          target_day_sleep_max_minutes,
+          target_day_sleep_minutes,
+          bedtime_target_minutes,
+          early_bedtime_minutes,
+          latest_evening_nap_end_minutes,
+          max_evening_nap_minutes,
+          min_night_sleep_minutes,
+          micro_nap_minutes,
+          captured_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          snapshot.child_id,
+          snapshot.sleep_day_date,
+          snapshot.source_plan_id,
+          snapshot.source_plan_name,
+          snapshot.day_start_minutes,
+          snapshot.wake_up_start_minutes,
+          snapshot.wake_up_end_minutes,
+          snapshot.target_awake_min_minutes,
+          snapshot.target_awake_max_minutes,
+          snapshot.target_awake_minutes,
+          snapshot.nap_count,
+          snapshot.target_day_sleep_min_minutes,
+          snapshot.target_day_sleep_max_minutes,
+          snapshot.target_day_sleep_minutes,
+          snapshot.bedtime_target_minutes,
+          snapshot.early_bedtime_minutes,
+          snapshot.latest_evening_nap_end_minutes,
+          snapshot.max_evening_nap_minutes,
+          snapshot.min_night_sleep_minutes,
+          snapshot.micro_nap_minutes,
+          snapshot.captured_at,
+          snapshot.updated_at,
+        ],
+      );
+    }
+
     await normalizeImportedTargetDayPlans(db);
   });
 
+  if (normalizedBackup.data.sleepDayPlanSnapshots.length === 0) {
+    await backfillMissingSleepDayPlanSnapshots(db);
+  }
+
+  const snapshotCountRow = await db.getFirstAsync<{ count: number }>(
+    'SELECT COUNT(*) AS count FROM sleep_day_plan_snapshot',
+  );
+
   return {
     childProfiles: normalizedBackup.data.childProfiles.length,
+    sleepDayPlanSnapshots: snapshotCountRow?.count ?? 0,
     sleepSessions: normalizedBackup.data.sleepSessions.length,
     targetDayPlans: normalizedBackup.data.targetDayPlans.length,
   };

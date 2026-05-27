@@ -110,6 +110,7 @@ function getTransferErrorMessage(error: unknown, fallback: string): string {
 
 function formatRestoreMessage(summary: {
   childProfiles: number;
+  sleepDayPlanSnapshots: number;
   sleepSessions: number;
   targetDayPlans: number;
 }): string {
@@ -117,6 +118,7 @@ function formatRestoreMessage(summary: {
     `Профилей: ${summary.childProfiles}`,
     `Записей сна: ${summary.sleepSessions}`,
     `Планов сна: ${summary.targetDayPlans}`,
+    `Привязок дней: ${summary.sleepDayPlanSnapshots}`,
   ].join('\n');
 }
 

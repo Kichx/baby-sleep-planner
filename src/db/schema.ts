@@ -1,6 +1,6 @@
 export const DATABASE_NAME = 'baby_sleep_planner.db';
 
-export const DATABASE_VERSION = 5;
+export const DATABASE_VERSION = 6;
 
 export const INITIAL_SCHEMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -42,6 +42,33 @@ CREATE TABLE IF NOT EXISTS target_day_plan (
   target_day_sleep_minutes INTEGER NOT NULL,
   bedtime_target_minutes INTEGER NOT NULL,
   updated_at TEXT NOT NULL,
+  FOREIGN KEY (child_id) REFERENCES child_profile(id)
+);
+
+CREATE TABLE IF NOT EXISTS sleep_day_plan_snapshot (
+  child_id TEXT NOT NULL,
+  sleep_day_date TEXT NOT NULL,
+  source_plan_id TEXT,
+  source_plan_name TEXT NOT NULL,
+  day_start_minutes INTEGER NOT NULL,
+  wake_up_start_minutes INTEGER NOT NULL,
+  wake_up_end_minutes INTEGER NOT NULL,
+  target_awake_min_minutes INTEGER NOT NULL,
+  target_awake_max_minutes INTEGER NOT NULL,
+  target_awake_minutes INTEGER NOT NULL,
+  nap_count INTEGER NOT NULL,
+  target_day_sleep_min_minutes INTEGER NOT NULL,
+  target_day_sleep_max_minutes INTEGER NOT NULL,
+  target_day_sleep_minutes INTEGER NOT NULL,
+  bedtime_target_minutes INTEGER NOT NULL,
+  early_bedtime_minutes INTEGER NOT NULL,
+  latest_evening_nap_end_minutes INTEGER NOT NULL,
+  max_evening_nap_minutes INTEGER NOT NULL,
+  min_night_sleep_minutes INTEGER NOT NULL,
+  micro_nap_minutes INTEGER NOT NULL,
+  captured_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (child_id, sleep_day_date),
   FOREIGN KEY (child_id) REFERENCES child_profile(id)
 );
 `;
