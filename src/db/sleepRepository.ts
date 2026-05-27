@@ -28,6 +28,7 @@ interface ChildProfileRow {
   id: string;
   name: string;
   birth_date: string | null;
+  photo_uri: string | null;
   created_at: string;
 }
 
@@ -76,6 +77,11 @@ const TARGET_DAY_PLAN_COLUMNS = [
   { definition: 'target_day_sleep_max_minutes INTEGER', name: 'target_day_sleep_max_minutes' },
 ] as const;
 
+const CHILD_PROFILE_COLUMNS = [
+  { definition: 'birth_date TEXT', name: 'birth_date' },
+  { definition: 'photo_uri TEXT', name: 'photo_uri' },
+] as const;
+
 function createLocalId(prefix: string, date: Date): string {
   const randomPart = Math.random().toString(36).slice(2, 8);
 
@@ -97,6 +103,7 @@ function mapChildProfileRow(row: ChildProfileRow): ChildProfile {
     id: row.id,
     name: row.name,
     birthDate: row.birth_date,
+    photoUri: row.photo_uri,
     createdAt: row.created_at,
   };
 }
@@ -160,12 +167,14 @@ function normalizeTargetPlanName(name: string): string {
   return trimmedName.length > 0 ? trimmedName.slice(0, 40) : DEFAULT_TARGET_DAY_PLAN_NAME;
 }
 
-async function ensureChildProfileBirthDateColumn(db: SQLiteDatabase): Promise<void> {
+async function ensureChildProfileColumns(db: SQLiteDatabase): Promise<void> {
   const rows = await db.getAllAsync<TableInfoRow>('PRAGMA table_info(child_profile)');
-  const hasBirthDate = rows.some((row) => row.name === 'birth_date');
+  const columnNames = new Set(rows.map((row) => row.name));
 
-  if (!hasBirthDate) {
-    await db.execAsync('ALTER TABLE child_profile ADD COLUMN birth_date TEXT');
+  for (const column of CHILD_PROFILE_COLUMNS) {
+    if (!columnNames.has(column.name)) {
+      await db.execAsync(`ALTER TABLE child_profile ADD COLUMN ${column.definition}`);
+    }
   }
 }
 
@@ -246,14 +255,14 @@ async function normalizeTargetDayPlans(
 }
 
 export async function ensureDefaultChildProfile(db: SQLiteDatabase): Promise<void> {
-  await ensureChildProfileBirthDateColumn(db);
+  await ensureChildProfileColumns(db);
 
   await db.runAsync(
     `
-    INSERT OR IGNORE INTO child_profile (id, name, birth_date, created_at)
-    VALUES (?, ?, ?, ?)
+    INSERT OR IGNORE INTO child_profile (id, name, birth_date, photo_uri, created_at)
+    VALUES (?, ?, ?, ?, ?)
     `,
-    [DEFAULT_CHILD_ID, DEFAULT_CHILD_NAME, null, new Date().toISOString()],
+    [DEFAULT_CHILD_ID, DEFAULT_CHILD_NAME, null, null, new Date().toISOString()],
   );
 }
 
@@ -669,7 +678,7 @@ export async function getChildProfile(
 
   const row = await db.getFirstAsync<ChildProfileRow>(
     `
-    SELECT id, name, birth_date, created_at
+    SELECT id, name, birth_date, photo_uri, created_at
     FROM child_profile
     WHERE id = ?
     LIMIT 1
@@ -685,6 +694,7 @@ export async function getChildProfile(
     id: childId,
     name: DEFAULT_CHILD_NAME,
     birthDate: null,
+    photoUri: null,
     createdAt: new Date().toISOString(),
   };
 }
@@ -720,6 +730,23 @@ export async function updateChildProfileName(
     WHERE id = ?
     `,
     [name.trim(), childId],
+  );
+}
+
+export async function updateChildProfilePhotoUri(
+  db: SQLiteDatabase,
+  photoUri: string | null,
+  childId = DEFAULT_CHILD_ID,
+): Promise<void> {
+  await ensureDefaultChildProfile(db);
+
+  await db.runAsync(
+    `
+    UPDATE child_profile
+    SET photo_uri = ?
+    WHERE id = ?
+    `,
+    [photoUri, childId],
   );
 }
 

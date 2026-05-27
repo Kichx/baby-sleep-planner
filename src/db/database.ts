@@ -22,6 +22,11 @@ const TARGET_DAY_PLAN_COLUMNS = [
   { definition: 'target_day_sleep_max_minutes INTEGER', name: 'target_day_sleep_max_minutes' },
 ] as const;
 
+const CHILD_PROFILE_COLUMNS = [
+  { definition: 'birth_date TEXT', name: 'birth_date' },
+  { definition: 'photo_uri TEXT', name: 'photo_uri' },
+] as const;
+
 async function hasTableColumn(
   db: SQLiteDatabase,
   tableName: string,
@@ -38,6 +43,16 @@ async function ensureTargetDayPlanColumns(db: SQLiteDatabase): Promise<void> {
 
     if (!hasColumn) {
       await db.execAsync(`ALTER TABLE target_day_plan ADD COLUMN ${column.definition}`);
+    }
+  }
+}
+
+async function ensureChildProfileColumns(db: SQLiteDatabase): Promise<void> {
+  for (const column of CHILD_PROFILE_COLUMNS) {
+    const hasColumn = await hasTableColumn(db, 'child_profile', column.name);
+
+    if (!hasColumn) {
+      await db.execAsync(`ALTER TABLE child_profile ADD COLUMN ${column.definition}`);
     }
   }
 }
@@ -99,12 +114,7 @@ async function normalizeTargetDayPlans(db: SQLiteDatabase): Promise<void> {
 export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
   await db.execAsync(INITIAL_SCHEMA_SQL);
 
-  const hasBirthDate = await hasTableColumn(db, 'child_profile', 'birth_date');
-
-  if (!hasBirthDate) {
-    await db.execAsync('ALTER TABLE child_profile ADD COLUMN birth_date TEXT');
-  }
-
+  await ensureChildProfileColumns(db);
   await ensureTargetDayPlanColumns(db);
   await normalizeTargetDayPlans(db);
 

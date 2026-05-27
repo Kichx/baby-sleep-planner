@@ -9,6 +9,10 @@ export {
   serializeAppDataBackup,
 } from '@/db/dataTransfer';
 export {
+  deleteProfilePhotoCopy,
+  saveProfilePhotoCopy,
+} from '@/db/profilePhotoStorage';
+export {
   activateTargetDayPlan,
   createTargetDayPlan,
   createSleepSession,
@@ -26,6 +30,7 @@ export {
   stopActiveSleepSession,
   updateChildProfile,
   updateChildProfileName,
+  updateChildProfilePhotoUri,
   updateSleepSession,
   updateTargetDayPlan,
 } from '@/db/sleepRepository';

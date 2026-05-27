@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import * as DocumentPicker from 'expo-document-picker';
 import { File, Paths } from 'expo-file-system';
+import * as ImagePicker from 'expo-image-picker';
 import { Stack, type Href, useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -19,6 +20,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/PrimaryButton';
+import { ProfileAvatar } from '@/components/ProfileAvatar';
 import { SleepPlanIcon } from '@/components/SleepPlanIcon';
 import { DEFAULT_CHILD_NAME } from '@/constants/sleep';
 import { colors, radius, spacing } from '@/constants/theme';
@@ -26,11 +28,14 @@ import {
   APP_DATA_BACKUP_MIME_TYPE,
   DataTransferError,
   buildAppDataBackup,
+  deleteProfilePhotoCopy,
   getChildProfile,
   parseAppDataBackup,
   restoreAppDataBackup,
+  saveProfilePhotoCopy,
   serializeAppDataBackup,
   updateChildProfile,
+  updateChildProfilePhotoUri,
 } from '@/db';
 
 const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
@@ -74,16 +79,6 @@ function parseBirthDateValue(value: string | null): Date | null {
   }
 
   return date;
-}
-
-function getProfileInitial(name: string): string {
-  const trimmedName = name.trim();
-
-  if (trimmedName.length === 0) {
-    return DEFAULT_CHILD_NAME.slice(0, 1).toUpperCase();
-  }
-
-  return trimmedName.slice(0, 1).toUpperCase();
 }
 
 function startOfCalendarDay(date: Date): Date {
@@ -178,15 +173,16 @@ export default function ProfileScreen() {
   const router = useRouter();
   const [profileName, setProfileName] = useState(DEFAULT_CHILD_NAME);
   const [birthDate, setBirthDate] = useState<string | null>(null);
+  const [profilePhotoUri, setProfilePhotoUri] = useState<string | null>(null);
   const [draftName, setDraftName] = useState(DEFAULT_CHILD_NAME);
   const [draftBirthDate, setDraftBirthDate] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isPhotoSaving, setIsPhotoSaving] = useState(false);
   const [isDataTransferRunning, setIsDataTransferRunning] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const profileInitial = useMemo(() => getProfileInitial(profileName), [profileName]);
   const trimmedDraftName = draftName.trim();
   const draftBirthDateValue = useMemo(() => parseBirthDateValue(draftBirthDate), [draftBirthDate]);
   const birthDateLabel = draftBirthDateValue ? formatBirthDate(draftBirthDateValue) : 'Выбрать';
@@ -196,11 +192,16 @@ export default function ProfileScreen() {
   const hasProfileChanges =
     trimmedDraftName.length > 0 &&
     (trimmedDraftName !== profileName || draftBirthDate !== birthDate);
-  const isBusy = isLoading || isSaving || isDataTransferRunning;
+  const isBusy = isLoading || isSaving || isPhotoSaving || isDataTransferRunning;
 
-  function applyProfile(profile: { name: string; birthDate: string | null }) {
+  function applyProfile(profile: {
+    name: string;
+    birthDate: string | null;
+    photoUri: string | null;
+  }) {
     setProfileName(profile.name);
     setBirthDate(profile.birthDate);
+    setProfilePhotoUri(profile.photoUri);
     setDraftName(profile.name);
     setDraftBirthDate(profile.birthDate);
   }
@@ -307,6 +308,72 @@ export default function ProfileScreen() {
     }
   }
 
+  async function handlePickProfilePhoto() {
+    setIsPhotoSaving(true);
+    setMessage(null);
+    setErrorMessage(null);
+
+    let copiedPhotoUri: string | null = null;
+
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: true,
+        aspect: [1, 1],
+        mediaTypes: ['images'],
+        quality: 0.9,
+        shape: 'oval',
+      });
+
+      if (result.canceled) {
+        return;
+      }
+
+      const selectedAsset = result.assets[0];
+
+      copiedPhotoUri = await saveProfilePhotoCopy({
+        fileName: selectedAsset.fileName,
+        mimeType: selectedAsset.mimeType,
+        sourceUri: selectedAsset.uri,
+      });
+
+      await updateChildProfilePhotoUri(db, copiedPhotoUri);
+
+      const previousPhotoUri = profilePhotoUri;
+
+      setProfilePhotoUri(copiedPhotoUri);
+      deleteProfilePhotoCopy(previousPhotoUri);
+      setMessage('Фото обновлено');
+    } catch {
+      deleteProfilePhotoCopy(copiedPhotoUri);
+      setErrorMessage('Не удалось сохранить фото');
+    } finally {
+      setIsPhotoSaving(false);
+    }
+  }
+
+  async function handleRemoveProfilePhoto() {
+    if (!profilePhotoUri) {
+      return;
+    }
+
+    const previousPhotoUri = profilePhotoUri;
+
+    setIsPhotoSaving(true);
+    setMessage(null);
+    setErrorMessage(null);
+
+    try {
+      await updateChildProfilePhotoUri(db, null);
+      setProfilePhotoUri(null);
+      deleteProfilePhotoCopy(previousPhotoUri);
+      setMessage('Фото убрано');
+    } catch {
+      setErrorMessage('Не удалось убрать фото');
+    } finally {
+      setIsPhotoSaving(false);
+    }
+  }
+
   async function handleExportData() {
     setIsDataTransferRunning(true);
     setMessage(null);
@@ -387,6 +454,22 @@ export default function ProfileScreen() {
     );
   }
 
+  function confirmRemoveProfilePhoto() {
+    Alert.alert('Убрать фото?', 'Кнопка профиля снова будет показывать первую букву имени.', [
+      {
+        style: 'cancel',
+        text: 'Отмена',
+      },
+      {
+        onPress: () => {
+          void handleRemoveProfilePhoto();
+        },
+        style: 'destructive',
+        text: 'Убрать',
+      },
+    ]);
+  }
+
   function openSleepPlan() {
     router.push(SLEEP_PLAN_ROUTE);
   }
@@ -407,9 +490,22 @@ export default function ProfileScreen() {
             {message ? <Text style={styles.successText}>{message}</Text> : null}
 
             <View style={styles.profileHeader}>
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{profileInitial}</Text>
-              </View>
+              <Pressable
+                accessibilityLabel="Сменить фото ребёнка"
+                accessibilityRole="button"
+                disabled={isBusy}
+                onPress={handlePickProfilePhoto}
+                style={({ pressed }) => [
+                  styles.avatarButton,
+                  pressed && !isBusy ? styles.avatarButtonPressed : null,
+                ]}>
+                <ProfileAvatar
+                  name={profileName}
+                  photoUri={profilePhotoUri}
+                  size={62}
+                  tone="solid"
+                />
+              </Pressable>
               <View style={styles.profileTitleBlock}>
                 <Text style={styles.profileTitle}>{profileName}</Text>
                 <Text style={styles.profileSubtitle}>Профиль ребёнка</Text>
@@ -453,6 +549,34 @@ export default function ProfileScreen() {
                   {ageLabel}
                 </Text>
               </Pressable>
+              <View style={styles.photoActionRow}>
+                <PrimaryButton
+                  compact
+                  disabled={isBusy}
+                  label={
+                    isPhotoSaving
+                      ? 'Сохраняем...'
+                      : profilePhotoUri
+                        ? 'Сменить фото'
+                        : 'Добавить фото'
+                  }
+                  onPress={handlePickProfilePhoto}
+                  style={styles.photoActionButton}
+                  textStyle={styles.photoActionText}
+                  variant="secondary"
+                />
+                {profilePhotoUri ? (
+                  <PrimaryButton
+                    compact
+                    disabled={isBusy}
+                    label="Убрать"
+                    onPress={confirmRemoveProfilePhoto}
+                    style={styles.photoRemoveButton}
+                    textStyle={styles.photoActionText}
+                    variant="secondary"
+                  />
+                ) : null}
+              </View>
               <PrimaryButton
                 compact
                 disabled={isBusy || !hasProfileChanges}
@@ -547,18 +671,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
   },
-  avatar: {
-    width: 62,
-    height: 62,
-    alignItems: 'center',
-    justifyContent: 'center',
+  avatarButton: {
     borderRadius: 31,
-    backgroundColor: colors.primary,
   },
-  avatarText: {
-    color: colors.surface,
-    fontSize: 26,
-    fontWeight: '900',
+  avatarButtonPressed: {
+    opacity: 0.72,
   },
   profileTitleBlock: {
     flex: 1,
@@ -581,6 +698,25 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 19,
     fontWeight: '800',
+  },
+  photoActionRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  photoActionButton: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+  },
+  photoRemoveButton: {
+    minWidth: 82,
+    minHeight: 42,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+  },
+  photoActionText: {
+    fontSize: 14,
   },
   nameInput: {
     minHeight: 52,

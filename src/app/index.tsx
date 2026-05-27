@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/PrimaryButton';
+import { ProfileAvatar } from '@/components/ProfileAvatar';
 import { SleepPlanIcon } from '@/components/SleepPlanIcon';
 import { SleepDayTimeline } from '@/components/SleepDayTimeline';
 import { SleepSessionEditorModal } from '@/components/SleepSessionEditorModal';
@@ -324,16 +325,6 @@ function formatNapCount(value: number): string {
   return formatCount(value, 'сон', 'сна', 'снов');
 }
 
-function getProfileInitial(name: string): string {
-  const trimmedName = name.trim();
-
-  if (trimmedName.length === 0) {
-    return DEFAULT_CHILD_NAME.slice(0, 1).toUpperCase();
-  }
-
-  return trimmedName.slice(0, 1).toUpperCase();
-}
-
 function sortSessionsNewestFirst(sessions: SleepSession[]): SleepSession[] {
   return [...sessions].sort(
     (first, second) =>
@@ -354,6 +345,7 @@ export default function TodaySleepScreen() {
   const [nearbySessions, setNearbySessions] = useState<SleepSession[]>([]);
   const [latestSleepSessionId, setLatestSleepSessionId] = useState<string | null>(null);
   const [childName, setChildName] = useState(DEFAULT_CHILD_NAME);
+  const [childPhotoUri, setChildPhotoUri] = useState<string | null>(null);
   const [sleepPlan, setSleepPlan] = useState(DEFAULT_SLEEP_PLAN);
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [now, setNow] = useState(() => new Date());
@@ -400,10 +392,12 @@ export default function TodaySleepScreen() {
 
           if (isActive) {
             setChildName(profile.name);
+            setChildPhotoUri(profile.photoUri);
           }
         } catch {
           if (isActive) {
             setChildName(DEFAULT_CHILD_NAME);
+            setChildPhotoUri(null);
           }
         }
       }
@@ -473,7 +467,6 @@ export default function TodaySleepScreen() {
     [now, selectedDate],
   );
   const headerTitle = useMemo(() => formatHeaderTitle(selectedDate, now), [now, selectedDate]);
-  const profileInitial = useMemo(() => getProfileInitial(childName), [childName]);
   const selectedDayStart = useMemo(
     () => getSleepDayStartForSelection(selectedDate, now, sleepPlan),
     [now, selectedDate, sleepPlan],
@@ -783,7 +776,7 @@ export default function TodaySleepScreen() {
                   styles.profileButton,
                   pressed ? styles.headerIconButtonPressed : null,
                 ]}>
-                <Text style={styles.profileButtonText}>{profileInitial}</Text>
+                <ProfileAvatar name={childName} photoUri={childPhotoUri} size={36} />
               </Pressable>
             </View>
           ),
@@ -1089,11 +1082,6 @@ const styles = StyleSheet.create({
   },
   headerIconButtonPressed: {
     backgroundColor: colors.surfaceMuted,
-  },
-  profileButtonText: {
-    color: colors.primary,
-    fontSize: 16,
-    fontWeight: '900',
   },
   scrollContent: {
     flexGrow: 1,

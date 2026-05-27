@@ -17,6 +17,7 @@ export interface ChildProfile {
   id: string;
   name: string;
   birthDate: ISODateString | null;
+  photoUri: string | null;
   createdAt: ISODateString;
 }
 
