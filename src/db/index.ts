@@ -14,6 +14,7 @@ export {
 } from '@/db/profilePhotoStorage';
 export {
   activateTargetDayPlan,
+  assignSleepDayPlanSnapshot,
   createTargetDayPlan,
   createSleepSession,
   deleteSleepSession,
@@ -22,6 +23,7 @@ export {
   getActiveSleepSession,
   getChildProfile,
   getLatestSleepSession,
+  getSleepDayPlan,
   getTargetDayPlan,
   listTargetDayPlans,
   listSleepSessionsInRange,

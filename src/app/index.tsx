@@ -26,18 +26,26 @@ import {
   minutesBetween,
 } from '@/core/sleepCalculations';
 import {
+  assignSleepDayPlanSnapshot,
   createSleepSession,
   deleteSleepSession,
   ensureDefaultChildProfile,
   getChildProfile,
   getLatestSleepSession,
-  getTargetDayPlan,
+  getSleepDayPlan,
+  listTargetDayPlans,
   listSleepSessionsInRange,
   startSleepSession,
   stopActiveSleepSession,
   updateSleepSession,
 } from '@/db';
-import type { SleepKind, SleepPlanPreset, SleepSession } from '@/types/sleep';
+import type {
+  SleepDayPlan,
+  SleepKind,
+  SleepPlanPreset,
+  SleepSession,
+  TargetDayPlan,
+} from '@/types/sleep';
 
 type EditorState =
   | {
@@ -425,10 +433,15 @@ export default function TodaySleepScreen() {
   const [childName, setChildName] = useState(DEFAULT_CHILD_NAME);
   const [childPhotoUri, setChildPhotoUri] = useState<string | null>(null);
   const [sleepPlan, setSleepPlan] = useState(DEFAULT_SLEEP_PLAN);
+  const [sleepDayPlan, setSleepDayPlan] = useState<SleepDayPlan | null>(null);
+  const [availablePlans, setAvailablePlans] = useState<TargetDayPlan[]>([]);
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [now, setNow] = useState(() => new Date());
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isChangingDayPlan, setIsChangingDayPlan] = useState(false);
+  const [isPlanPickerOpen, setIsPlanPickerOpen] = useState(false);
+  const [reloadVersion, setReloadVersion] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [editorState, setEditorState] = useState<EditorState | null>(null);
 
@@ -460,6 +473,23 @@ export default function TodaySleepScreen() {
     [db],
   );
 
+  const loadSelectedDayData = useCallback(
+    async (referenceDate: Date, currentNow: Date) => {
+      const loadedDayPlan = await getSleepDayPlan(db, referenceDate, currentNow);
+      const loadedSessions = await fetchSessionsForDate(
+        referenceDate,
+        currentNow,
+        loadedDayPlan.plan,
+      );
+
+      return {
+        dayPlan: loadedDayPlan,
+        sessions: loadedSessions,
+      };
+    },
+    [db, fetchSessionsForDate],
+  );
+
   useFocusEffect(
     useCallback(() => {
       let isActive = true;
@@ -480,22 +510,26 @@ export default function TodaySleepScreen() {
         }
       }
 
-      async function loadSleepPlan() {
+      async function loadTargetPlans() {
         try {
-          const plan = await getTargetDayPlan(db);
+          const plans = await listTargetDayPlans(db);
 
           if (isActive) {
-            setSleepPlan(plan);
+            setAvailablePlans(plans);
           }
         } catch {
           if (isActive) {
-            setSleepPlan(DEFAULT_SLEEP_PLAN);
+            setAvailablePlans([]);
+          }
+        } finally {
+          if (isActive) {
+            setReloadVersion((version) => version + 1);
           }
         }
       }
 
       loadChildProfile();
-      loadSleepPlan();
+      loadTargetPlans();
 
       return () => {
         isActive = false;
@@ -512,13 +546,15 @@ export default function TodaySleepScreen() {
       setIsLoading(true);
 
       try {
-        const loadedSessions = await fetchSessionsForDate(selectedDate, loadedAt, sleepPlan);
+        const loadedData = await loadSelectedDayData(selectedDate, loadedAt);
 
         if (isMounted) {
           setNow(loadedAt);
-          setSessions(loadedSessions.selectedSessions);
-          setNearbySessions(loadedSessions.nearbySessions);
-          setLatestSleepSessionId(loadedSessions.latestSleepSessionId);
+          setSleepDayPlan(loadedData.dayPlan);
+          setSleepPlan(loadedData.dayPlan.plan);
+          setSessions(loadedData.sessions.selectedSessions);
+          setNearbySessions(loadedData.sessions.nearbySessions);
+          setLatestSleepSessionId(loadedData.sessions.latestSleepSessionId);
           setErrorMessage(null);
         }
       } catch {
@@ -537,7 +573,7 @@ export default function TodaySleepScreen() {
     return () => {
       isMounted = false;
     };
-  }, [fetchSessionsForDate, selectedDate, sleepPlan]);
+  }, [loadSelectedDayData, reloadVersion, selectedDate]);
 
   const dayType = useMemo(() => getSelectedDayType(selectedDate, now), [now, selectedDate]);
   const selectedDayTitle = useMemo(
@@ -623,6 +659,8 @@ export default function TodaySleepScreen() {
       ? `ещё сна днём ${formatDuration(snapshot.projectedRemainingDaySleepMinutes)}`
       : 'с учётом сна днём';
   const isToday = dayType === 'today';
+  const currentPlanName = sleepDayPlan?.sourcePlanName ?? 'Основной';
+  const canChangeSleepDayPlan = dayType === 'past' && availablePlans.length > 0;
   const isSleeping = isToday && snapshot.state === 'sleeping';
   const activeSleepElapsedSeconds = isSleeping
     ? getElapsedSeconds(snapshot.statusStartedAt, now)
@@ -720,6 +758,10 @@ export default function TodaySleepScreen() {
   }, [now, selectedDate]);
 
   useEffect(() => {
+    setIsPlanPickerOpen(false);
+  }, [selectedDate]);
+
+  useEffect(() => {
     const timer = setInterval(() => {
       setNow(new Date());
     }, timerRefreshMs);
@@ -738,12 +780,14 @@ export default function TodaySleepScreen() {
   }
 
   async function reloadSelectedDay(referenceDate: Date, currentNow: Date) {
-    const loadedSessions = await fetchSessionsForDate(referenceDate, currentNow, sleepPlan);
+    const loadedData = await loadSelectedDayData(referenceDate, currentNow);
 
     setNow(currentNow);
-    setSessions(loadedSessions.selectedSessions);
-    setNearbySessions(loadedSessions.nearbySessions);
-    setLatestSleepSessionId(loadedSessions.latestSleepSessionId);
+    setSleepDayPlan(loadedData.dayPlan);
+    setSleepPlan(loadedData.dayPlan.plan);
+    setSessions(loadedData.sessions.selectedSessions);
+    setNearbySessions(loadedData.sessions.nearbySessions);
+    setLatestSleepSessionId(loadedData.sessions.latestSleepSessionId);
   }
 
   function openProfile() {
@@ -867,6 +911,28 @@ export default function TodaySleepScreen() {
     }
   }
 
+  async function handleSleepDayPlanSelect(planId: string) {
+    if (!canChangeSleepDayPlan) {
+      return;
+    }
+
+    const actionAt = new Date();
+
+    setIsChangingDayPlan(true);
+    setErrorMessage(null);
+    setNow(actionAt);
+
+    try {
+      await assignSleepDayPlanSnapshot(db, selectedDate, planId);
+      await reloadSelectedDay(selectedDate, actionAt);
+      setIsPlanPickerOpen(false);
+    } catch {
+      setErrorMessage('Не удалось сменить план дня');
+    } finally {
+      setIsChangingDayPlan(false);
+    }
+  }
+
   function renderDateShortcut(label: string, dayOffset: -1 | 0) {
     const targetDate = dayOffset === 0 ? now : addCalendarDays(now, dayOffset);
     const isActive =
@@ -887,6 +953,64 @@ export default function TodaySleepScreen() {
           {label}
         </Text>
       </Pressable>
+    );
+  }
+
+  function renderSleepDayPlanBar() {
+    return (
+      <View style={styles.dayPlanBlock}>
+        <View style={styles.dayPlanBar}>
+          <Text numberOfLines={1} style={styles.dayPlanText}>
+            {isToday ? 'Активный план' : 'План'}: {currentPlanName}
+          </Text>
+          {canChangeSleepDayPlan ? (
+            <Pressable
+              accessibilityRole="button"
+              disabled={isChangingDayPlan}
+              hitSlop={4}
+              onPress={() => setIsPlanPickerOpen((isOpen) => !isOpen)}
+              style={({ pressed }) => [
+                styles.dayPlanChangeButton,
+                pressed ? styles.dayPlanChangeButtonPressed : null,
+                isChangingDayPlan ? styles.dayPlanChangeButtonDisabled : null,
+              ]}>
+              <Text style={styles.dayPlanChangeText}>
+                {isPlanPickerOpen ? 'Скрыть' : 'Сменить'}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+
+        {isPlanPickerOpen && canChangeSleepDayPlan ? (
+          <View style={styles.dayPlanPicker}>
+            {availablePlans.map((plan) => {
+              const isSelected = sleepDayPlan?.sourcePlanId === plan.id;
+
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={isChangingDayPlan || isSelected}
+                  key={plan.id}
+                  onPress={() => handleSleepDayPlanSelect(plan.id)}
+                  style={({ pressed }) => [
+                    styles.dayPlanOption,
+                    isSelected ? styles.dayPlanOptionSelected : null,
+                    pressed && !isSelected ? styles.dayPlanOptionPressed : null,
+                  ]}>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.dayPlanOptionText,
+                      isSelected ? styles.dayPlanOptionTextSelected : null,
+                    ]}>
+                    {plan.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+      </View>
     );
   }
 
@@ -967,6 +1091,8 @@ export default function TodaySleepScreen() {
             </View>
           </View>
 
+          {isToday ? null : renderSleepDayPlanBar()}
+
           {isToday ? (
             <>
               <View style={styles.hero}>
@@ -1026,7 +1152,12 @@ export default function TodaySleepScreen() {
               </View>
 
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Сценарии</Text>
+                <View style={styles.scenarioHeader}>
+                  <Text style={styles.sectionTitle}>Сценарии</Text>
+                  <Text numberOfLines={1} style={styles.scenarioPlanLabel}>
+                    Активный план: {currentPlanName}
+                  </Text>
+                </View>
                 <View style={styles.scenarioList}>
                   {snapshot.scenarios.map((scenario) => (
                     <View
@@ -1347,6 +1478,77 @@ const styles = StyleSheet.create({
   activeDateShortcutText: {
     color: colors.primary,
   },
+  dayPlanBlock: {
+    gap: spacing.sm,
+  },
+  dayPlanBar: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    backgroundColor: colors.surface,
+  },
+  dayPlanText: {
+    flex: 1,
+    minWidth: 0,
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  dayPlanChangeButton: {
+    minHeight: 28,
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+    backgroundColor: colors.primarySoft,
+  },
+  dayPlanChangeButtonPressed: {
+    backgroundColor: colors.surfaceMuted,
+  },
+  dayPlanChangeButtonDisabled: {
+    opacity: 0.5,
+  },
+  dayPlanChangeText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  dayPlanPicker: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  dayPlanOption: {
+    minHeight: 34,
+    maxWidth: '100%',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  dayPlanOptionSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  dayPlanOptionPressed: {
+    backgroundColor: colors.surfaceMuted,
+  },
+  dayPlanOptionText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  dayPlanOptionTextSelected: {
+    color: colors.primary,
+  },
   hero: {
     minHeight: 172,
     borderRadius: radius.lg,
@@ -1504,6 +1706,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sectionMeta: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+    textAlign: 'right',
+  },
+  scenarioHeader: {
+    minHeight: 28,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  scenarioPlanLabel: {
+    flexShrink: 1,
     color: colors.textMuted,
     fontSize: 13,
     fontWeight: '800',

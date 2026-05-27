@@ -1,9 +1,16 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { DEFAULT_CHILD_ID, DEFAULT_CHILD_NAME, DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
+import {
+  formatSleepDayDateKey,
+  getSleepDayDateKeyForDate,
+  getSleepDayDateKeysForInterval,
+} from '@/core/sleepDay';
 import { buildSleepPlanPreset } from '@/core/sleepPlan';
 import type {
   ChildProfile,
+  SleepDayPlan,
+  SleepDayPlanSnapshot,
   SleepKind,
   SleepPlanPreset,
   SleepSession,
@@ -50,6 +57,31 @@ interface TargetDayPlanRow {
   updated_at: string;
 }
 
+interface SleepDayPlanSnapshotRow {
+  child_id: string;
+  sleep_day_date: string;
+  source_plan_id: string | null;
+  source_plan_name: string;
+  day_start_minutes: number;
+  wake_up_start_minutes: number;
+  wake_up_end_minutes: number;
+  target_awake_min_minutes: number;
+  target_awake_max_minutes: number;
+  target_awake_minutes: number;
+  nap_count: number;
+  target_day_sleep_min_minutes: number;
+  target_day_sleep_max_minutes: number;
+  target_day_sleep_minutes: number;
+  bedtime_target_minutes: number;
+  early_bedtime_minutes: number;
+  latest_evening_nap_end_minutes: number;
+  max_evening_nap_minutes: number;
+  min_night_sleep_minutes: number;
+  micro_nap_minutes: number;
+  captured_at: string;
+  updated_at: string;
+}
+
 interface CountRow {
   count: number;
 }
@@ -65,6 +97,34 @@ interface TableInfoRow {
 
 const DEFAULT_TARGET_DAY_PLAN_ID = 'default-target-day-plan';
 const DEFAULT_TARGET_DAY_PLAN_NAME = 'Основной';
+const SLEEP_DAY_PLAN_SNAPSHOT_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS sleep_day_plan_snapshot (
+  child_id TEXT NOT NULL,
+  sleep_day_date TEXT NOT NULL,
+  source_plan_id TEXT,
+  source_plan_name TEXT NOT NULL,
+  day_start_minutes INTEGER NOT NULL,
+  wake_up_start_minutes INTEGER NOT NULL,
+  wake_up_end_minutes INTEGER NOT NULL,
+  target_awake_min_minutes INTEGER NOT NULL,
+  target_awake_max_minutes INTEGER NOT NULL,
+  target_awake_minutes INTEGER NOT NULL,
+  nap_count INTEGER NOT NULL,
+  target_day_sleep_min_minutes INTEGER NOT NULL,
+  target_day_sleep_max_minutes INTEGER NOT NULL,
+  target_day_sleep_minutes INTEGER NOT NULL,
+  bedtime_target_minutes INTEGER NOT NULL,
+  early_bedtime_minutes INTEGER NOT NULL,
+  latest_evening_nap_end_minutes INTEGER NOT NULL,
+  max_evening_nap_minutes INTEGER NOT NULL,
+  min_night_sleep_minutes INTEGER NOT NULL,
+  micro_nap_minutes INTEGER NOT NULL,
+  captured_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (child_id, sleep_day_date),
+  FOREIGN KEY (child_id) REFERENCES child_profile(id)
+);
+`;
 const TARGET_DAY_PLAN_COLUMNS = [
   { definition: 'name TEXT', name: 'name' },
   { definition: 'is_active INTEGER', name: 'is_active' },
@@ -161,6 +221,68 @@ function mapTargetDayPlanRow(row: TargetDayPlanRow): TargetDayPlan {
   };
 }
 
+function mapSleepDayPlanSnapshotPreset(row: SleepDayPlanSnapshotRow): SleepPlanPreset {
+  const builtPlan = buildSleepPlanPreset({
+    latestEveningNapEndMinutes: row.latest_evening_nap_end_minutes,
+    maxEveningNapMinutes: row.max_evening_nap_minutes,
+    microNapMinutes: row.micro_nap_minutes,
+    minNightSleepMinutes: row.min_night_sleep_minutes,
+    napCount: row.nap_count,
+    targetAwakeMaxMinutes: row.target_awake_max_minutes,
+    targetAwakeMinMinutes: row.target_awake_min_minutes,
+    targetDaySleepMaxMinutes: row.target_day_sleep_max_minutes,
+    targetDaySleepMinMinutes: row.target_day_sleep_min_minutes,
+    wakeUpEndMinutes: row.wake_up_end_minutes,
+    wakeUpStartMinutes: row.wake_up_start_minutes,
+  });
+
+  return {
+    ...builtPlan,
+    bedtimeTargetMinutes: row.bedtime_target_minutes,
+    dayStartMinutes: row.day_start_minutes,
+    earlyBedtimeMinutes: row.early_bedtime_minutes,
+    targetAwakeMinutes: row.target_awake_minutes,
+    targetDaySleepMinutes: row.target_day_sleep_minutes,
+  };
+}
+
+function mapSleepDayPlanSnapshotRow(row: SleepDayPlanSnapshotRow): SleepDayPlanSnapshot {
+  return {
+    capturedAt: row.captured_at,
+    childId: row.child_id,
+    plan: mapSleepDayPlanSnapshotPreset(row),
+    sleepDayDate: row.sleep_day_date,
+    sourcePlanId: row.source_plan_id,
+    sourcePlanName: row.source_plan_name,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapTargetPlanToSleepDayPlan(
+  targetPlan: TargetDayPlan,
+  sleepDayDate: string,
+): SleepDayPlan {
+  return {
+    childId: targetPlan.childId,
+    isSnapshot: false,
+    plan: targetPlan.plan,
+    sleepDayDate,
+    sourcePlanId: targetPlan.id,
+    sourcePlanName: targetPlan.name,
+  };
+}
+
+function mapSnapshotToSleepDayPlan(snapshot: SleepDayPlanSnapshot): SleepDayPlan {
+  return {
+    childId: snapshot.childId,
+    isSnapshot: true,
+    plan: snapshot.plan,
+    sleepDayDate: snapshot.sleepDayDate,
+    sourcePlanId: snapshot.sourcePlanId,
+    sourcePlanName: snapshot.sourcePlanName,
+  };
+}
+
 function normalizeTargetPlanName(name: string): string {
   const trimmedName = name.trim();
 
@@ -187,6 +309,10 @@ async function ensureTargetDayPlanColumns(db: SQLiteDatabase): Promise<void> {
       await db.execAsync(`ALTER TABLE target_day_plan ADD COLUMN ${column.definition}`);
     }
   }
+}
+
+async function ensureSleepDayPlanSnapshotTable(db: SQLiteDatabase): Promise<void> {
+  await db.execAsync(SLEEP_DAY_PLAN_SNAPSHOT_TABLE_SQL);
 }
 
 async function normalizeTargetDayPlans(
@@ -266,12 +392,17 @@ export async function ensureDefaultChildProfile(db: SQLiteDatabase): Promise<voi
   );
 }
 
+export async function ensureSleepDayPlanSnapshotStorage(db: SQLiteDatabase): Promise<void> {
+  await ensureSleepDayPlanSnapshotTable(db);
+}
+
 async function ensureDefaultTargetDayPlan(
   db: SQLiteDatabase,
   childId = DEFAULT_CHILD_ID,
 ): Promise<void> {
   await ensureDefaultChildProfile(db);
   await ensureTargetDayPlanColumns(db);
+  await ensureSleepDayPlanSnapshotTable(db);
   await normalizeTargetDayPlans(db, childId);
 
   const existingRow = await db.getFirstAsync<{ id: string }>(
@@ -364,6 +495,209 @@ async function selectTargetDayPlanById(
   return row ? mapTargetDayPlanRow(row) : null;
 }
 
+async function selectSleepDayPlanSnapshot(
+  db: SQLiteDatabase,
+  sleepDayDate: string,
+  childId = DEFAULT_CHILD_ID,
+): Promise<SleepDayPlanSnapshot | null> {
+  await ensureSleepDayPlanSnapshotTable(db);
+
+  const row = await db.getFirstAsync<SleepDayPlanSnapshotRow>(
+    `
+    SELECT
+      child_id,
+      sleep_day_date,
+      source_plan_id,
+      source_plan_name,
+      day_start_minutes,
+      wake_up_start_minutes,
+      wake_up_end_minutes,
+      target_awake_min_minutes,
+      target_awake_max_minutes,
+      target_awake_minutes,
+      nap_count,
+      target_day_sleep_min_minutes,
+      target_day_sleep_max_minutes,
+      target_day_sleep_minutes,
+      bedtime_target_minutes,
+      early_bedtime_minutes,
+      latest_evening_nap_end_minutes,
+      max_evening_nap_minutes,
+      min_night_sleep_minutes,
+      micro_nap_minutes,
+      captured_at,
+      updated_at
+    FROM sleep_day_plan_snapshot
+    WHERE child_id = ? AND sleep_day_date = ?
+    LIMIT 1
+    `,
+    [childId, sleepDayDate],
+  );
+
+  return row ? mapSleepDayPlanSnapshotRow(row) : null;
+}
+
+async function upsertSleepDayPlanSnapshotFromTargetPlan(
+  db: SQLiteDatabase,
+  sleepDayDate: string,
+  targetPlan: TargetDayPlan,
+): Promise<void> {
+  await ensureSleepDayPlanSnapshotTable(db);
+
+  const now = new Date().toISOString();
+
+  await db.runAsync(
+    `
+    INSERT INTO sleep_day_plan_snapshot (
+      child_id,
+      sleep_day_date,
+      source_plan_id,
+      source_plan_name,
+      day_start_minutes,
+      wake_up_start_minutes,
+      wake_up_end_minutes,
+      target_awake_min_minutes,
+      target_awake_max_minutes,
+      target_awake_minutes,
+      nap_count,
+      target_day_sleep_min_minutes,
+      target_day_sleep_max_minutes,
+      target_day_sleep_minutes,
+      bedtime_target_minutes,
+      early_bedtime_minutes,
+      latest_evening_nap_end_minutes,
+      max_evening_nap_minutes,
+      min_night_sleep_minutes,
+      micro_nap_minutes,
+      captured_at,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(child_id, sleep_day_date) DO UPDATE SET
+      source_plan_id = excluded.source_plan_id,
+      source_plan_name = excluded.source_plan_name,
+      day_start_minutes = excluded.day_start_minutes,
+      wake_up_start_minutes = excluded.wake_up_start_minutes,
+      wake_up_end_minutes = excluded.wake_up_end_minutes,
+      target_awake_min_minutes = excluded.target_awake_min_minutes,
+      target_awake_max_minutes = excluded.target_awake_max_minutes,
+      target_awake_minutes = excluded.target_awake_minutes,
+      nap_count = excluded.nap_count,
+      target_day_sleep_min_minutes = excluded.target_day_sleep_min_minutes,
+      target_day_sleep_max_minutes = excluded.target_day_sleep_max_minutes,
+      target_day_sleep_minutes = excluded.target_day_sleep_minutes,
+      bedtime_target_minutes = excluded.bedtime_target_minutes,
+      early_bedtime_minutes = excluded.early_bedtime_minutes,
+      latest_evening_nap_end_minutes = excluded.latest_evening_nap_end_minutes,
+      max_evening_nap_minutes = excluded.max_evening_nap_minutes,
+      min_night_sleep_minutes = excluded.min_night_sleep_minutes,
+      micro_nap_minutes = excluded.micro_nap_minutes,
+      updated_at = excluded.updated_at
+    `,
+    [
+      targetPlan.childId,
+      sleepDayDate,
+      targetPlan.id,
+      targetPlan.name,
+      targetPlan.plan.dayStartMinutes,
+      targetPlan.plan.wakeUpStartMinutes,
+      targetPlan.plan.wakeUpEndMinutes,
+      targetPlan.plan.targetAwakeMinMinutes,
+      targetPlan.plan.targetAwakeMaxMinutes,
+      targetPlan.plan.targetAwakeMinutes,
+      targetPlan.plan.napCount,
+      targetPlan.plan.targetDaySleepMinMinutes,
+      targetPlan.plan.targetDaySleepMaxMinutes,
+      targetPlan.plan.targetDaySleepMinutes,
+      targetPlan.plan.bedtimeTargetMinutes,
+      targetPlan.plan.earlyBedtimeMinutes,
+      targetPlan.plan.latestEveningNapEndMinutes,
+      targetPlan.plan.maxEveningNapMinutes,
+      targetPlan.plan.minNightSleepMinutes,
+      targetPlan.plan.microNapMinutes,
+      now,
+      now,
+    ],
+  );
+}
+
+async function getActiveTargetDayPlan(
+  db: SQLiteDatabase,
+  childId = DEFAULT_CHILD_ID,
+): Promise<TargetDayPlan> {
+  await ensureDefaultTargetDayPlan(db, childId);
+
+  const row = await db.getFirstAsync<TargetDayPlanRow>(
+    `
+    SELECT
+      id,
+      child_id,
+      name,
+      is_active,
+      wake_up_start_minutes,
+      wake_up_end_minutes,
+      target_awake_min_minutes,
+      target_awake_max_minutes,
+      target_awake_minutes,
+      nap_count,
+      target_day_sleep_min_minutes,
+      target_day_sleep_max_minutes,
+      target_day_sleep_minutes,
+      bedtime_target_minutes,
+      updated_at
+    FROM target_day_plan
+    WHERE child_id = ? AND is_active = 1
+    ORDER BY updated_at DESC
+    LIMIT 1
+    `,
+    [childId],
+  );
+
+  if (row) {
+    return mapTargetDayPlanRow(row);
+  }
+
+  return {
+    childId,
+    id: DEFAULT_TARGET_DAY_PLAN_ID,
+    isActive: true,
+    name: DEFAULT_TARGET_DAY_PLAN_NAME,
+    plan: DEFAULT_SLEEP_PLAN,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function upsertCurrentSleepDayPlanSnapshot(
+  db: SQLiteDatabase,
+  targetPlan: TargetDayPlan,
+): Promise<void> {
+  const sleepDayDate = getSleepDayDateKeyForDate(new Date(), targetPlan.plan);
+
+  await upsertSleepDayPlanSnapshotFromTargetPlan(db, sleepDayDate, targetPlan);
+}
+
+async function ensureSleepDayPlanSnapshotsForSession(
+  db: SQLiteDatabase,
+  session: SleepSession,
+  childId = DEFAULT_CHILD_ID,
+): Promise<void> {
+  const activePlan = await getActiveTargetDayPlan(db, childId);
+  const currentSleepDayDate = getSleepDayDateKeyForDate(new Date(), activePlan.plan);
+  const sleepDayDates = getSleepDayDateKeysForInterval(
+    new Date(session.startedAt),
+    session.endedAt ? new Date(session.endedAt) : null,
+    activePlan.plan,
+  );
+
+  for (const sleepDayDate of sleepDayDates) {
+    const existingSnapshot = await selectSleepDayPlanSnapshot(db, sleepDayDate, childId);
+
+    if (!existingSnapshot || sleepDayDate === currentSleepDayDate) {
+      await upsertSleepDayPlanSnapshotFromTargetPlan(db, sleepDayDate, activePlan);
+    }
+  }
+}
+
 export async function listTargetDayPlans(
   db: SQLiteDatabase,
   childId = DEFAULT_CHILD_ID,
@@ -431,6 +765,61 @@ export async function getTargetDayPlan(
   );
 
   return row ? mapTargetDayPlanPreset(row) : DEFAULT_SLEEP_PLAN;
+}
+
+export async function getSleepDayPlan(
+  db: SQLiteDatabase,
+  selectedDate: Date,
+  now: Date,
+  childId = DEFAULT_CHILD_ID,
+): Promise<SleepDayPlan> {
+  const activePlan = await getActiveTargetDayPlan(db, childId);
+  const selectedDateKey = formatSleepDayDateKey(selectedDate);
+  const nowDateKey = formatSleepDayDateKey(now);
+
+  if (selectedDateKey === nowDateKey) {
+    return mapTargetPlanToSleepDayPlan(
+      activePlan,
+      getSleepDayDateKeyForDate(now, activePlan.plan),
+    );
+  }
+
+  if (selectedDate.getTime() > now.getTime()) {
+    return mapTargetPlanToSleepDayPlan(activePlan, selectedDateKey);
+  }
+
+  const snapshot = await selectSleepDayPlanSnapshot(db, selectedDateKey, childId);
+
+  return snapshot
+    ? mapSnapshotToSleepDayPlan(snapshot)
+    : mapTargetPlanToSleepDayPlan(activePlan, selectedDateKey);
+}
+
+export async function assignSleepDayPlanSnapshot(
+  db: SQLiteDatabase,
+  selectedDate: Date,
+  targetPlanId: string,
+  childId = DEFAULT_CHILD_ID,
+): Promise<SleepDayPlan> {
+  await ensureDefaultTargetDayPlan(db, childId);
+
+  const targetPlan = await selectTargetDayPlanById(db, targetPlanId, childId);
+
+  if (!targetPlan) {
+    throw new Error('Target day plan was not found');
+  }
+
+  const sleepDayDate = formatSleepDayDateKey(selectedDate);
+
+  await upsertSleepDayPlanSnapshotFromTargetPlan(db, sleepDayDate, targetPlan);
+
+  const snapshot = await selectSleepDayPlanSnapshot(db, sleepDayDate, childId);
+
+  if (!snapshot) {
+    throw new Error('Sleep day plan snapshot was not saved');
+  }
+
+  return mapSnapshotToSleepDayPlan(snapshot);
 }
 
 export async function createTargetDayPlan(
@@ -543,6 +932,10 @@ export async function updateTargetDayPlan(
     throw new Error('Target day plan was not updated');
   }
 
+  if (updatedPlan.isActive) {
+    await upsertCurrentSleepDayPlanSnapshot(db, updatedPlan);
+  }
+
   return updatedPlan;
 }
 
@@ -590,6 +983,8 @@ export async function activateTargetDayPlan(
   if (!activePlan) {
     throw new Error('Target day plan was not activated');
   }
+
+  await upsertCurrentSleepDayPlanSnapshot(db, activePlan);
 
   return activePlan;
 }
@@ -812,6 +1207,27 @@ export async function listSleepSessionsInRange(
   return rows.map(mapSleepSessionRow);
 }
 
+export async function backfillMissingSleepDayPlanSnapshots(
+  db: SQLiteDatabase,
+  childId = DEFAULT_CHILD_ID,
+): Promise<void> {
+  await ensureDefaultTargetDayPlan(db, childId);
+
+  const rows = await db.getAllAsync<SleepSessionRow>(
+    `
+    SELECT id, child_id, kind, started_at, ended_at
+    FROM sleep_sessions
+    WHERE child_id = ?
+    ORDER BY started_at ASC
+    `,
+    [childId],
+  );
+
+  for (const row of rows) {
+    await ensureSleepDayPlanSnapshotsForSession(db, mapSleepSessionRow(row), childId);
+  }
+}
+
 export async function startSleepSession(
   db: SQLiteDatabase,
   kind: SleepKind,
@@ -842,6 +1258,8 @@ export async function startSleepSession(
     [session.id, session.childId, session.kind, session.startedAt, session.endedAt],
   );
 
+  await ensureSleepDayPlanSnapshotsForSession(db, session, childId);
+
   return session;
 }
 
@@ -868,6 +1286,8 @@ export async function createSleepSession(
     [session.id, session.childId, session.kind, session.startedAt, session.endedAt],
   );
 
+  await ensureSleepDayPlanSnapshotsForSession(db, session, childId);
+
   return session;
 }
 
@@ -890,6 +1310,18 @@ export async function updateSleepSession(
       sessionId,
       childId,
     ],
+  );
+
+  await ensureSleepDayPlanSnapshotsForSession(
+    db,
+    {
+      childId,
+      endedAt: input.endedAt ? input.endedAt.toISOString() : null,
+      id: sessionId,
+      kind: input.kind,
+      startedAt: input.startedAt.toISOString(),
+    },
+    childId,
   );
 }
 
@@ -930,9 +1362,13 @@ export async function stopActiveSleepSession(
     [endedAtIso, kind ?? activeSession.kind, activeSession.id, childId],
   );
 
-  return {
+  const stoppedSession = {
     ...activeSession,
     kind: kind ?? activeSession.kind,
     endedAt: endedAtIso,
   };
+
+  await ensureSleepDayPlanSnapshotsForSession(db, stoppedSession, childId);
+
+  return stoppedSession;
 }
