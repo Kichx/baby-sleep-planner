@@ -1,11 +1,46 @@
-import type { RecommendationScenario, WakeWindowPreset } from '@/types/sleep';
+import type { RecommendationScenario, SleepKind, WakeWindowPreset } from '@/types/sleep';
 
 interface RecommendationInput {
   currentWakeMinutes: number;
   remainingAwakeMinutes: number;
   completedNaps: number;
   wakeWindow: WakeWindowPreset;
+  nextSleepKind: SleepKind;
+  predictedBedtimeDeltaMinutes: number;
   isSleeping: boolean;
+}
+
+function buildEarlyBedtimeScenario(
+  detail: string,
+  priority: RecommendationScenario['priority'] = 'primary',
+): RecommendationScenario {
+  return {
+    id: 'earlyBedtime',
+    title: 'Отбой раньше',
+    detail,
+    priority,
+  };
+}
+
+function buildClosingNightScenario(
+  predictedBedtimeDeltaMinutes: number,
+  priority: RecommendationScenario['priority'] = 'primary',
+): RecommendationScenario {
+  if (predictedBedtimeDeltaMinutes > 0) {
+    return {
+      id: 'normal',
+      title: 'Ночь без еще одного сна',
+      detail: 'Прогноз ночи уже позже плана. Лучше не добавлять дневной сон и спокойно идти к ночи.',
+      priority,
+    };
+  }
+
+  return {
+    id: 'normal',
+    title: 'Отбой по плану',
+    detail: 'До цели бодрствования осталось мало времени. Следующий сон можно считать ночным.',
+    priority,
+  };
 }
 
 export function buildRecommendationScenarios(input: RecommendationInput): RecommendationScenario[] {
@@ -21,6 +56,14 @@ export function buildRecommendationScenarios(input: RecommendationInput): Recomm
   }
 
   if (input.currentWakeMinutes >= input.wakeWindow.maxWakeMinutes) {
+    const nightScenario =
+      input.nextSleepKind === 'night' && input.predictedBedtimeDeltaMinutes >= 0
+        ? buildClosingNightScenario(input.predictedBedtimeDeltaMinutes, 'secondary')
+        : buildEarlyBedtimeScenario(
+            'Если следующий сон будет коротким, лучше сдвинуть ночь раньше.',
+            'secondary',
+          );
+
     return [
       {
         id: 'microNap',
@@ -28,24 +71,19 @@ export function buildRecommendationScenarios(input: RecommendationInput): Recomm
         detail: 'Окно бодрствования уже близко к верхней границе. Подойдёт короткий сон.',
         priority: 'primary',
       },
-      {
-        id: 'earlyBedtime',
-        title: 'Отбой раньше',
-        detail: 'Если следующий сон будет коротким, лучше сдвинуть ночь раньше.',
-        priority: 'secondary',
-      },
+      nightScenario,
     ];
   }
 
   if (input.remainingAwakeMinutes <= input.wakeWindow.minWakeMinutes) {
-    return [
-      {
-        id: 'earlyBedtime',
-        title: 'Отбой раньше',
-        detail: 'До цели бодрствования осталось мало времени. День можно закрыть раньше.',
-        priority: 'primary',
-      },
-    ];
+    const scenario =
+      input.nextSleepKind === 'night' && input.predictedBedtimeDeltaMinutes >= 0
+        ? buildClosingNightScenario(input.predictedBedtimeDeltaMinutes)
+        : buildEarlyBedtimeScenario(
+            'До цели бодрствования осталось мало времени. День можно закрыть раньше.',
+          );
+
+    return [scenario];
   }
 
   if (input.completedNaps >= 2) {

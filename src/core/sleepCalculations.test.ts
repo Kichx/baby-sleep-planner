@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import { buildSleepDaySummary, buildTodaySleepSnapshot } from '@/core/sleepCalculations';
+import { buildSleepPlanPreset } from '@/core/sleepPlan';
 import type { SleepKind, SleepSession } from '@/types/sleep';
 
 const CHILD_ID = 'default-child';
@@ -79,6 +80,39 @@ describe('buildTodaySleepSnapshot bedtime projection', () => {
     expect(snapshot.nextSleepKind).toBe('night');
     expect(clock(snapshot.predictedBedtimeAt)).toBe('20:30');
     expect(snapshot.projectedRemainingDaySleepMinutes).toBe(0);
+  });
+
+  it('does not call bedtime early when the predicted night is later than the plan', () => {
+    const exactBedtimePlan = buildSleepPlanPreset({
+      latestEveningNapEndMinutes: 20 * 60,
+      maxEveningNapMinutes: 45,
+      minNightSleepMinutes: 3 * 60,
+      microNapMinutes: 20,
+      napCount: 3,
+      targetAwakeMaxMinutes: 10 * 60,
+      targetAwakeMinMinutes: 10 * 60,
+      targetDaySleepMaxMinutes: 3 * 60,
+      targetDaySleepMinMinutes: 3 * 60,
+      wakeUpEndMinutes: 7 * 60,
+      wakeUpStartMinutes: 7 * 60,
+    });
+    const snapshot = buildTodaySleepSnapshot(
+      [
+        sleepSession('nap-1', 'nap', 9, 0, 10, 10),
+        sleepSession('nap-2', 'nap', 12, 40, 13, 44),
+        sleepSession('nap-3', 'nap', 16, 56, 18, 6),
+      ],
+      at(19, 24),
+      exactBedtimePlan,
+    );
+
+    expect(snapshot.nextSleepKind).toBe('night');
+    expect(clock(snapshot.predictedBedtimeAt)).toBe('20:24');
+    expect(snapshot.scenarios[0]).toMatchObject({
+      id: 'normal',
+      title: 'Ночь без еще одного сна',
+      priority: 'primary',
+    });
   });
 
   it('adds the remaining planned naps after an early morning wake', () => {

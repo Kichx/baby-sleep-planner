@@ -659,6 +659,12 @@ export function buildTodaySleepSnapshot(
   const nextSleepAt = state === 'sleeping' ? now : bedtimeProjection.nextSleepAt;
   const nextSleepKind =
     state === 'sleeping' ? (activeSessionKind ?? 'nap') : bedtimeProjection.nextSleepKind;
+  const projectedBedtimeRange = getPlanBedtimeRange(dayStart, plan);
+  const predictedBedtimeDeltaMinutes = getDeltaOutsideRange(
+    bedtimeProjection.predictedBedtimeAt,
+    projectedBedtimeRange.startAt,
+    projectedBedtimeRange.endAt,
+  );
   const onTrackLabel =
     currentDurationMinutes > wakeWindow.maxWakeMinutes || remainingAwakeMinutes === 0
       ? 'День уходит от плана'
@@ -682,6 +688,8 @@ export function buildTodaySleepSnapshot(
       remainingAwakeMinutes,
       completedNaps,
       wakeWindow,
+      nextSleepKind,
+      predictedBedtimeDeltaMinutes,
       isSleeping: state === 'sleeping',
     }),
   };
