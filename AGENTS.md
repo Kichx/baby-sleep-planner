@@ -368,6 +368,29 @@ Before considering multiple-plan UI done, verify:
 - deleting a selected plan requires confirmation and leaves one active plan;
 - compact plan summary text does not wrap into an oversized block on small Android screens.
 
+## Implementation lessons from Android keyboard/input modal work
+
+APK keyboard behavior can differ from Expo Go, especially for `Modal` bottom sheets and compact dialogs. When a user reports the Android keyboard covering an input, inspect all `TextInput` usages and all `Modal` windows in the project, not only the field from the screenshot.
+
+For modal forms with inputs, prefer the built-in React Native approach first:
+- wrap modal content in `KeyboardAvoidingView`;
+- use `behavior={Platform.OS === 'ios' ? 'padding' : 'height'}`;
+- put form fields in an inner `ScrollView` with `keyboardShouldPersistTaps="handled"` and `keyboardDismissMode="on-drag"`;
+- cap large bottom sheets with a max height and let the form content shrink/scroll instead of extending under the keyboard.
+
+Keep primary actions usable when the keyboard is open. For bottom sheets, keep Save/Delete actions outside the scrolling form when practical, and make only the field area scroll. For centered short dialogs with a `TextInput`, wrap the dialog in `KeyboardAvoidingView` even if the dialog looks small on a tall device.
+
+Do not add `react-native-keyboard-controller`, change `android.softwareKeyboardLayoutMode`, or add another keyboard dependency for simple one-screen/modal input fixes unless the built-in approach fails. If changing Android app config is truly required, remember it only affects a new APK build and re-check `android.package`, the APK-producing `preview` profile, and `DATABASE_NAME`.
+
+Before considering keyboard/input UI done, verify:
+- manual sleep entry with the start time focused;
+- manual sleep entry with the end time focused;
+- editing an existing sleep record with the end time focused;
+- sleep-plan range editors with the second field focused;
+- plan name create/edit dialog with the keyboard open;
+- profile name input on a narrow Android screen;
+- TypeScript checks pass, and tests pass if the touched area can affect app behavior.
+
 ## Implementation lessons from navigation/settings work
 
 Before adding a new "tab" or settings section, inspect the current Expo Router structure first. If the app currently uses a `Stack`, keep the change in that pattern unless the task explicitly asks to introduce a real tab navigator.
