@@ -66,6 +66,9 @@ interface SessionDayGroup {
 }
 
 const DAY_MINUTES = 24 * 60;
+const ACTIVE_SLEEP_MARK_SECONDS = 5 * 60;
+const DEFAULT_TIMER_REFRESH_MS = 30_000;
+const ACTIVE_SLEEP_MARK_REFRESH_MS = 1_000;
 const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
 const dateLabelFormatter = new Intl.DateTimeFormat('ru-RU', {
   day: 'numeric',
@@ -88,6 +91,21 @@ function formatDuration(minutes: number): string {
   }
 
   return `${hours} ч ${restMinutes} мин`;
+}
+
+function getElapsedSeconds(start: Date, end: Date): number {
+  return Math.max(0, Math.floor((end.getTime() - start.getTime()) / 1_000));
+}
+
+function formatCountdownSeconds(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const restSeconds = seconds % 60;
+
+  if (minutes === 0) {
+    return `${restSeconds} сек`;
+  }
+
+  return `${minutes}:${String(restSeconds).padStart(2, '0')}`;
 }
 
 function formatNextSleepWaitLabel(
@@ -449,16 +467,6 @@ export default function TodaySleepScreen() {
     };
   }, [fetchSessionsForDate, selectedDate, sleepPlan]);
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setNow(new Date());
-    }, 30_000);
-
-    return () => {
-      clearInterval(timer);
-    };
-  }, []);
-
   const dayType = useMemo(() => getSelectedDayType(selectedDate, now), [now, selectedDate]);
   const selectedDayTitle = useMemo(
     () => formatSelectedDayTitle(selectedDate, now),
@@ -545,6 +553,23 @@ export default function TodaySleepScreen() {
       : 'с учётом сна днём';
   const isToday = dayType === 'today';
   const isSleeping = isToday && snapshot.state === 'sleeping';
+  const activeSleepElapsedSeconds = isSleeping
+    ? getElapsedSeconds(snapshot.statusStartedAt, now)
+    : 0;
+  const activeSleepMarkRemainingSeconds = isSleeping
+    ? Math.max(0, ACTIVE_SLEEP_MARK_SECONDS - activeSleepElapsedSeconds)
+    : 0;
+  const timerDurationMinutes = isSleeping
+    ? Math.floor(activeSleepElapsedSeconds / 60)
+    : snapshot.currentDurationMinutes;
+  const activeSleepMarkLabel =
+    !isLoading && activeSleepMarkRemainingSeconds > 0
+      ? `до 5 мин: ${formatCountdownSeconds(activeSleepMarkRemainingSeconds)}`
+      : null;
+  const timerRefreshMs =
+    activeSleepMarkRemainingSeconds > 0
+      ? ACTIVE_SLEEP_MARK_REFRESH_MS
+      : DEFAULT_TIMER_REFRESH_MS;
   const nextSleepWaitLabel = formatNextSleepWaitLabel(
     isSleeping,
     now,
@@ -561,6 +586,16 @@ export default function TodaySleepScreen() {
 
     return startOfCalendarDay(selectedDate).getTime() < startOfCalendarDay(tomorrow).getTime();
   }, [now, selectedDate]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(new Date());
+    }, timerRefreshMs);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [timerRefreshMs]);
 
   function openEditEditor(session: SleepSession) {
     setEditorState({
@@ -808,9 +843,12 @@ export default function TodaySleepScreen() {
                   {isLoading ? 'Загрузка' : isSleeping ? 'Спит' : 'Бодрствует'}
                 </Text>
                 <Text style={styles.timer}>
-                  {isLoading ? '--' : formatDuration(snapshot.currentDurationMinutes)}
+                  {isLoading ? '--' : formatDuration(timerDurationMinutes)}
                 </Text>
                 <Text style={styles.helper}>с {formatClock(snapshot.statusStartedAt)}</Text>
+                {activeSleepMarkLabel ? (
+                  <Text style={styles.markCountdown}>{activeSleepMarkLabel}</Text>
+                ) : null}
               </View>
 
               <View style={styles.actionRow}>
@@ -1175,6 +1213,12 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
     color: colors.textMuted,
     fontSize: 16,
+  },
+  markCountdown: {
+    marginTop: spacing.xs,
+    color: colors.primary,
+    fontSize: 16,
+    fontWeight: '800',
   },
   errorText: {
     borderRadius: radius.sm,
