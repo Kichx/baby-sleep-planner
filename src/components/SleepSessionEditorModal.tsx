@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import {
   Alert,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -723,87 +725,102 @@ export function SleepSessionEditorModal({
       onRequestClose={onClose}
       transparent
       visible={visible}>
-      <View style={styles.overlay}>
-        <View style={styles.sheet}>
-          <View style={styles.header}>
-            <Text style={styles.title}>{modalTitle}</Text>
-            <Pressable accessibilityRole="button" onPress={onClose} style={styles.closeButton}>
-              <Text style={styles.closeText}>Закрыть</Text>
-            </Pressable>
-          </View>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardAvoider}>
+        <View style={styles.overlay}>
+          <View style={styles.sheet}>
+            <View style={styles.header}>
+              <Text style={styles.title}>{modalTitle}</Text>
+              <Pressable accessibilityRole="button" onPress={onClose} style={styles.closeButton}>
+                <Text style={styles.closeText}>Закрыть</Text>
+              </Pressable>
+            </View>
 
-          {renderEndpointGroup({
-            dateText: startedDateText,
-            onTimeChange: setStartedAtText,
-            target: 'start',
-            timePlaceholder: '0930',
-            timeText: startedAtText,
-            title: 'Начало',
-          })}
+            <ScrollView
+              keyboardDismissMode="on-drag"
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              style={styles.formScroll}
+              contentContainerStyle={styles.formContent}>
+              {renderEndpointGroup({
+                dateText: startedDateText,
+                onTimeChange: setStartedAtText,
+                target: 'start',
+                timePlaceholder: '0930',
+                timeText: startedAtText,
+                title: 'Начало',
+              })}
 
-          {renderEndpointGroup({
-            dateText: endedDateText,
-            onTimeChange: setEndedAtText,
-            target: 'end',
-            timePlaceholder: isEndOngoing ? 'идёт' : '1015',
-            timeText: endedAtText,
-            title: 'Конец',
-            showOngoingToggle: showOngoingEndButton,
-            canToggleOngoing: canUseOngoingEnd,
-            isOngoing: isEndOngoing,
-          })}
+              {renderEndpointGroup({
+                dateText: endedDateText,
+                onTimeChange: setEndedAtText,
+                target: 'end',
+                timePlaceholder: isEndOngoing ? 'идёт' : '1015',
+                timeText: endedAtText,
+                title: 'Конец',
+                showOngoingToggle: showOngoingEndButton,
+                canToggleOngoing: canUseOngoingEnd,
+                isOngoing: isEndOngoing,
+              })}
 
-          {durationLabel ? (
-            <Text style={styles.duration}>Длительность: {durationLabel}</Text>
-          ) : null}
+              {durationLabel ? (
+                <Text style={styles.duration}>Длительность: {durationLabel}</Text>
+              ) : null}
 
-          {formError ? <Text style={styles.errorText}>{formError}</Text> : null}
-          {!formError && futureWarning ? (
-            <Text style={styles.warningText}>{futureWarning}</Text>
-          ) : null}
-          {!formError && overlapWarning ? (
-            <Text style={styles.overlapText}>{overlapWarning}</Text>
-          ) : null}
+              {formError ? <Text style={styles.errorText}>{formError}</Text> : null}
+              {!formError && futureWarning ? (
+                <Text style={styles.warningText}>{futureWarning}</Text>
+              ) : null}
+              {!formError && overlapWarning ? (
+                <Text style={styles.overlapText}>{overlapWarning}</Text>
+              ) : null}
+            </ScrollView>
 
-          <View style={styles.actions}>
-            {mode === 'edit' ? (
+            <View style={styles.actions}>
+              {mode === 'edit' ? (
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={isSaving}
+                  onPress={handleDeletePress}
+                  style={({ pressed }) => [
+                    styles.deleteButton,
+                    pressed && !isSaving ? styles.deleteButtonPressed : null,
+                  ]}>
+                  <Text style={styles.deleteButtonText}>Удалить</Text>
+                </Pressable>
+              ) : null}
+
               <Pressable
                 accessibilityRole="button"
                 disabled={isSaving}
-                onPress={handleDeletePress}
+                onPress={handleSavePress}
                 style={({ pressed }) => [
-                  styles.deleteButton,
-                  pressed && !isSaving ? styles.deleteButtonPressed : null,
+                  styles.saveButton,
+                  pressed && !isSaving ? styles.saveButtonPressed : null,
+                  isSaving ? styles.disabledButton : null,
                 ]}>
-                <Text style={styles.deleteButtonText}>Удалить</Text>
+                <Text style={styles.saveButtonText}>{saveLabel}</Text>
               </Pressable>
-            ) : null}
-
-            <Pressable
-              accessibilityRole="button"
-              disabled={isSaving}
-              onPress={handleSavePress}
-              style={({ pressed }) => [
-                styles.saveButton,
-                pressed && !isSaving ? styles.saveButtonPressed : null,
-                isSaving ? styles.disabledButton : null,
-              ]}>
-              <Text style={styles.saveButtonText}>{saveLabel}</Text>
-            </Pressable>
+            </View>
           </View>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoider: {
+    flex: 1,
+  },
   overlay: {
     flex: 1,
     justifyContent: 'flex-end',
     backgroundColor: 'rgba(32, 32, 29, 0.36)',
   },
   sheet: {
+    maxHeight: '92%',
     gap: spacing.md,
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
@@ -811,6 +828,13 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: spacing.xl,
     backgroundColor: colors.background,
+  },
+  formScroll: {
+    flexShrink: 1,
+  },
+  formContent: {
+    gap: spacing.md,
+    paddingBottom: spacing.xs,
   },
   header: {
     flexDirection: 'row',

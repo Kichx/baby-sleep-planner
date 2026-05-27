@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/PrimaryButton';
+import { ProfileAvatar } from '@/components/ProfileAvatar';
 import { SleepPlanIcon } from '@/components/SleepPlanIcon';
 import { SleepDayTimeline } from '@/components/SleepDayTimeline';
 import { SleepSessionEditorModal } from '@/components/SleepSessionEditorModal';
@@ -66,6 +67,9 @@ interface SessionDayGroup {
 }
 
 const DAY_MINUTES = 24 * 60;
+const ACTIVE_SLEEP_DETAIL_SECONDS = 5 * 60;
+const DEFAULT_TIMER_REFRESH_MS = 30_000;
+const ACTIVE_SLEEP_DETAIL_REFRESH_MS = 1_000;
 const MAX_PAST_DAY_FEEDBACK_LINES = 3;
 const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
 const dateLabelFormatter = new Intl.DateTimeFormat('ru-RU', {
@@ -170,6 +174,17 @@ function getWakeUpDeltaMinutes(
   }
 
   return getDateDeltaOutsideRange(wakeUpAt, rangeStart, rangeEnd);
+}
+
+function getElapsedSeconds(start: Date, end: Date): number {
+  return Math.max(0, Math.floor((end.getTime() - start.getTime()) / 1_000));
+}
+
+function formatDurationWithSeconds(seconds: number): string {
+  const minutes = Math.floor(seconds / 60);
+  const restSeconds = seconds % 60;
+
+  return `${minutes} мин ${restSeconds} сек`;
 }
 
 function formatNextSleepWaitLabel(
@@ -388,16 +403,6 @@ function formatNapCount(value: number): string {
   return formatCount(value, 'сон', 'сна', 'снов');
 }
 
-function getProfileInitial(name: string): string {
-  const trimmedName = name.trim();
-
-  if (trimmedName.length === 0) {
-    return DEFAULT_CHILD_NAME.slice(0, 1).toUpperCase();
-  }
-
-  return trimmedName.slice(0, 1).toUpperCase();
-}
-
 function sortSessionsNewestFirst(sessions: SleepSession[]): SleepSession[] {
   return [...sessions].sort(
     (first, second) =>
@@ -418,6 +423,7 @@ export default function TodaySleepScreen() {
   const [nearbySessions, setNearbySessions] = useState<SleepSession[]>([]);
   const [latestSleepSessionId, setLatestSleepSessionId] = useState<string | null>(null);
   const [childName, setChildName] = useState(DEFAULT_CHILD_NAME);
+  const [childPhotoUri, setChildPhotoUri] = useState<string | null>(null);
   const [sleepPlan, setSleepPlan] = useState(DEFAULT_SLEEP_PLAN);
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [now, setNow] = useState(() => new Date());
@@ -464,10 +470,12 @@ export default function TodaySleepScreen() {
 
           if (isActive) {
             setChildName(profile.name);
+            setChildPhotoUri(profile.photoUri);
           }
         } catch {
           if (isActive) {
             setChildName(DEFAULT_CHILD_NAME);
+            setChildPhotoUri(null);
           }
         }
       }
@@ -531,23 +539,12 @@ export default function TodaySleepScreen() {
     };
   }, [fetchSessionsForDate, selectedDate, sleepPlan]);
 
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setNow(new Date());
-    }, 30_000);
-
-    return () => {
-      clearInterval(timer);
-    };
-  }, []);
-
   const dayType = useMemo(() => getSelectedDayType(selectedDate, now), [now, selectedDate]);
   const selectedDayTitle = useMemo(
     () => formatSelectedDayTitle(selectedDate, now),
     [now, selectedDate],
   );
   const headerTitle = useMemo(() => formatHeaderTitle(selectedDate, now), [now, selectedDate]);
-  const profileInitial = useMemo(() => getProfileInitial(childName), [childName]);
   const selectedDayStart = useMemo(
     () => getSleepDayStartForSelection(selectedDate, now, sleepPlan),
     [now, selectedDate, sleepPlan],
@@ -627,6 +624,21 @@ export default function TodaySleepScreen() {
       : 'с учётом сна днём';
   const isToday = dayType === 'today';
   const isSleeping = isToday && snapshot.state === 'sleeping';
+  const activeSleepElapsedSeconds = isSleeping
+    ? getElapsedSeconds(snapshot.statusStartedAt, now)
+    : 0;
+  const shouldShowActiveSleepSeconds =
+    isSleeping && activeSleepElapsedSeconds < ACTIVE_SLEEP_DETAIL_SECONDS;
+  const timerDurationMinutes = isSleeping
+    ? Math.floor(activeSleepElapsedSeconds / 60)
+    : snapshot.currentDurationMinutes;
+  const timerValue = shouldShowActiveSleepSeconds
+    ? formatDurationWithSeconds(activeSleepElapsedSeconds)
+    : formatDuration(timerDurationMinutes);
+  const timerRefreshMs =
+    shouldShowActiveSleepSeconds
+      ? ACTIVE_SLEEP_DETAIL_REFRESH_MS
+      : DEFAULT_TIMER_REFRESH_MS;
   const nextSleepWaitLabel = formatNextSleepWaitLabel(
     isSleeping,
     now,
@@ -706,6 +718,16 @@ export default function TodaySleepScreen() {
 
     return startOfCalendarDay(selectedDate).getTime() < startOfCalendarDay(tomorrow).getTime();
   }, [now, selectedDate]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(new Date());
+    }, timerRefreshMs);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [timerRefreshMs]);
 
   function openEditEditor(session: SleepSession) {
     setEditorState({
@@ -894,7 +916,7 @@ export default function TodaySleepScreen() {
                   styles.profileButton,
                   pressed ? styles.headerIconButtonPressed : null,
                 ]}>
-                <Text style={styles.profileButtonText}>{profileInitial}</Text>
+                <ProfileAvatar name={childName} photoUri={childPhotoUri} size={36} />
               </Pressable>
             </View>
           ),
@@ -952,7 +974,7 @@ export default function TodaySleepScreen() {
                   {isLoading ? 'Загрузка' : isSleeping ? 'Спит' : 'Бодрствует'}
                 </Text>
                 <Text style={styles.timer}>
-                  {isLoading ? '--' : formatDuration(snapshot.currentDurationMinutes)}
+                  {isLoading ? '--' : timerValue}
                 </Text>
                 <Text style={styles.helper}>с {formatClock(snapshot.statusStartedAt)}</Text>
               </View>
@@ -1246,11 +1268,6 @@ const styles = StyleSheet.create({
   },
   headerIconButtonPressed: {
     backgroundColor: colors.surfaceMuted,
-  },
-  profileButtonText: {
-    color: colors.primary,
-    fontSize: 16,
-    fontWeight: '900',
   },
   scrollContent: {
     flexGrow: 1,

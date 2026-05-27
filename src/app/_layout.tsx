@@ -41,6 +41,12 @@ export default function RootLayout() {
               title: 'План дня',
             }}
           />
+          <Stack.Screen
+            name="info"
+            options={{
+              title: 'Справка',
+            }}
+          />
         </Stack>
       </SQLiteProvider>
       <StatusBar style="dark" />

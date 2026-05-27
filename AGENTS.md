@@ -304,6 +304,24 @@ Before considering an APK-affecting change ready, verify:
 - fresh-database startup works;
 - migration from the previous database version with existing sleep rows preserves those rows.
 
+## Implementation lessons from app data transfer work
+
+For user-facing export/import, prefer a versioned JSON backup over copying or renaming the SQLite database file. Keep the backup format explicit with a stable app-specific marker, a format version, `databaseVersion`, `exportedAt`, and separate arrays for `child_profile`, `sleep_sessions`, and `target_day_plan` data. This lets future database migrations read old exports without changing `DATABASE_NAME`.
+
+Keep transfer code in `src/db` and keep the UI thin. Export should first ensure the default child profile and target day plan exist, then read the SQLite tables in stable order. Import should parse and validate unknown file content before writing anything: reject invalid JSON, unsupported format versions, missing default child profile, duplicate ids, unknown child references, invalid sleep kinds, invalid dates, and sleep sessions where `ended_at <= started_at`.
+
+Treat restore as a destructive replace of local app data unless the task explicitly asks for merge behavior. Always show a confirmation before opening the picker, run the delete/insert sequence inside a SQLite transaction, delete child-dependent tables before `child_profile`, and normalize active target plans after import so each child has exactly one active plan.
+
+Use Expo SDK-versioned APIs for files. For SDK 56, use `expo-file-system` `File`/`Paths` for reading and writing, `expo-document-picker` with `copyToCacheDirectory: true` so the picked file is readable immediately, and `expo-sharing` for handing the export file to Android's share/save sheet. Install these with `cmd /c npx expo install ...` so package versions match the current Expo SDK, and check the versioned docs before coding.
+
+When changing backup or restore logic, add focused tests for backup parsing/validation. Before considering the feature ready, verify:
+- TypeScript checks pass;
+- tests pass;
+- restoring rejects a malformed or unrelated JSON file;
+- restoring a valid file updates profile, plans, and sleep rows;
+- returning to the main screen uses restored profile, active plan, and sleep sessions;
+- `android.package` and `DATABASE_NAME` are unchanged.
+
 ## Implementation lessons from editable sleep plan work
 
 For the "План сна" screen, keep the primary parameters as compact metric cards, not always-visible form rows. Editing should happen from a tap on the relevant card so the screen stays scannable and one-handed.
@@ -349,6 +367,29 @@ Before considering multiple-plan UI done, verify:
 - creating a plan prompts for a name with a sensible default;
 - deleting a selected plan requires confirmation and leaves one active plan;
 - compact plan summary text does not wrap into an oversized block on small Android screens.
+
+## Implementation lessons from Android keyboard/input modal work
+
+APK keyboard behavior can differ from Expo Go, especially for `Modal` bottom sheets and compact dialogs. When a user reports the Android keyboard covering an input, inspect all `TextInput` usages and all `Modal` windows in the project, not only the field from the screenshot.
+
+For modal forms with inputs, prefer the built-in React Native approach first:
+- wrap modal content in `KeyboardAvoidingView`;
+- use `behavior={Platform.OS === 'ios' ? 'padding' : 'height'}`;
+- put form fields in an inner `ScrollView` with `keyboardShouldPersistTaps="handled"` and `keyboardDismissMode="on-drag"`;
+- cap large bottom sheets with a max height and let the form content shrink/scroll instead of extending under the keyboard.
+
+Keep primary actions usable when the keyboard is open. For bottom sheets, keep Save/Delete actions outside the scrolling form when practical, and make only the field area scroll. For centered short dialogs with a `TextInput`, wrap the dialog in `KeyboardAvoidingView` even if the dialog looks small on a tall device.
+
+Do not add `react-native-keyboard-controller`, change `android.softwareKeyboardLayoutMode`, or add another keyboard dependency for simple one-screen/modal input fixes unless the built-in approach fails. If changing Android app config is truly required, remember it only affects a new APK build and re-check `android.package`, the APK-producing `preview` profile, and `DATABASE_NAME`.
+
+Before considering keyboard/input UI done, verify:
+- manual sleep entry with the start time focused;
+- manual sleep entry with the end time focused;
+- editing an existing sleep record with the end time focused;
+- sleep-plan range editors with the second field focused;
+- plan name create/edit dialog with the keyboard open;
+- profile name input on a narrow Android screen;
+- TypeScript checks pass, and tests pass if the touched area can affect app behavior.
 
 ## Implementation lessons from navigation/settings work
 

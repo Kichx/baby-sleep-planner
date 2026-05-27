@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { Stack } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import {
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -1136,32 +1138,43 @@ export default function SleepPlanScreen() {
         onRequestClose={handleEditorRequestClose}
         transparent
         visible={isEditorModalVisible}>
-        <View style={styles.overlay}>
-          <View style={styles.sheet}>
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>{sheetTitle}</Text>
-              {nameEditorMode === 'create' ? (
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.keyboardAvoider}>
+          <View style={styles.overlay}>
+            <View style={styles.sheet}>
+              <View style={styles.sheetHeader}>
+                <Text style={styles.sheetTitle}>{sheetTitle}</Text>
+                {nameEditorMode === 'create' ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={isSaving}
+                    onPress={closeEditorWithoutSaving}
+                    style={styles.closeButton}>
+                    <Text style={styles.secondarySheetButtonText}>Отмена</Text>
+                  </Pressable>
+                ) : null}
                 <Pressable
                   accessibilityRole="button"
                   disabled={isSaving}
-                  onPress={closeEditorWithoutSaving}
+                  onPress={() => {
+                    void handleEditorDone();
+                  }}
                   style={styles.closeButton}>
-                  <Text style={styles.secondarySheetButtonText}>Отмена</Text>
+                  <Text style={styles.closeButtonText}>{sheetActionLabel}</Text>
                 </Pressable>
-              ) : null}
-              <Pressable
-                accessibilityRole="button"
-                disabled={isSaving}
-                onPress={() => {
-                  void handleEditorDone();
-                }}
-                style={styles.closeButton}>
-                <Text style={styles.closeButtonText}>{sheetActionLabel}</Text>
-              </Pressable>
+              </View>
+              <ScrollView
+                keyboardDismissMode="on-drag"
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                style={styles.sheetScroll}
+                contentContainerStyle={styles.sheetContent}>
+                {renderEditorContent()}
+              </ScrollView>
             </View>
-            {renderEditorContent()}
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal
@@ -1169,44 +1182,48 @@ export default function SleepPlanScreen() {
         onRequestClose={closeEditorWithoutSaving}
         transparent
         visible={nameEditorMode !== null}>
-        <View style={styles.nameOverlay}>
-          <View style={styles.nameDialog}>
-            <Text style={styles.nameDialogTitle}>{sheetTitle}</Text>
-            <Text style={styles.nameDialogText}>
-              {nameEditorMode === 'create'
-                ? 'Можно оставить предложенное название'
-                : 'Коротко, чтобы быстро отличать планы'}
-            </Text>
-            {visibleErrorMessage ? <Text style={styles.nameDialogError}>{visibleErrorMessage}</Text> : null}
-            {renderNameInput()}
-            <View style={styles.nameDialogActions}>
-              <Pressable
-                accessibilityRole="button"
-                disabled={isSaving}
-                onPress={closeEditorWithoutSaving}
-                style={({ pressed }) => [
-                  styles.nameSecondaryButton,
-                  pressed && !isSaving ? styles.confirmButtonPressed : null,
-                  isSaving ? styles.disabledCard : null,
-                ]}>
-                <Text style={styles.nameSecondaryButtonText}>Отмена</Text>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                disabled={isSaving}
-                onPress={() => {
-                  void handleEditorDone();
-                }}
-                style={({ pressed }) => [
-                  styles.namePrimaryButton,
-                  pressed && !isSaving ? styles.namePrimaryButtonPressed : null,
-                  isSaving ? styles.disabledCard : null,
-                ]}>
-                <Text style={styles.namePrimaryButtonText}>{sheetActionLabel}</Text>
-              </Pressable>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.keyboardAvoider}>
+          <View style={styles.nameOverlay}>
+            <View style={styles.nameDialog}>
+              <Text style={styles.nameDialogTitle}>{sheetTitle}</Text>
+              <Text style={styles.nameDialogText}>
+                {nameEditorMode === 'create'
+                  ? 'Можно оставить предложенное название'
+                  : 'Коротко, чтобы быстро отличать планы'}
+              </Text>
+              {visibleErrorMessage ? <Text style={styles.nameDialogError}>{visibleErrorMessage}</Text> : null}
+              {renderNameInput()}
+              <View style={styles.nameDialogActions}>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={isSaving}
+                  onPress={closeEditorWithoutSaving}
+                  style={({ pressed }) => [
+                    styles.nameSecondaryButton,
+                    pressed && !isSaving ? styles.confirmButtonPressed : null,
+                    isSaving ? styles.disabledCard : null,
+                  ]}>
+                  <Text style={styles.nameSecondaryButtonText}>Отмена</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={isSaving}
+                  onPress={() => {
+                    void handleEditorDone();
+                  }}
+                  style={({ pressed }) => [
+                    styles.namePrimaryButton,
+                    pressed && !isSaving ? styles.namePrimaryButtonPressed : null,
+                    isSaving ? styles.disabledCard : null,
+                  ]}>
+                  <Text style={styles.namePrimaryButtonText}>{sheetActionLabel}</Text>
+                </Pressable>
+              </View>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal
@@ -1257,6 +1274,9 @@ export default function SleepPlanScreen() {
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoider: {
+    flex: 1,
+  },
   screen: {
     flex: 1,
     backgroundColor: colors.background,
@@ -1740,6 +1760,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   sheet: {
+    maxHeight: '92%',
     gap: spacing.md,
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
@@ -1747,6 +1768,13 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: spacing.xl,
     backgroundColor: colors.background,
+  },
+  sheetScroll: {
+    flexShrink: 1,
+  },
+  sheetContent: {
+    gap: spacing.md,
+    paddingBottom: spacing.xs,
   },
   sheetHeader: {
     flexDirection: 'row',
