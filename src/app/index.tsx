@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Stack, type Href, useFocusEffect, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/PrimaryButton';
@@ -25,6 +25,7 @@ import {
   inferSleepKindForStart,
   minutesBetween,
 } from '@/core/sleepCalculations';
+import { buildTodayPlanShareText } from '@/core/shareTodayPlan';
 import {
   assignSleepDayPlanSnapshot,
   createSleepSession,
@@ -933,6 +934,33 @@ export default function TodaySleepScreen() {
     }
   }
 
+  async function handleShareTodayPlan() {
+    if (!isToday) {
+      return;
+    }
+
+    const shareAt = new Date();
+    const message = buildTodayPlanShareText({
+      childName,
+      generatedAt: shareAt,
+      plan: sleepPlan,
+      planName: currentPlanName,
+      sessions,
+    });
+
+    setNow(shareAt);
+    setErrorMessage(null);
+
+    try {
+      await Share.share({
+        message,
+        title: `План сна: ${childName}`,
+      });
+    } catch {
+      setErrorMessage('Не удалось открыть отправку плана');
+    }
+  }
+
   function renderDateShortcut(label: string, dayOffset: -1 | 0) {
     const targetDate = dayOffset === 0 ? now : addCalendarDays(now, dayOffset);
     const isActive =
@@ -1153,10 +1181,26 @@ export default function TodaySleepScreen() {
 
               <View style={styles.section}>
                 <View style={styles.scenarioHeader}>
-                  <Text style={styles.sectionTitle}>Сценарии</Text>
-                  <Text numberOfLines={1} style={styles.scenarioPlanLabel}>
-                    Активный план: {currentPlanName}
-                  </Text>
+                  <View style={styles.scenarioTitleBlock}>
+                    <Text style={styles.sectionTitle}>Сценарии</Text>
+                    <Text numberOfLines={1} style={styles.scenarioPlanLabel}>
+                      Активный план: {currentPlanName}
+                    </Text>
+                  </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={isLoading || isSaving}
+                    hitSlop={4}
+                    onPress={handleShareTodayPlan}
+                    style={({ pressed }) => [
+                      styles.sharePlanButton,
+                      pressed ? styles.sharePlanButtonPressed : null,
+                      isLoading || isSaving ? styles.sharePlanButtonDisabled : null,
+                    ]}>
+                    <Text numberOfLines={1} style={styles.sharePlanButtonText}>
+                      Поделиться
+                    </Text>
+                  </Pressable>
                 </View>
                 <View style={styles.scenarioList}>
                   {snapshot.scenarios.map((scenario) => (
@@ -1712,18 +1756,44 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   scenarioHeader: {
-    minHeight: 28,
+    minHeight: 38,
     flexDirection: 'row',
-    alignItems: 'baseline',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    gap: spacing.md,
+    gap: spacing.sm,
+  },
+  scenarioTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
   },
   scenarioPlanLabel: {
-    flexShrink: 1,
     color: colors.textMuted,
     fontSize: 13,
     fontWeight: '800',
-    textAlign: 'right',
+  },
+  sharePlanButton: {
+    minHeight: 34,
+    minWidth: 104,
+    flexShrink: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: spacing.sm,
+    backgroundColor: colors.surface,
+  },
+  sharePlanButtonPressed: {
+    backgroundColor: colors.primarySoft,
+  },
+  sharePlanButtonDisabled: {
+    opacity: 0.6,
+  },
+  sharePlanButtonText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '900',
   },
   scenarioList: {
     gap: spacing.sm,
