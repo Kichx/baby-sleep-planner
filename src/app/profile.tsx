@@ -107,8 +107,16 @@ function getTransferErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-function formatRestoreMessage(summary: { sleepSessions: number; targetDayPlans: number }): string {
-  return `Данные восстановлены. Записей сна: ${summary.sleepSessions}, планов: ${summary.targetDayPlans}`;
+function formatRestoreMessage(summary: {
+  childProfiles: number;
+  sleepSessions: number;
+  targetDayPlans: number;
+}): string {
+  return [
+    `Профилей: ${summary.childProfiles}`,
+    `Записей сна: ${summary.sleepSessions}`,
+    `Планов сна: ${summary.targetDayPlans}`,
+  ].join('\n');
 }
 
 function getDaysInMonth(year: number, month: number): number {
@@ -424,11 +432,19 @@ export default function ProfileScreen() {
       const backup = parseAppDataBackup(await selectedFile.text());
       const summary = await restoreAppDataBackup(db, backup);
       const restoredProfile = await getChildProfile(db);
+      const restoreMessage = formatRestoreMessage(summary);
 
       applyProfile(restoredProfile);
-      setMessage(formatRestoreMessage(summary));
+      setMessage(restoreMessage);
+      Alert.alert('Данные восстановлены', restoreMessage);
     } catch (error) {
-      setErrorMessage(getTransferErrorMessage(error, 'Не удалось восстановить данные'));
+      const restoreErrorMessage = getTransferErrorMessage(
+        error,
+        'Не удалось восстановить данные',
+      );
+
+      setErrorMessage(restoreErrorMessage);
+      Alert.alert('Не удалось восстановить данные', restoreErrorMessage);
     } finally {
       setIsDataTransferRunning(false);
     }
