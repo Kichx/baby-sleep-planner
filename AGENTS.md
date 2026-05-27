@@ -284,6 +284,17 @@ When giving build commands on Windows, prefer:
 - `cmd /c npx eas-cli@latest login`
 - `cmd /c npx eas-cli@latest build --platform android --profile preview`
 
+When the user asks to create/copy a new APK, treat it as a build task, not a code-change task:
+- first inspect `git status --short --branch`, `app.json`, `eas.json`, and `package.json`;
+- do not start Metro unless the user also asks to run the app locally;
+- run `cmd /c npm run typecheck` and `cmd /c npm run test` before starting the remote build;
+- check EAS auth with `cmd /c npx eas-cli@latest whoami`;
+- if EAS is already logged in, prefer `cmd /c npx eas-cli@latest build --platform android --profile preview --non-interactive` so the command can finish without prompts;
+- if EAS is not logged in, run `cmd /c npx eas-cli@latest login` once and wait for the user to complete auth instead of changing credentials or project config;
+- after the build finishes, report the EAS build URL, whether `versionCode` was auto-incremented, and which checks passed.
+
+Do not bump `expo.version`, change `android.package`, change `DATABASE_NAME`, reset Android credentials, or edit signing settings for a routine APK test build. With `cli.appVersionSource: "remote"` and preview `autoIncrement: true`, EAS may increment the remote Android `versionCode` without modifying local files. After any EAS build, run `git status --short --branch` and clearly report whether local files changed.
+
 When installing a new APK over an existing APK, the expected path is an update over the installed app. Do not ask the user to uninstall, clear app storage, or delete app data unless they explicitly accept losing local sleep history. If using adb, use an update install such as `adb install -r path\to\app.apk`.
 
 SQLite data preservation depends on keeping the same app identity and database identity. Do not rename `DATABASE_NAME` from `baby_sleep_planner.db` unless the task explicitly includes a data migration or export/import plan. Do not move sleep data to another storage mechanism without a migration plan.
