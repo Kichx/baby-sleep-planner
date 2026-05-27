@@ -7,6 +7,7 @@ import * as Sharing from 'expo-sharing';
 import { useSQLiteContext } from 'expo-sqlite';
 import {
   Alert,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -393,131 +394,139 @@ export default function ProfileScreen() {
   return (
     <>
       <Stack.Screen options={{ title: 'Профиль' }} />
-      <ScrollView
-        keyboardShouldPersistTaps="handled"
-        style={styles.screen}
-        contentContainerStyle={styles.scrollContent}>
-        <SafeAreaView edges={['bottom']} style={styles.safeArea}>
-          {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
-          {message ? <Text style={styles.successText}>{message}</Text> : null}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardAvoider}>
+        <ScrollView
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
+          style={styles.screen}
+          contentContainerStyle={styles.scrollContent}>
+          <SafeAreaView edges={['bottom']} style={styles.safeArea}>
+            {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+            {message ? <Text style={styles.successText}>{message}</Text> : null}
 
-          <View style={styles.profileHeader}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{profileInitial}</Text>
+            <View style={styles.profileHeader}>
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{profileInitial}</Text>
+              </View>
+              <View style={styles.profileTitleBlock}>
+                <Text style={styles.profileTitle}>{profileName}</Text>
+                <Text style={styles.profileSubtitle}>Профиль ребёнка</Text>
+              </View>
             </View>
-            <View style={styles.profileTitleBlock}>
-              <Text style={styles.profileTitle}>{profileName}</Text>
-              <Text style={styles.profileSubtitle}>Профиль ребёнка</Text>
-            </View>
-          </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Ребёнок</Text>
-            <TextInput
-              accessibilityLabel="Имя ребёнка"
-              autoCapitalize="words"
-              editable={!isBusy}
-              maxLength={32}
-              onChangeText={(value) => {
-                setDraftName(value);
-                setMessage(null);
-                setErrorMessage(null);
-              }}
-              placeholder="Имя ребёнка"
-              placeholderTextColor={colors.textMuted}
-              returnKeyType="done"
-              style={styles.nameInput}
-              value={draftName}
-            />
-            <Pressable
-              accessibilityLabel="Дата рождения ребёнка"
-              accessibilityRole="button"
-              disabled={isBusy}
-              onPress={openBirthDatePicker}
-              style={({ pressed }) => [
-                styles.birthDateField,
-                pressed && !isBusy ? styles.birthDateFieldPressed : null,
-              ]}>
-              <View style={styles.birthDateTextBlock}>
-                <Text style={styles.compactLabel}>Дата рождения ребёнка</Text>
-                <Text numberOfLines={1} style={styles.birthDateValue}>
-                  {birthDateLabel}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Ребёнок</Text>
+              <TextInput
+                accessibilityLabel="Имя ребёнка"
+                autoCapitalize="words"
+                editable={!isBusy}
+                maxLength={32}
+                onChangeText={(value) => {
+                  setDraftName(value);
+                  setMessage(null);
+                  setErrorMessage(null);
+                }}
+                placeholder="Имя ребёнка"
+                placeholderTextColor={colors.textMuted}
+                returnKeyType="done"
+                style={styles.nameInput}
+                value={draftName}
+              />
+              <Pressable
+                accessibilityLabel="Дата рождения ребёнка"
+                accessibilityRole="button"
+                disabled={isBusy}
+                onPress={openBirthDatePicker}
+                style={({ pressed }) => [
+                  styles.birthDateField,
+                  pressed && !isBusy ? styles.birthDateFieldPressed : null,
+                ]}>
+                <View style={styles.birthDateTextBlock}>
+                  <Text style={styles.compactLabel}>Дата рождения ребёнка</Text>
+                  <Text numberOfLines={1} style={styles.birthDateValue}>
+                    {birthDateLabel}
+                  </Text>
+                </View>
+                <Text numberOfLines={2} style={styles.ageText}>
+                  {ageLabel}
                 </Text>
-              </View>
-              <Text numberOfLines={2} style={styles.ageText}>
-                {ageLabel}
-              </Text>
-            </Pressable>
-            <PrimaryButton
-              compact
-              disabled={isBusy || !hasProfileChanges}
-              label={isSaving ? 'Сохраняем...' : 'Сохранить'}
-              onPress={handleSaveProfile}
-            />
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>План сна</Text>
-            <Pressable
-              accessibilityLabel="Открыть план сна"
-              accessibilityRole="button"
-              onPress={openSleepPlan}
-              style={({ pressed }) => [styles.planLink, pressed ? styles.planLinkPressed : null]}>
-              <View style={styles.planLinkIcon}>
-                <SleepPlanIcon backgroundColor={colors.primarySoft} />
-              </View>
-              <View style={styles.planLinkTextBlock}>
-                <Text style={styles.planLinkTitle}>Открыть план сна</Text>
-                <Text style={styles.planLinkSubtitle}>График и прогноз отбоя</Text>
-              </View>
-              <Text style={styles.planLinkArrow}>{'>'}</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Данные</Text>
-            <View style={styles.infoList}>
-              <InfoRow label="Хранение" value="На устройстве" />
-              <InfoRow label="Аккаунт" value="Не нужен" />
-              <InfoRow label="Облако" value="Не используется" />
+              </Pressable>
+              <PrimaryButton
+                compact
+                disabled={isBusy || !hasProfileChanges}
+                label={isSaving ? 'Сохраняем...' : 'Сохранить'}
+                onPress={handleSaveProfile}
+              />
             </View>
-            <View style={styles.transferBlock}>
-              <View style={styles.transferTextBlock}>
-                <Text style={styles.transferTitle}>Перенос данных</Text>
-                <Text style={styles.transferText}>Профиль, планы и записи сна</Text>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>План сна</Text>
+              <Pressable
+                accessibilityLabel="Открыть план сна"
+                accessibilityRole="button"
+                onPress={openSleepPlan}
+                style={({ pressed }) => [styles.planLink, pressed ? styles.planLinkPressed : null]}>
+                <View style={styles.planLinkIcon}>
+                  <SleepPlanIcon backgroundColor={colors.primarySoft} />
+                </View>
+                <View style={styles.planLinkTextBlock}>
+                  <Text style={styles.planLinkTitle}>Открыть план сна</Text>
+                  <Text style={styles.planLinkSubtitle}>График и прогноз отбоя</Text>
+                </View>
+                <Text style={styles.planLinkArrow}>{'>'}</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Данные</Text>
+              <View style={styles.infoList}>
+                <InfoRow label="Хранение" value="На устройстве" />
+                <InfoRow label="Аккаунт" value="Не нужен" />
+                <InfoRow label="Облако" value="Не используется" />
               </View>
-              <View style={styles.transferActions}>
-                <PrimaryButton
-                  compact
-                  disabled={isBusy}
-                  label={isDataTransferRunning ? 'Готовим...' : 'Выгрузить'}
-                  onPress={handleExportData}
-                />
-                <PrimaryButton
-                  compact
-                  disabled={isBusy}
-                  label="Восстановить"
-                  onPress={confirmRestoreData}
-                  variant="secondary"
-                />
+              <View style={styles.transferBlock}>
+                <View style={styles.transferTextBlock}>
+                  <Text style={styles.transferTitle}>Перенос данных</Text>
+                  <Text style={styles.transferText}>Профиль, планы и записи сна</Text>
+                </View>
+                <View style={styles.transferActions}>
+                  <PrimaryButton
+                    compact
+                    disabled={isBusy}
+                    label={isDataTransferRunning ? 'Готовим...' : 'Выгрузить'}
+                    onPress={handleExportData}
+                  />
+                  <PrimaryButton
+                    compact
+                    disabled={isBusy}
+                    label="Восстановить"
+                    onPress={confirmRestoreData}
+                    variant="secondary"
+                  />
+                </View>
               </View>
             </View>
-          </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>О приложении</Text>
-            <View style={styles.aboutBlock}>
-              <Text style={styles.aboutTitle}>Планировщик сна</Text>
-              <Text style={styles.aboutText}>Версия 1.0.0</Text>
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>О приложении</Text>
+              <View style={styles.aboutBlock}>
+                <Text style={styles.aboutTitle}>Планировщик сна</Text>
+                <Text style={styles.aboutText}>Версия 1.0.0</Text>
+              </View>
             </View>
-          </View>
-        </SafeAreaView>
-      </ScrollView>
+          </SafeAreaView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoider: {
+    flex: 1,
+  },
   screen: {
     flex: 1,
     backgroundColor: colors.background,
