@@ -227,6 +227,29 @@ Before considering manual ongoing sleep editing done, verify:
 - editing an already active sleep keeps the end controls disabled and saves with `endedAt: null`;
 - returning to the main screen reloads the latest-sleep eligibility after save, delete, start, or stop.
 
+## Implementation lessons from active sleep notifications
+
+For local Android notifications about an active sleep, keep notification code in `src/notifications` and keep UI screens thin. Notification state should be derived from the global active sleep query, such as `getActiveSleepSession`, not from selected-day or nearby display arrays. Those arrays can intentionally exclude or clip sessions and must not decide whether an ongoing sleep notification exists.
+
+For SDK 56, `expo-notifications` can crash Expo Go on Android when imported statically because Android push notification support was removed from Expo Go in SDK 53. If a feature must still work in Expo Go, guard with `Constants.appOwnership === AppOwnership.Expo` and use a lazy dynamic import of `expo-notifications` only outside Expo Go. Type-only imports are fine; value imports at module top level are not.
+
+Use `cmd /c npx expo install expo-notifications` so the dependency matches the current Expo SDK. For local-only sleep notifications, do not request Expo push tokens, FCM, backend services, accounts, or cloud sync. Configure the plugin in `app.json` with a transparent white Android notification icon and a stable channel, but do not change `android.package`, `DATABASE_NAME`, signing settings, or unrelated build config.
+
+For an ongoing sleep notification, use one stable notification identifier so updates replace the previous notification. On Android use a quiet channel, no sound or vibration, `sticky: true`, and `autoDismiss: false`; dismiss it whenever the active session ends, is deleted, or an edit/import removes `endedAt: null`. Treat notification failures as non-blocking so sleep logging still succeeds.
+
+Minute-by-minute notification text can be updated while the JS runtime is alive, plus immediately after start, stop, delete, or manual ongoing edits. Do not promise reliable background minute updates after Android kills the app unless the task explicitly accepts native foreground-service work and the extra APK/dev-build complexity.
+
+Before considering active sleep notifications done, verify:
+- Expo Go still starts without importing or crashing on `expo-notifications`;
+- starting sleep creates or refreshes the notification in an APK/dev build;
+- stopping sleep dismisses it;
+- creating an ongoing manual sleep shows it;
+- editing the latest completed sleep to ongoing shows it;
+- editing or deleting an active sleep dismisses or refreshes it correctly;
+- relaunching the app with an existing active sleep resynchronizes the notification;
+- denying notification permission does not break sleep logging;
+- TypeScript checks pass and tests pass.
+
 ## Implementation lessons from cross-day sleep record lists
 
 When expanding a UI list to show more than the selected sleep day, keep display data separate from calculation data. Day summaries, timelines, recommendations, and start/stop state should continue to receive only the sessions for the selected sleep day unless the task explicitly asks to change the calculations.
@@ -449,10 +472,10 @@ Before changing files:
 3. Treat existing changes as user work or previous agent work. Do not revert, overwrite, stash, or move them unless explicitly asked.
 
 Branching:
-- For a new non-trivial task, prefer a task branch with prefix `kichx_c/` and a short kebab-case task name when the working tree is clean.
-- If the working tree is dirty and the task continues the current work, continue on the current branch.
-- If the working tree is dirty and the task is unrelated, ask the user before creating or switching branches.
-- On this Windows checkout, creating slash-prefixed branches such as `kichx_c/example` may fail with `cannot lock ref ... unable to create directory` even when refs look clean. Try once, inspect refs only if useful, then continue on the current branch and report the limitation. Do not manually edit `.git` refs.
+- Do not create or switch to a separate task branch unless the user explicitly asks for a branch, merge, or branch switch. The default is to continue on the current branch so several user changes can stay in one working context.
+- If the user explicitly asks to create a branch, use prefix `kichx_c/` by default with a short kebab-case task name unless they request another name.
+- If the working tree is dirty and the new task could conflict with existing changes, ask before editing affected files. Do not use branch switching as the default way to separate unrelated work.
+- On this Windows checkout, creating slash-prefixed branches such as `kichx_c/example` may fail with `cannot lock ref ... unable to create directory` even when refs look clean. Try once only when branch creation was explicitly requested, inspect refs only if useful, then continue on the current branch if the user accepts. Do not manually edit `.git` refs.
 
 Commits and history:
 - Do not run `git add`, `git commit`, `git push`, `git reset`, `git checkout --`, or `git restore` unless the user explicitly asks.
