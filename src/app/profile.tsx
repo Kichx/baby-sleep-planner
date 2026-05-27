@@ -1,15 +1,36 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
+import * as DocumentPicker from 'expo-document-picker';
+import { File, Paths } from 'expo-file-system';
 import { Stack, type Href, useRouter } from 'expo-router';
+import * as Sharing from 'expo-sharing';
 import { useSQLiteContext } from 'expo-sqlite';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Alert,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { SleepPlanIcon } from '@/components/SleepPlanIcon';
 import { DEFAULT_CHILD_NAME } from '@/constants/sleep';
 import { colors, radius, spacing } from '@/constants/theme';
-import { getChildProfile, updateChildProfile } from '@/db';
+import {
+  APP_DATA_BACKUP_MIME_TYPE,
+  DataTransferError,
+  buildAppDataBackup,
+  getChildProfile,
+  parseAppDataBackup,
+  restoreAppDataBackup,
+  serializeAppDataBackup,
+  updateChildProfile,
+} from '@/db';
 
 const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
 
@@ -66,6 +87,32 @@ function getProfileInitial(name: string): string {
 
 function startOfCalendarDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+}
+
+function formatBackupFileName(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+
+  return `rezhimka-backup-${year}-${month}-${day}-${hours}${minutes}.json`;
+}
+
+function getTransferErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof DataTransferError) {
+    if (error.code === 'invalid-data') {
+      return 'В файле не хватает данных или они повреждены';
+    }
+
+    return 'Выберите файл экспорта из Режимки';
+  }
+
+  return fallback;
+}
+
+function formatRestoreMessage(summary: { sleepSessions: number; targetDayPlans: number }): string {
+  return `Данные восстановлены. Записей сна: ${summary.sleepSessions}, планов: ${summary.targetDayPlans}`;
 }
 
 function getDaysInMonth(year: number, month: number): number {
@@ -134,6 +181,7 @@ export default function ProfileScreen() {
   const [draftBirthDate, setDraftBirthDate] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDataTransferRunning, setIsDataTransferRunning] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -147,6 +195,14 @@ export default function ProfileScreen() {
   const hasProfileChanges =
     trimmedDraftName.length > 0 &&
     (trimmedDraftName !== profileName || draftBirthDate !== birthDate);
+  const isBusy = isLoading || isSaving || isDataTransferRunning;
+
+  function applyProfile(profile: { name: string; birthDate: string | null }) {
+    setProfileName(profile.name);
+    setBirthDate(profile.birthDate);
+    setDraftName(profile.name);
+    setDraftBirthDate(profile.birthDate);
+  }
 
   useEffect(() => {
     let isMounted = true;
@@ -158,10 +214,7 @@ export default function ProfileScreen() {
         const profile = await getChildProfile(db);
 
         if (isMounted) {
-          setProfileName(profile.name);
-          setBirthDate(profile.birthDate);
-          setDraftName(profile.name);
-          setDraftBirthDate(profile.birthDate);
+          applyProfile(profile);
           setErrorMessage(null);
         }
       } catch {
@@ -253,6 +306,86 @@ export default function ProfileScreen() {
     }
   }
 
+  async function handleExportData() {
+    setIsDataTransferRunning(true);
+    setMessage(null);
+    setErrorMessage(null);
+
+    try {
+      const backup = await buildAppDataBackup(db);
+      const backupFile = new File(Paths.cache, formatBackupFileName(new Date()));
+      backupFile.create({ overwrite: true });
+      backupFile.write(serializeAppDataBackup(backup));
+
+      const isSharingAvailable = await Sharing.isAvailableAsync();
+
+      if (!isSharingAvailable) {
+        throw new Error('Sharing is unavailable');
+      }
+
+      await Sharing.shareAsync(backupFile.uri, {
+        UTI: 'public.json',
+        dialogTitle: 'Выгрузить данные',
+        mimeType: APP_DATA_BACKUP_MIME_TYPE,
+      });
+      setMessage('Файл экспорта подготовлен');
+    } catch (error) {
+      setErrorMessage(getTransferErrorMessage(error, 'Не удалось выгрузить данные'));
+    } finally {
+      setIsDataTransferRunning(false);
+    }
+  }
+
+  async function pickAndRestoreData() {
+    setIsDataTransferRunning(true);
+    setMessage(null);
+    setErrorMessage(null);
+
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        copyToCacheDirectory: true,
+        multiple: false,
+        type: '*/*',
+      });
+
+      if (result.canceled) {
+        return;
+      }
+
+      const selectedFile = new File(result.assets[0].uri);
+      const backup = parseAppDataBackup(await selectedFile.text());
+      const summary = await restoreAppDataBackup(db, backup);
+      const restoredProfile = await getChildProfile(db);
+
+      applyProfile(restoredProfile);
+      setMessage(formatRestoreMessage(summary));
+    } catch (error) {
+      setErrorMessage(getTransferErrorMessage(error, 'Не удалось восстановить данные'));
+    } finally {
+      setIsDataTransferRunning(false);
+    }
+  }
+
+  function confirmRestoreData() {
+    Alert.alert(
+      'Восстановить данные?',
+      'Текущие записи сна и планы будут заменены данными из файла.',
+      [
+        {
+          style: 'cancel',
+          text: 'Отмена',
+        },
+        {
+          onPress: () => {
+            void pickAndRestoreData();
+          },
+          style: 'destructive',
+          text: 'Выбрать файл',
+        },
+      ],
+    );
+  }
+
   function openSleepPlan() {
     router.push(SLEEP_PLAN_ROUTE);
   }
@@ -283,7 +416,7 @@ export default function ProfileScreen() {
             <TextInput
               accessibilityLabel="Имя ребёнка"
               autoCapitalize="words"
-              editable={!isLoading && !isSaving}
+              editable={!isBusy}
               maxLength={32}
               onChangeText={(value) => {
                 setDraftName(value);
@@ -299,11 +432,11 @@ export default function ProfileScreen() {
             <Pressable
               accessibilityLabel="Дата рождения ребёнка"
               accessibilityRole="button"
-              disabled={isLoading || isSaving}
+              disabled={isBusy}
               onPress={openBirthDatePicker}
               style={({ pressed }) => [
                 styles.birthDateField,
-                pressed && !isSaving ? styles.birthDateFieldPressed : null,
+                pressed && !isBusy ? styles.birthDateFieldPressed : null,
               ]}>
               <View style={styles.birthDateTextBlock}>
                 <Text style={styles.compactLabel}>Дата рождения ребёнка</Text>
@@ -317,7 +450,7 @@ export default function ProfileScreen() {
             </Pressable>
             <PrimaryButton
               compact
-              disabled={isLoading || isSaving || !hasProfileChanges}
+              disabled={isBusy || !hasProfileChanges}
               label={isSaving ? 'Сохраняем...' : 'Сохранить'}
               onPress={handleSaveProfile}
             />
@@ -347,6 +480,27 @@ export default function ProfileScreen() {
               <InfoRow label="Хранение" value="На устройстве" />
               <InfoRow label="Аккаунт" value="Не нужен" />
               <InfoRow label="Облако" value="Не используется" />
+            </View>
+            <View style={styles.transferBlock}>
+              <View style={styles.transferTextBlock}>
+                <Text style={styles.transferTitle}>Перенос данных</Text>
+                <Text style={styles.transferText}>Профиль, планы и записи сна</Text>
+              </View>
+              <View style={styles.transferActions}>
+                <PrimaryButton
+                  compact
+                  disabled={isBusy}
+                  label={isDataTransferRunning ? 'Готовим...' : 'Выгрузить'}
+                  onPress={handleExportData}
+                />
+                <PrimaryButton
+                  compact
+                  disabled={isBusy}
+                  label="Восстановить"
+                  onPress={confirmRestoreData}
+                  variant="secondary"
+                />
+              </View>
             </View>
           </View>
 
@@ -537,6 +691,30 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '900',
     textAlign: 'right',
+  },
+  transferBlock: {
+    gap: spacing.md,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  transferTextBlock: {
+    gap: spacing.xs,
+  },
+  transferTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  transferText: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  transferActions: {
+    gap: spacing.sm,
   },
   aboutBlock: {
     minHeight: 76,

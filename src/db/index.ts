@@ -1,6 +1,14 @@
 export { migrateDatabase } from '@/db/database';
 export { DATABASE_NAME, DATABASE_VERSION, INITIAL_SCHEMA_SQL } from '@/db/schema';
 export {
+  APP_DATA_BACKUP_MIME_TYPE,
+  DataTransferError,
+  buildAppDataBackup,
+  parseAppDataBackup,
+  restoreAppDataBackup,
+  serializeAppDataBackup,
+} from '@/db/dataTransfer';
+export {
   activateTargetDayPlan,
   createTargetDayPlan,
   createSleepSession,

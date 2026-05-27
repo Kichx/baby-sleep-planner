@@ -304,6 +304,24 @@ Before considering an APK-affecting change ready, verify:
 - fresh-database startup works;
 - migration from the previous database version with existing sleep rows preserves those rows.
 
+## Implementation lessons from app data transfer work
+
+For user-facing export/import, prefer a versioned JSON backup over copying or renaming the SQLite database file. Keep the backup format explicit with a stable app-specific marker, a format version, `databaseVersion`, `exportedAt`, and separate arrays for `child_profile`, `sleep_sessions`, and `target_day_plan` data. This lets future database migrations read old exports without changing `DATABASE_NAME`.
+
+Keep transfer code in `src/db` and keep the UI thin. Export should first ensure the default child profile and target day plan exist, then read the SQLite tables in stable order. Import should parse and validate unknown file content before writing anything: reject invalid JSON, unsupported format versions, missing default child profile, duplicate ids, unknown child references, invalid sleep kinds, invalid dates, and sleep sessions where `ended_at <= started_at`.
+
+Treat restore as a destructive replace of local app data unless the task explicitly asks for merge behavior. Always show a confirmation before opening the picker, run the delete/insert sequence inside a SQLite transaction, delete child-dependent tables before `child_profile`, and normalize active target plans after import so each child has exactly one active plan.
+
+Use Expo SDK-versioned APIs for files. For SDK 56, use `expo-file-system` `File`/`Paths` for reading and writing, `expo-document-picker` with `copyToCacheDirectory: true` so the picked file is readable immediately, and `expo-sharing` for handing the export file to Android's share/save sheet. Install these with `cmd /c npx expo install ...` so package versions match the current Expo SDK, and check the versioned docs before coding.
+
+When changing backup or restore logic, add focused tests for backup parsing/validation. Before considering the feature ready, verify:
+- TypeScript checks pass;
+- tests pass;
+- restoring rejects a malformed or unrelated JSON file;
+- restoring a valid file updates profile, plans, and sleep rows;
+- returning to the main screen uses restored profile, active plan, and sleep sessions;
+- `android.package` and `DATABASE_NAME` are unchanged.
+
 ## Implementation lessons from editable sleep plan work
 
 For the "План сна" screen, keep the primary parameters as compact metric cards, not always-visible form rows. Editing should happen from a tap on the relevant card so the screen stays scannable and one-handed.
