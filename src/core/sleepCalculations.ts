@@ -1,4 +1,5 @@
 import { buildRecommendationScenarios } from '@/core/recommendations';
+import { calculatePlanBedtimeRange } from '@/core/sleepPlan';
 import type {
   SleepDaySummary,
   SleepKind,
@@ -13,6 +14,8 @@ import type {
 const MS_PER_MINUTE = 60_000;
 const MAX_NAP_INDEX_OFFSET = 1;
 const DAY_MINUTES = 24 * 60;
+const SUMMARY_TOLERANCE_MINUTES = 30;
+const MAX_SUMMARY_FEEDBACK_LINES = 3;
 
 interface BedtimeProjectionInput {
   activeSession: SleepSession | undefined;
@@ -310,6 +313,174 @@ function getTimelineSessionEnd(session: SleepSession, now: Date, dayEnd: Date): 
   return minDate(now, dayEnd);
 }
 
+function formatSummaryDuration(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+
+  if (hours === 0) {
+    return `${restMinutes} мин`;
+  }
+
+  if (restMinutes === 0) {
+    return `${hours} ч`;
+  }
+
+  return `${hours} ч ${restMinutes} мин`;
+}
+
+function formatNapCount(value: number): string {
+  const mod10 = value % 10;
+  const mod100 = value % 100;
+  const suffix =
+    mod10 === 1 && mod100 !== 11
+      ? 'сон'
+      : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
+        ? 'сна'
+        : 'снов';
+
+  return `${value} ${suffix}`;
+}
+
+function getPlanBedtimeRange(dayStart: Date, plan: SleepPlanPreset) {
+  const bedtimeRange = calculatePlanBedtimeRange(plan);
+  const startAt = dateAtSleepDayMinutes(dayStart, bedtimeRange.startMinutes);
+  let endAt = dateAtSleepDayMinutes(dayStart, bedtimeRange.endMinutes);
+
+  if (endAt.getTime() < startAt.getTime()) {
+    endAt = addMinutes(endAt, DAY_MINUTES);
+  }
+
+  return { endAt, startAt };
+}
+
+function getDeltaOutsideRange(date: Date, rangeStart: Date, rangeEnd: Date): number {
+  if (date.getTime() < rangeStart.getTime()) {
+    return -minutesBetween(date, rangeStart);
+  }
+
+  if (date.getTime() > rangeEnd.getTime()) {
+    return minutesBetween(rangeEnd, date);
+  }
+
+  return 0;
+}
+
+function getClosingNightSegment(segments: SleepTimelineSegment[], dayStart: Date, dayEnd: Date) {
+  return [...segments]
+    .reverse()
+    .find(
+      (segment) =>
+        segment.kind === 'night' &&
+        segment.actualStartedAt.getTime() >= dayStart.getTime() &&
+        segment.actualStartedAt.getTime() < dayEnd.getTime(),
+    );
+}
+
+function buildSummaryFeedback(input: {
+  sleepSessionCount: number;
+  targetAwakeDeltaMinutes: number;
+  targetDaySleepDeltaMinutes: number;
+  napCountDelta: number;
+  targetBedtimeDeltaMinutes: number | null;
+}): string[] {
+  if (input.sleepSessionCount === 0) {
+    return ['Итоги появятся после первой записи сна.'];
+  }
+
+  const feedbackLines: string[] = [];
+
+  if (Math.abs(input.targetAwakeDeltaMinutes) > SUMMARY_TOLERANCE_MINUTES) {
+    feedbackLines.push(
+      `Бодрствования на ${formatSummaryDuration(
+        Math.abs(input.targetAwakeDeltaMinutes),
+      )} ${input.targetAwakeDeltaMinutes > 0 ? 'больше цели' : 'меньше цели'}`,
+    );
+  }
+
+  if (Math.abs(input.targetDaySleepDeltaMinutes) > SUMMARY_TOLERANCE_MINUTES) {
+    feedbackLines.push(
+      `Дневного сна на ${formatSummaryDuration(
+        Math.abs(input.targetDaySleepDeltaMinutes),
+      )} ${input.targetDaySleepDeltaMinutes > 0 ? 'больше цели' : 'меньше цели'}`,
+    );
+  }
+
+  if (input.napCountDelta !== 0) {
+    feedbackLines.push(
+      `Дневных снов на ${formatNapCount(Math.abs(input.napCountDelta))} ${
+        input.napCountDelta > 0 ? 'больше плана' : 'меньше плана'
+      }`,
+    );
+  }
+
+  if (
+    input.targetBedtimeDeltaMinutes !== null &&
+    Math.abs(input.targetBedtimeDeltaMinutes) > SUMMARY_TOLERANCE_MINUTES
+  ) {
+    feedbackLines.push(
+      `Отбой на ${formatSummaryDuration(Math.abs(input.targetBedtimeDeltaMinutes))} ${
+        input.targetBedtimeDeltaMinutes > 0 ? 'позже плана' : 'раньше плана'
+      }`,
+    );
+  }
+
+  return feedbackLines.length > 0
+    ? feedbackLines.slice(0, MAX_SUMMARY_FEEDBACK_LINES)
+    : ['Основные показатели близко к плану'];
+}
+
+function getSummaryVerdict(input: {
+  sleepSessionCount: number;
+  targetAwakeDeltaMinutes: number;
+  targetDaySleepDeltaMinutes: number;
+  napCountDelta: number;
+  targetBedtimeDeltaMinutes: number | null;
+}): string {
+  if (input.sleepSessionCount === 0) {
+    return 'Нет записей сна';
+  }
+
+  if (input.targetAwakeDeltaMinutes > SUMMARY_TOLERANCE_MINUTES) {
+    return 'Бодрствования больше цели';
+  }
+
+  if (input.targetAwakeDeltaMinutes < -SUMMARY_TOLERANCE_MINUTES) {
+    return 'Бодрствования меньше цели';
+  }
+
+  if (input.targetDaySleepDeltaMinutes < -SUMMARY_TOLERANCE_MINUTES) {
+    return 'Дневного сна меньше цели';
+  }
+
+  if (input.targetDaySleepDeltaMinutes > SUMMARY_TOLERANCE_MINUTES) {
+    return 'Дневного сна больше цели';
+  }
+
+  if (
+    input.targetBedtimeDeltaMinutes !== null &&
+    input.targetBedtimeDeltaMinutes > SUMMARY_TOLERANCE_MINUTES
+  ) {
+    return 'Отбой позже плана';
+  }
+
+  if (
+    input.targetBedtimeDeltaMinutes !== null &&
+    input.targetBedtimeDeltaMinutes < -SUMMARY_TOLERANCE_MINUTES
+  ) {
+    return 'Отбой раньше плана';
+  }
+
+  if (input.napCountDelta < 0) {
+    return 'Снов меньше плана';
+  }
+
+  if (input.napCountDelta > 0) {
+    return 'Снов больше плана';
+  }
+
+  return 'День близко к плану';
+}
+
 export function buildSleepTimelineSegments(
   sessions: SleepSession[],
   dayStart: Date,
@@ -375,16 +546,49 @@ export function buildSleepDaySummary(
     return total + minutesBetween(segmentStart, countedEnd);
   }, 0);
   const totalAwakeMinutes = Math.max(0, elapsedMinutes - elapsedSleepMinutes);
-  const awakeDeltaMinutes = Math.abs(totalAwakeMinutes - plan.targetAwakeMinutes);
+  const completedNaps = segments.filter(
+    (segment) => segment.kind === 'nap' && segment.actualEndedAt !== null,
+  ).length;
+  const targetAwakeDeltaMinutes = totalAwakeMinutes - plan.targetAwakeMinutes;
+  const targetDaySleepDeltaMinutes = totalDaySleepMinutes - plan.targetDaySleepMinutes;
+  const napCountDelta = completedNaps - plan.napCount;
+  const closingNightSegment = getClosingNightSegment(segments, dayStart, dayEnd);
+  const bedtimeAt = closingNightSegment?.actualStartedAt ?? null;
+  const wakeUpAt = closingNightSegment?.actualEndedAt ?? null;
+  const planBedtimeRange = getPlanBedtimeRange(dayStart, plan);
+  const targetBedtimeDeltaMinutes = bedtimeAt
+    ? getDeltaOutsideRange(bedtimeAt, planBedtimeRange.startAt, planBedtimeRange.endAt)
+    : null;
+  const verdictLabel = getSummaryVerdict({
+    napCountDelta,
+    sleepSessionCount: segments.length,
+    targetAwakeDeltaMinutes,
+    targetBedtimeDeltaMinutes,
+    targetDaySleepDeltaMinutes,
+  });
+  const feedbackLines = buildSummaryFeedback({
+    napCountDelta,
+    sleepSessionCount: segments.length,
+    targetAwakeDeltaMinutes,
+    targetBedtimeDeltaMinutes,
+    targetDaySleepDeltaMinutes,
+  });
+  const awakeDeltaMinutes = Math.abs(targetAwakeDeltaMinutes);
 
   return {
     totalDaySleepMinutes,
     totalNightSleepMinutes,
     totalAwakeMinutes,
     sleepSessionCount: segments.length,
-    completedNaps: segments.filter(
-      (segment) => segment.kind === 'nap' && segment.actualEndedAt !== null,
-    ).length,
+    completedNaps,
+    targetAwakeDeltaMinutes,
+    targetDaySleepDeltaMinutes,
+    napCountDelta,
+    targetBedtimeDeltaMinutes,
+    bedtimeAt,
+    wakeUpAt,
+    verdictLabel,
+    feedbackLines,
     onTrackLabel:
       awakeDeltaMinutes <= 30 ? 'День близко к плану' : 'День уходит от плана',
   };
