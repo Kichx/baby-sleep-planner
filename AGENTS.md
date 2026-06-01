@@ -306,6 +306,37 @@ Before considering active sleep notifications done, verify:
 - denying notification permission does not break sleep logging;
 - TypeScript checks pass, tests pass, and Android build succeeds if native code changed.
 
+## Implementation lessons from next sleep and bedtime reminders
+
+For next-sleep and bedtime reminders, keep the user-facing scheduling decision in `src/core` as pure TypeScript, such as `buildNextSleepReminder`. UI screens should not decide reminder copy, lead time, or whether the next sleep is a nap or night sleep.
+
+Reminder scheduling should live in `src/notifications` and reuse the same active plan and `buildTodaySleepSnapshot` logic as the main screen. Load sessions from the local database around the current sleep day; do not derive reminders from selected-day UI arrays, nearby display rows, history lists, or stale screen state.
+
+Use one stable scheduled-notification identifier for the next sleep reminder so every sync replaces the previous reminder. Cancel the reminder when the baby is already sleeping, because the active sleep notification owns that state. Treat all reminder permission, scheduling, and cancellation failures as non-blocking.
+
+Keep `expo-notifications` behind the shared lazy import guard, such as `src/notifications/expoNotifications.ts`. Do not add value imports from `expo-notifications` at module top level. If reminder behavior must work in Expo Go, verify Android Expo Go still starts safely; if it cannot, degrade by doing nothing rather than breaking sleep logging.
+
+Resync sleep reminders after every mutation that can change the next sleep prediction:
+- start or stop sleep;
+- create, edit, delete, or mark a sleep as ongoing;
+- save changes to the active plan;
+- activate or delete a plan when the active plan changes;
+- restore/import app data.
+
+Reminder text should stay calm and actionable. Use wording like "Ориентир на сон" or "Ориентир на отбой"; do not use alarming warnings, medical claims, guilt language, or long recommendation explanations in notifications.
+
+Do not use repeated local notification rescheduling as a background timer. Schedule only the nearest useful reminder, then recompute when the app becomes active or local data changes. For local-only reminders, do not request push tokens, FCM, backend services, accounts, or cloud sync.
+
+Before considering next-sleep reminders done, verify:
+- no reminder is scheduled while an active sleep is ongoing;
+- the next nap reminder updates after stop/edit/delete/manual ongoing changes;
+- the bedtime reminder updates after active plan changes;
+- restoring data refreshes or cancels the reminder based on restored sleep and plan data;
+- denied notification permission does not block sleep logging or plan editing;
+- Expo Go does not crash from a static `expo-notifications` import;
+- TypeScript checks pass and unit tests cover core reminder timing/copy decisions;
+- Android APK/dev build verifies actual scheduled notification delivery and channel behavior.
+
 ## Implementation lessons from cross-day sleep record lists
 
 When expanding a UI list to show more than the selected sleep day, keep display data separate from calculation data. Day summaries, timelines, recommendations, and start/stop state should continue to receive only the sessions for the selected sleep day unless the task explicitly asks to change the calculations.

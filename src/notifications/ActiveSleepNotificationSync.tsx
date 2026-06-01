@@ -7,11 +7,16 @@ import {
   configureActiveSleepNotificationHandler,
   syncActiveSleepNotificationFromDatabase,
 } from '@/notifications/activeSleepNotification';
+import { syncSleepNotificationsFromDatabase } from '@/notifications/sleepNotifications';
 
 export function ActiveSleepNotificationSync() {
   const db = useSQLiteContext();
 
   const syncNotification = useCallback(() => {
+    void syncSleepNotificationsFromDatabase(db);
+  }, [db]);
+
+  const refreshActiveSleepNotification = useCallback(() => {
     void syncActiveSleepNotificationFromDatabase(db);
   }, [db]);
 
@@ -19,7 +24,10 @@ export function ActiveSleepNotificationSync() {
     configureActiveSleepNotificationHandler();
     syncNotification();
 
-    const timer = setInterval(syncNotification, ACTIVE_SLEEP_NOTIFICATION_REFRESH_MS);
+    const timer = setInterval(
+      refreshActiveSleepNotification,
+      ACTIVE_SLEEP_NOTIFICATION_REFRESH_MS,
+    );
     const appStateSubscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
         syncNotification();
@@ -30,7 +38,7 @@ export function ActiveSleepNotificationSync() {
       clearInterval(timer);
       appStateSubscription.remove();
     };
-  }, [syncNotification]);
+  }, [refreshActiveSleepNotification, syncNotification]);
 
   return null;
 }

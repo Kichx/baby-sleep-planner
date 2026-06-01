@@ -56,7 +56,7 @@ import {
   stopActiveSleepSession,
   updateSleepSession,
 } from '@/db';
-import { syncActiveSleepNotificationFromDatabase } from '@/notifications/activeSleepNotification';
+import { syncSleepNotificationsFromDatabase } from '@/notifications/sleepNotifications';
 import type {
   SleepDayPlan,
   SleepKind,
@@ -959,7 +959,7 @@ export default function TodaySleepScreen() {
         await startSleepSession(db, inferSleepKindForStart(actionAt, sleepPlan), actionAt);
       }
 
-      await syncActiveSleepNotificationFromDatabase(db, actionAt);
+      await syncSleepNotificationsFromDatabase(db, actionAt);
       await reloadSelectedDay(selectedDate, actionAt);
     } catch {
       setErrorMessage('Не удалось сохранить сон');
@@ -991,7 +991,7 @@ export default function TodaySleepScreen() {
         await createSleepSession(db, inputWithKind);
       }
 
-      await syncActiveSleepNotificationFromDatabase(db, actionAt);
+      await syncSleepNotificationsFromDatabase(db, actionAt);
       await reloadSelectedDay(selectedDate, actionAt);
       setEditorState(null);
     } catch {
@@ -1014,7 +1014,7 @@ export default function TodaySleepScreen() {
 
     try {
       await deleteSleepSession(db, editorState.session.id);
-      await syncActiveSleepNotificationFromDatabase(db, actionAt);
+      await syncSleepNotificationsFromDatabase(db, actionAt);
       await reloadSelectedDay(selectedDate, actionAt);
       setEditorState(null);
     } catch {

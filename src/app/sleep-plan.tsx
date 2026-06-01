@@ -54,6 +54,7 @@ import {
   listTargetDayPlans,
   updateTargetDayPlan,
 } from '@/db';
+import { syncSleepNotificationsFromDatabase } from '@/notifications/sleepNotifications';
 import type { SleepPlanPreset, TargetDayPlan } from '@/types/sleep';
 
 type EditorType = 'wakeUp' | 'awake' | 'napCount' | 'daySleep';
@@ -1314,6 +1315,11 @@ export default function SleepPlanScreen() {
 
       setPlans((currentPlans) => replacePlanInList(currentPlans, updatedPlan));
       setDraft(createDraftFromTargetPlan(updatedPlan));
+
+      if (updatedPlan.isActive) {
+        await syncSleepNotificationsFromDatabase(db);
+      }
+
       return true;
     } catch {
       setErrorMessage('Не удалось сохранить план сна');
@@ -1387,6 +1393,7 @@ export default function SleepPlanScreen() {
 
       setPlans((currentPlans) => markPlanActive(currentPlans, activePlan));
       setDraft(createDraftFromTargetPlan(activePlan));
+      await syncSleepNotificationsFromDatabase(db);
     } catch {
       setErrorMessage('Не удалось сделать план активным');
     } finally {
@@ -1429,6 +1436,7 @@ export default function SleepPlanScreen() {
       setActiveEditor(null);
       setNameEditorMode(null);
       setIsNapDropdownOpen(false);
+      await syncSleepNotificationsFromDatabase(db);
     } catch {
       setErrorMessage(
         plans.length <= 1 ? 'Нельзя удалить единственный план' : 'Не удалось удалить план сна',

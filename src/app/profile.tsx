@@ -37,6 +37,7 @@ import {
   updateChildProfile,
   updateChildProfilePhotoUri,
 } from '@/db';
+import { syncSleepNotificationsFromDatabase } from '@/notifications/sleepNotifications';
 
 const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
 const INFO_ROUTE = '/info' as Href;
@@ -447,6 +448,7 @@ export default function ProfileScreen() {
       const restoreMessage = formatRestoreMessage(summary);
 
       applyProfile(restoredProfile);
+      await syncSleepNotificationsFromDatabase(db);
       setMessage(restoreMessage);
       Alert.alert('Данные восстановлены', restoreMessage);
     } catch (error) {

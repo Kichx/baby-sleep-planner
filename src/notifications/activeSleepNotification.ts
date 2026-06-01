@@ -1,12 +1,16 @@
-import Constants, { AppOwnership } from 'expo-constants';
 import { requireOptionalNativeModule } from 'expo';
-import type * as ExpoNotifications from 'expo-notifications';
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { Platform } from 'react-native';
 
 import { colors } from '@/constants/theme';
 import { formatLocalClock } from '@/core/localDateTime';
 import { getActiveSleepSession } from '@/db';
+import {
+  canUseAndroidNativeNotifications,
+  ensureExpoNotificationHandlerConfigured,
+  hasNotificationPermission,
+  loadExpoNotificationsModule,
+  type NotificationsModule,
+} from '@/notifications/expoNotifications';
 import type { SleepSession } from '@/types/sleep';
 
 export const ACTIVE_SLEEP_NOTIFICATION_REFRESH_MS = 60_000;
@@ -14,39 +18,16 @@ export const ACTIVE_SLEEP_NOTIFICATION_REFRESH_MS = 60_000;
 const ACTIVE_SLEEP_NOTIFICATION_ID = 'active-sleep-notification';
 const ACTIVE_SLEEP_NOTIFICATION_CHANNEL_ID = 'active-sleep';
 
-type NotificationsModule = typeof ExpoNotifications;
-
 interface ActiveSleepChronometerModule {
   hide: () => boolean;
   show: (startedAtMillis: number, startedAtLabel: string) => boolean;
 }
 
 let activeSleepChronometerModule: ActiveSleepChronometerModule | null | undefined;
-let notificationsModulePromise: Promise<NotificationsModule | null> | null = null;
-let isNotificationHandlerConfigured = false;
 let isAndroidChannelConfigured = false;
-let didRequestPermissions = false;
-
-function isExpoGo(): boolean {
-  return Constants.appOwnership === AppOwnership.Expo;
-}
-
-function canUseNativeNotifications(): boolean {
-  return Platform.OS === 'android' && !isExpoGo();
-}
-
-function loadNotificationsModule(): Promise<NotificationsModule | null> {
-  if (!canUseNativeNotifications()) {
-    return Promise.resolve(null);
-  }
-
-  notificationsModulePromise ??= import('expo-notifications').catch(() => null);
-
-  return notificationsModulePromise;
-}
 
 function getActiveSleepChronometerModule(): ActiveSleepChronometerModule | null {
-  if (!canUseNativeNotifications()) {
+  if (!canUseAndroidNativeNotifications()) {
     return null;
   }
 
@@ -79,25 +60,15 @@ function getActiveSleepDurationMinutes(startedAt: Date, now: Date): number {
   return Math.max(0, Math.floor((now.getTime() - startedAt.getTime()) / 60_000));
 }
 
-async function ensureNotificationsReady(): Promise<NotificationsModule | null> {
-  const Notifications = await loadNotificationsModule();
-
-  if (!Notifications) {
+async function ensureActiveSleepNotificationsReady(): Promise<NotificationsModule | null> {
+  if (!canUseAndroidNativeNotifications()) {
     return null;
   }
 
-  if (!isNotificationHandlerConfigured) {
-    Notifications.setNotificationHandler({
-      handleNotification: async () => ({
-        priority: Notifications.AndroidNotificationPriority.LOW,
-        shouldPlaySound: false,
-        shouldSetBadge: false,
-        shouldShowBanner: false,
-        shouldShowList: true,
-      }),
-    });
+  const Notifications = await ensureExpoNotificationHandlerConfigured();
 
-    isNotificationHandlerConfigured = true;
+  if (!Notifications) {
+    return null;
   }
 
   if (isAndroidChannelConfigured) {
@@ -120,33 +91,21 @@ async function ensureNotificationsReady(): Promise<NotificationsModule | null> {
 }
 
 export function configureActiveSleepNotificationHandler() {
-  if (!canUseNativeNotifications() || isNotificationHandlerConfigured) {
+  if (!canUseAndroidNativeNotifications()) {
     return;
   }
 
-  void ensureNotificationsReady();
+  void ensureActiveSleepNotificationsReady();
 }
 
 async function getPermittedNotificationsModule(): Promise<NotificationsModule | null> {
-  const Notifications = await ensureNotificationsReady();
+  const Notifications = await ensureActiveSleepNotificationsReady();
 
   if (!Notifications) {
     return null;
   }
-  const existingPermissions = await Notifications.getPermissionsAsync();
 
-  if (existingPermissions.granted) {
-    return Notifications;
-  }
-
-  if (didRequestPermissions || existingPermissions.canAskAgain === false) {
-    return null;
-  }
-
-  didRequestPermissions = true;
-  const requestedPermissions = await Notifications.requestPermissionsAsync();
-
-  return requestedPermissions.granted ? Notifications : null;
+  return (await hasNotificationPermission(Notifications)) ? Notifications : null;
 }
 
 export async function showActiveSleepNotification(session: SleepSession, now = new Date()) {
@@ -189,7 +148,7 @@ export async function showActiveSleepNotification(session: SleepSession, now = n
 export async function hideActiveSleepNotification() {
   getActiveSleepChronometerModule()?.hide();
 
-  const Notifications = await loadNotificationsModule();
+  const Notifications = await loadExpoNotificationsModule();
 
   if (!Notifications) {
     return;
