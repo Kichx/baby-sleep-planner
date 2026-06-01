@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { DEFAULT_CHILD_ID } from '@/constants/sleep';
+import { DEFAULT_CHILD_ID, DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import { DATABASE_VERSION } from '@/db/schema';
 import {
   backfillMissingSleepDayPlanSnapshots,
@@ -8,12 +8,12 @@ import {
   ensureSleepDayPlanSnapshotStorage,
   getTargetDayPlan,
 } from '@/db/sleepRepository';
-import type { SleepKind } from '@/types/sleep';
+import type { EveningSleepRulesMode, SleepKind } from '@/types/sleep';
 
 export const APP_DATA_BACKUP_FORMAT = 'baby-sleep-planner-backup';
-export const APP_DATA_BACKUP_FORMAT_VERSION = 2;
+export const APP_DATA_BACKUP_FORMAT_VERSION = 4;
 export const APP_DATA_BACKUP_MIME_TYPE = 'application/json';
-const SUPPORTED_BACKUP_FORMAT_VERSIONS = new Set([1, APP_DATA_BACKUP_FORMAT_VERSION]);
+const SUPPORTED_BACKUP_FORMAT_VERSIONS = new Set([1, 2, 3, APP_DATA_BACKUP_FORMAT_VERSION]);
 
 type DataTransferErrorCode = 'invalid-json' | 'unsupported-format' | 'invalid-data';
 
@@ -37,6 +37,7 @@ interface TargetDayPlanBackupRow {
   child_id: string;
   name: string;
   is_active: number;
+  evening_rules_mode: EveningSleepRulesMode;
   wake_up_start_minutes: number | null;
   wake_up_end_minutes: number | null;
   target_awake_min_minutes: number | null;
@@ -47,6 +48,9 @@ interface TargetDayPlanBackupRow {
   target_day_sleep_max_minutes: number | null;
   target_day_sleep_minutes: number;
   bedtime_target_minutes: number;
+  latest_evening_nap_end_minutes: number;
+  max_evening_nap_minutes: number;
+  micro_nap_minutes: number;
   updated_at: string;
 }
 
@@ -161,6 +165,24 @@ function readNullableInteger(row: Record<string, unknown>, fieldName: string): n
   return value;
 }
 
+function readOptionalInteger(
+  row: Record<string, unknown>,
+  fieldName: string,
+  fallback: number,
+): number {
+  const value = row[fieldName];
+
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    failInvalidData(`Invalid integer field: ${fieldName}`);
+  }
+
+  return value;
+}
+
 function readIsoDateString(row: Record<string, unknown>, fieldName: string): string {
   const value = readString(row, fieldName);
 
@@ -219,6 +241,20 @@ function readActiveFlag(row: Record<string, unknown>): number {
 
   if (value !== 0 && value !== 1) {
     failInvalidData('Invalid active plan flag');
+  }
+
+  return value;
+}
+
+function readOptionalEveningRulesMode(row: Record<string, unknown>): EveningSleepRulesMode {
+  const value = row.evening_rules_mode;
+
+  if (value === undefined) {
+    return 'auto';
+  }
+
+  if (value !== 'auto' && value !== 'custom') {
+    failInvalidData('Invalid evening rules mode');
   }
 
   return value;
@@ -334,8 +370,24 @@ function parseTargetDayPlans(
     return {
       bedtime_target_minutes: readInteger(row, 'bedtime_target_minutes'),
       child_id: childId,
+      evening_rules_mode: readOptionalEveningRulesMode(row),
       id: readString(row, 'id'),
       is_active: readActiveFlag(row),
+      latest_evening_nap_end_minutes: readOptionalInteger(
+        row,
+        'latest_evening_nap_end_minutes',
+        DEFAULT_SLEEP_PLAN.latestEveningNapEndMinutes,
+      ),
+      max_evening_nap_minutes: readOptionalInteger(
+        row,
+        'max_evening_nap_minutes',
+        DEFAULT_SLEEP_PLAN.maxEveningNapMinutes,
+      ),
+      micro_nap_minutes: readOptionalInteger(
+        row,
+        'micro_nap_minutes',
+        DEFAULT_SLEEP_PLAN.microNapMinutes,
+      ),
       name: readString(row, 'name'),
       nap_count: readNullableInteger(row, 'nap_count'),
       target_awake_max_minutes: readNullableInteger(row, 'target_awake_max_minutes'),
@@ -522,6 +574,7 @@ export async function buildAppDataBackup(db: SQLiteDatabase): Promise<AppDataBac
       child_id,
       name,
       is_active,
+      evening_rules_mode,
       wake_up_start_minutes,
       wake_up_end_minutes,
       target_awake_min_minutes,
@@ -532,6 +585,9 @@ export async function buildAppDataBackup(db: SQLiteDatabase): Promise<AppDataBac
       target_day_sleep_max_minutes,
       target_day_sleep_minutes,
       bedtime_target_minutes,
+      latest_evening_nap_end_minutes,
+      max_evening_nap_minutes,
+      micro_nap_minutes,
       updated_at
     FROM target_day_plan
     ORDER BY is_active DESC, updated_at DESC, id ASC
@@ -603,6 +659,8 @@ export async function restoreAppDataBackup(
 ): Promise<AppDataRestoreSummary> {
   const normalizedBackup = normalizeBackup(backup);
 
+  await ensureDefaultChildProfile(db);
+  await getTargetDayPlan(db);
   await ensureSleepDayPlanSnapshotStorage(db);
 
   await db.withTransactionAsync(async () => {
@@ -639,6 +697,7 @@ export async function restoreAppDataBackup(
           child_id,
           name,
           is_active,
+          evening_rules_mode,
           wake_up_start_minutes,
           wake_up_end_minutes,
           target_awake_min_minutes,
@@ -649,15 +708,19 @@ export async function restoreAppDataBackup(
           target_day_sleep_max_minutes,
           target_day_sleep_minutes,
           bedtime_target_minutes,
+          latest_evening_nap_end_minutes,
+          max_evening_nap_minutes,
+          micro_nap_minutes,
           updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
           plan.id,
           plan.child_id,
           plan.name,
           plan.is_active,
+          plan.evening_rules_mode,
           plan.wake_up_start_minutes,
           plan.wake_up_end_minutes,
           plan.target_awake_min_minutes,
@@ -668,6 +731,9 @@ export async function restoreAppDataBackup(
           plan.target_day_sleep_max_minutes,
           plan.target_day_sleep_minutes,
           plan.bedtime_target_minutes,
+          plan.latest_evening_nap_end_minutes,
+          plan.max_evening_nap_minutes,
+          plan.micro_nap_minutes,
           plan.updated_at,
         ],
       );

@@ -6,9 +6,10 @@ import {
   getSleepDayDateKeyForDate,
   getSleepDayDateKeysForInterval,
 } from '@/core/sleepDay';
-import { buildSleepPlanPreset } from '@/core/sleepPlan';
+import { buildSleepPlanPreset, deriveEveningSleepRulesForPlan } from '@/core/sleepPlan';
 import type {
   ChildProfile,
+  EveningSleepRulesMode,
   SleepDayPlan,
   SleepDayPlanSnapshot,
   SleepKind,
@@ -44,6 +45,7 @@ interface TargetDayPlanRow {
   child_id: string;
   name: string | null;
   is_active: number | null;
+  evening_rules_mode: string | null;
   wake_up_start_minutes: number | null;
   wake_up_end_minutes: number | null;
   target_awake_min_minutes: number | null;
@@ -54,6 +56,9 @@ interface TargetDayPlanRow {
   target_day_sleep_max_minutes: number | null;
   target_day_sleep_minutes: number;
   bedtime_target_minutes: number;
+  latest_evening_nap_end_minutes: number | null;
+  max_evening_nap_minutes: number | null;
+  micro_nap_minutes: number | null;
   updated_at: string;
 }
 
@@ -89,6 +94,12 @@ interface CountRow {
 interface SaveChildProfileInput {
   name: string;
   birthDate: string | null;
+}
+
+interface SaveTargetDayPlanInput {
+  name: string;
+  plan: SleepPlanPreset;
+  eveningRulesMode?: EveningSleepRulesMode;
 }
 
 interface TableInfoRow {
@@ -128,6 +139,7 @@ CREATE TABLE IF NOT EXISTS sleep_day_plan_snapshot (
 const TARGET_DAY_PLAN_COLUMNS = [
   { definition: 'name TEXT', name: 'name' },
   { definition: 'is_active INTEGER', name: 'is_active' },
+  { definition: "evening_rules_mode TEXT NOT NULL DEFAULT 'auto'", name: 'evening_rules_mode' },
   { definition: 'wake_up_start_minutes INTEGER', name: 'wake_up_start_minutes' },
   { definition: 'wake_up_end_minutes INTEGER', name: 'wake_up_end_minutes' },
   { definition: 'target_awake_min_minutes INTEGER', name: 'target_awake_min_minutes' },
@@ -135,6 +147,18 @@ const TARGET_DAY_PLAN_COLUMNS = [
   { definition: 'nap_count INTEGER', name: 'nap_count' },
   { definition: 'target_day_sleep_min_minutes INTEGER', name: 'target_day_sleep_min_minutes' },
   { definition: 'target_day_sleep_max_minutes INTEGER', name: 'target_day_sleep_max_minutes' },
+  {
+    definition: `latest_evening_nap_end_minutes INTEGER NOT NULL DEFAULT ${DEFAULT_SLEEP_PLAN.latestEveningNapEndMinutes}`,
+    name: 'latest_evening_nap_end_minutes',
+  },
+  {
+    definition: `max_evening_nap_minutes INTEGER NOT NULL DEFAULT ${DEFAULT_SLEEP_PLAN.maxEveningNapMinutes}`,
+    name: 'max_evening_nap_minutes',
+  },
+  {
+    definition: `micro_nap_minutes INTEGER NOT NULL DEFAULT ${DEFAULT_SLEEP_PLAN.microNapMinutes}`,
+    name: 'micro_nap_minutes',
+  },
 ] as const;
 
 const CHILD_PROFILE_COLUMNS = [
@@ -172,6 +196,10 @@ function coalesceNumber(value: number | null | undefined, fallback: number): num
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
+function normalizeEveningRulesMode(value: string | null | undefined): EveningSleepRulesMode {
+  return value === 'custom' ? 'custom' : 'auto';
+}
+
 function mapTargetDayPlanPreset(row: TargetDayPlanRow): SleepPlanPreset {
   const targetAwakeMinutes = coalesceNumber(
     row.target_awake_minutes,
@@ -188,12 +216,7 @@ function mapTargetDayPlanPreset(row: TargetDayPlanRow): SleepPlanPreset {
     row.wake_up_start_minutes,
     canUseLegacyWakeUp ? legacyWakeUpMinutes : DEFAULT_SLEEP_PLAN.wakeUpStartMinutes,
   );
-
-  return buildSleepPlanPreset({
-    latestEveningNapEndMinutes: DEFAULT_SLEEP_PLAN.latestEveningNapEndMinutes,
-    maxEveningNapMinutes: DEFAULT_SLEEP_PLAN.maxEveningNapMinutes,
-    microNapMinutes: DEFAULT_SLEEP_PLAN.microNapMinutes,
-    minNightSleepMinutes: DEFAULT_SLEEP_PLAN.minNightSleepMinutes,
+  const basePlanInput = {
     napCount: coalesceNumber(row.nap_count, DEFAULT_SLEEP_PLAN.napCount),
     targetAwakeMaxMinutes: coalesceNumber(row.target_awake_max_minutes, targetAwakeMinutes),
     targetAwakeMinMinutes: coalesceNumber(row.target_awake_min_minutes, targetAwakeMinutes),
@@ -207,6 +230,29 @@ function mapTargetDayPlanPreset(row: TargetDayPlanRow): SleepPlanPreset {
     ),
     wakeUpEndMinutes: coalesceNumber(row.wake_up_end_minutes, wakeUpStartMinutes),
     wakeUpStartMinutes,
+  };
+  const eveningRules =
+    normalizeEveningRulesMode(row.evening_rules_mode) === 'custom'
+      ? {
+          latestEveningNapEndMinutes: coalesceNumber(
+            row.latest_evening_nap_end_minutes,
+            DEFAULT_SLEEP_PLAN.latestEveningNapEndMinutes,
+          ),
+          maxEveningNapMinutes: coalesceNumber(
+            row.max_evening_nap_minutes,
+            DEFAULT_SLEEP_PLAN.maxEveningNapMinutes,
+          ),
+          microNapMinutes: coalesceNumber(
+            row.micro_nap_minutes,
+            DEFAULT_SLEEP_PLAN.microNapMinutes,
+          ),
+        }
+      : deriveEveningSleepRulesForPlan(basePlanInput);
+
+  return buildSleepPlanPreset({
+    ...basePlanInput,
+    ...eveningRules,
+    minNightSleepMinutes: DEFAULT_SLEEP_PLAN.minNightSleepMinutes,
   });
 }
 
@@ -215,6 +261,7 @@ function mapTargetDayPlanRow(row: TargetDayPlanRow): TargetDayPlan {
     childId: row.child_id,
     id: row.id,
     isActive: row.is_active === 1,
+    eveningRulesMode: normalizeEveningRulesMode(row.evening_rules_mode),
     name: row.name?.trim() || DEFAULT_TARGET_DAY_PLAN_NAME,
     plan: mapTargetDayPlanPreset(row),
     updatedAt: row.updated_at,
@@ -428,6 +475,7 @@ async function ensureDefaultTargetDayPlan(
       child_id,
       name,
       is_active,
+      evening_rules_mode,
       wake_up_start_minutes,
       wake_up_end_minutes,
       target_awake_min_minutes,
@@ -438,15 +486,19 @@ async function ensureDefaultTargetDayPlan(
       target_day_sleep_max_minutes,
       target_day_sleep_minutes,
       bedtime_target_minutes,
+      latest_evening_nap_end_minutes,
+      max_evening_nap_minutes,
+      micro_nap_minutes,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       DEFAULT_TARGET_DAY_PLAN_ID,
       childId,
       DEFAULT_TARGET_DAY_PLAN_NAME,
       1,
+      'auto',
       DEFAULT_SLEEP_PLAN.wakeUpStartMinutes,
       DEFAULT_SLEEP_PLAN.wakeUpEndMinutes,
       DEFAULT_SLEEP_PLAN.targetAwakeMinMinutes,
@@ -457,6 +509,9 @@ async function ensureDefaultTargetDayPlan(
       DEFAULT_SLEEP_PLAN.targetDaySleepMaxMinutes,
       DEFAULT_SLEEP_PLAN.targetDaySleepMinutes,
       DEFAULT_SLEEP_PLAN.bedtimeTargetMinutes,
+      DEFAULT_SLEEP_PLAN.latestEveningNapEndMinutes,
+      DEFAULT_SLEEP_PLAN.maxEveningNapMinutes,
+      DEFAULT_SLEEP_PLAN.microNapMinutes,
       now,
     ],
   );
@@ -474,6 +529,7 @@ async function selectTargetDayPlanById(
       child_id,
       name,
       is_active,
+      evening_rules_mode,
       wake_up_start_minutes,
       wake_up_end_minutes,
       target_awake_min_minutes,
@@ -484,6 +540,9 @@ async function selectTargetDayPlanById(
       target_day_sleep_max_minutes,
       target_day_sleep_minutes,
       bedtime_target_minutes,
+      latest_evening_nap_end_minutes,
+      max_evening_nap_minutes,
+      micro_nap_minutes,
       updated_at
     FROM target_day_plan
     WHERE id = ? AND child_id = ?
@@ -634,6 +693,7 @@ async function getActiveTargetDayPlan(
       child_id,
       name,
       is_active,
+      evening_rules_mode,
       wake_up_start_minutes,
       wake_up_end_minutes,
       target_awake_min_minutes,
@@ -644,6 +704,9 @@ async function getActiveTargetDayPlan(
       target_day_sleep_max_minutes,
       target_day_sleep_minutes,
       bedtime_target_minutes,
+      latest_evening_nap_end_minutes,
+      max_evening_nap_minutes,
+      micro_nap_minutes,
       updated_at
     FROM target_day_plan
     WHERE child_id = ? AND is_active = 1
@@ -659,6 +722,7 @@ async function getActiveTargetDayPlan(
 
   return {
     childId,
+    eveningRulesMode: 'auto',
     id: DEFAULT_TARGET_DAY_PLAN_ID,
     isActive: true,
     name: DEFAULT_TARGET_DAY_PLAN_NAME,
@@ -711,6 +775,7 @@ export async function listTargetDayPlans(
       child_id,
       name,
       is_active,
+      evening_rules_mode,
       wake_up_start_minutes,
       wake_up_end_minutes,
       target_awake_min_minutes,
@@ -721,6 +786,9 @@ export async function listTargetDayPlans(
       target_day_sleep_max_minutes,
       target_day_sleep_minutes,
       bedtime_target_minutes,
+      latest_evening_nap_end_minutes,
+      max_evening_nap_minutes,
+      micro_nap_minutes,
       updated_at
     FROM target_day_plan
     WHERE child_id = ?
@@ -745,6 +813,7 @@ export async function getTargetDayPlan(
       child_id,
       name,
       is_active,
+      evening_rules_mode,
       wake_up_start_minutes,
       wake_up_end_minutes,
       target_awake_min_minutes,
@@ -755,6 +824,9 @@ export async function getTargetDayPlan(
       target_day_sleep_max_minutes,
       target_day_sleep_minutes,
       bedtime_target_minutes,
+      latest_evening_nap_end_minutes,
+      max_evening_nap_minutes,
+      micro_nap_minutes,
       updated_at
     FROM target_day_plan
     WHERE child_id = ? AND is_active = 1
@@ -824,7 +896,7 @@ export async function assignSleepDayPlanSnapshot(
 
 export async function createTargetDayPlan(
   db: SQLiteDatabase,
-  input: { name: string; plan: SleepPlanPreset },
+  input: SaveTargetDayPlanInput,
   childId = DEFAULT_CHILD_ID,
 ): Promise<TargetDayPlan> {
   await ensureDefaultTargetDayPlan(db, childId);
@@ -840,6 +912,7 @@ export async function createTargetDayPlan(
       child_id,
       name,
       is_active,
+      evening_rules_mode,
       wake_up_start_minutes,
       wake_up_end_minutes,
       target_awake_min_minutes,
@@ -850,15 +923,19 @@ export async function createTargetDayPlan(
       target_day_sleep_max_minutes,
       target_day_sleep_minutes,
       bedtime_target_minutes,
+      latest_evening_nap_end_minutes,
+      max_evening_nap_minutes,
+      micro_nap_minutes,
       updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       planId,
       childId,
       normalizeTargetPlanName(input.name),
       0,
+      input.eveningRulesMode ?? 'custom',
       input.plan.wakeUpStartMinutes,
       input.plan.wakeUpEndMinutes,
       input.plan.targetAwakeMinMinutes,
@@ -869,6 +946,9 @@ export async function createTargetDayPlan(
       input.plan.targetDaySleepMaxMinutes,
       input.plan.targetDaySleepMinutes,
       input.plan.bedtimeTargetMinutes,
+      input.plan.latestEveningNapEndMinutes,
+      input.plan.maxEveningNapMinutes,
+      input.plan.microNapMinutes,
       updatedAt,
     ],
   );
@@ -885,7 +965,7 @@ export async function createTargetDayPlan(
 export async function updateTargetDayPlan(
   db: SQLiteDatabase,
   planId: string,
-  input: { name: string; plan: SleepPlanPreset },
+  input: SaveTargetDayPlanInput,
   childId = DEFAULT_CHILD_ID,
 ): Promise<TargetDayPlan> {
   await ensureDefaultTargetDayPlan(db, childId);
@@ -895,6 +975,7 @@ export async function updateTargetDayPlan(
     UPDATE target_day_plan
     SET
       name = ?,
+      evening_rules_mode = ?,
       wake_up_start_minutes = ?,
       wake_up_end_minutes = ?,
       target_awake_min_minutes = ?,
@@ -905,11 +986,15 @@ export async function updateTargetDayPlan(
       target_day_sleep_max_minutes = ?,
       target_day_sleep_minutes = ?,
       bedtime_target_minutes = ?,
+      latest_evening_nap_end_minutes = ?,
+      max_evening_nap_minutes = ?,
+      micro_nap_minutes = ?,
       updated_at = ?
     WHERE id = ? AND child_id = ?
     `,
     [
       normalizeTargetPlanName(input.name),
+      input.eveningRulesMode ?? 'custom',
       input.plan.wakeUpStartMinutes,
       input.plan.wakeUpEndMinutes,
       input.plan.targetAwakeMinMinutes,
@@ -920,6 +1005,9 @@ export async function updateTargetDayPlan(
       input.plan.targetDaySleepMaxMinutes,
       input.plan.targetDaySleepMinutes,
       input.plan.bedtimeTargetMinutes,
+      input.plan.latestEveningNapEndMinutes,
+      input.plan.maxEveningNapMinutes,
+      input.plan.microNapMinutes,
       new Date().toISOString(),
       planId,
       childId,
@@ -951,7 +1039,12 @@ export async function saveTargetDayPlan(
     return;
   }
 
-  await updateTargetDayPlan(db, activePlan.id, { name: activePlan.name, plan }, childId);
+  await updateTargetDayPlan(
+    db,
+    activePlan.id,
+    { eveningRulesMode: activePlan.eveningRulesMode, name: activePlan.name, plan },
+    childId,
+  );
 }
 
 export async function activateTargetDayPlan(

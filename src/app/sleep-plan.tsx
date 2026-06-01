@@ -37,6 +37,7 @@ import {
   buildIdealSleepPlanSegments,
   buildSleepPlanPreset,
   calculatePlanBedtimeRange,
+  deriveEveningSleepRulesForPlan,
   type IdealSleepPlanSegment,
 } from '@/core/sleepPlan';
 import {
@@ -55,9 +56,9 @@ import {
   updateTargetDayPlan,
 } from '@/db';
 import { syncSleepNotificationsFromDatabase } from '@/notifications/sleepNotifications';
-import type { SleepPlanPreset, TargetDayPlan } from '@/types/sleep';
+import type { EveningSleepRulesMode, SleepPlanPreset, TargetDayPlan } from '@/types/sleep';
 
-type EditorType = 'wakeUp' | 'awake' | 'napCount' | 'daySleep';
+type EditorType = 'wakeUp' | 'awake' | 'napCount' | 'daySleep' | 'evening';
 type NameEditorMode = 'create' | 'edit';
 
 interface PlanDraft {
@@ -69,6 +70,10 @@ interface PlanDraft {
   napCount: string;
   daySleepStart: string;
   daySleepEnd: string;
+  latestEveningNapEnd: string;
+  maxEveningNap: string;
+  microNap: string;
+  eveningRulesMode: EveningSleepRulesMode;
 }
 
 interface ParsedPlanDraft {
@@ -82,6 +87,18 @@ interface MetricCardProps {
   caption: string;
   disabled: boolean;
   onPress: () => void;
+}
+
+interface EveningSettingsCardProps {
+  disabled: boolean;
+  eveningRulesMode: EveningSleepRulesMode;
+  isExpanded: boolean;
+  latestNapEndLabel: string;
+  maxNapLabel: string;
+  microNapLabel: string;
+  onOpenInfo: () => void;
+  onPress: () => void;
+  onToggle: () => void;
 }
 
 interface PlanCardProps {
@@ -138,9 +155,12 @@ const DEFAULT_PLAN_NAME = 'Основной';
 const OFFICIAL_SLEEP_INFO_ROUTE = '/info?article=official-sleep-guidelines' as Href;
 const PRACTICAL_SLEEP_INFO_ROUTE = '/info?article=practical-sleep-guidelines' as Href;
 const WAKE_WINDOW_INFO_ROUTE = '/info?article=wake-window-guidelines' as Href;
+const EVENING_SLEEP_INFO_ROUTE = '/info?article=evening-sleep-rules' as Href;
 const SCIENTIFIC_EVIDENCE_INFO_ROUTE = '/info?article=scientific-evidence' as Href;
 const PROFILE_ROUTE = '/profile' as Href;
 const PLAN_NAME_MAX_LENGTH = 40;
+const MAX_MICRO_NAP_MINUTES = 60;
+const MAX_EVENING_NAP_MINUTES = 120;
 
 function padTimePart(value: number): string {
   return value.toString().padStart(2, '0');
@@ -174,6 +194,10 @@ function formatDuration(minutes: number): string {
   }
 
   return `${hours} ч ${restMinutes} мин`;
+}
+
+function formatMinuteDurationOrOff(minutes: number): string {
+  return minutes === 0 ? 'выкл' : formatDuration(minutes);
 }
 
 function formatDurationRange(startMinutes: number, endMinutes: number): string {
@@ -386,6 +410,10 @@ function createDraftFromPlan(plan: SleepPlanPreset, name = DEFAULT_PLAN_NAME): P
     awakeStart: formatDurationInput(plan.targetAwakeMinMinutes),
     daySleepEnd: formatDurationInput(plan.targetDaySleepMaxMinutes),
     daySleepStart: formatDurationInput(plan.targetDaySleepMinMinutes),
+    eveningRulesMode: 'auto',
+    latestEveningNapEnd: formatClockMinutes(plan.latestEveningNapEndMinutes),
+    maxEveningNap: String(plan.maxEveningNapMinutes),
+    microNap: String(plan.microNapMinutes),
     name,
     napCount: String(plan.napCount),
     wakeUpEnd: formatClockMinutes(plan.wakeUpEndMinutes),
@@ -394,7 +422,10 @@ function createDraftFromPlan(plan: SleepPlanPreset, name = DEFAULT_PLAN_NAME): P
 }
 
 function createDraftFromTargetPlan(targetPlan: TargetDayPlan): PlanDraft {
-  return createDraftFromPlan(targetPlan.plan, targetPlan.name);
+  return {
+    ...createDraftFromPlan(targetPlan.plan, targetPlan.name),
+    eveningRulesMode: targetPlan.eveningRulesMode,
+  };
 }
 
 function getDraftNameError(draft: PlanDraft): string | null {
@@ -506,6 +537,20 @@ function parseDurationInput(value: string): number | null {
   return parts ? parts.hours * 60 + parts.minutes : null;
 }
 
+function normalizeMinuteInput(value: string): string {
+  return value.replace(/\D/g, '').slice(0, 3);
+}
+
+function parseMinuteInput(value: string): number | null {
+  const trimmed = value.trim();
+
+  if (!/^\d{1,3}$/.test(trimmed)) {
+    return null;
+  }
+
+  return Number(trimmed);
+}
+
 function parseNapCountInput(value: string): number | null {
   const napCount = Number(value.trim());
 
@@ -557,20 +602,51 @@ function parsePlanDraft(draft: PlanDraft): ParsedPlanDraft {
     return { errorMessage: 'Укажите время больше нуля', plan: null };
   }
 
+  const basePlanInput = {
+    napCount,
+    targetAwakeMaxMinutes,
+    targetAwakeMinMinutes,
+    targetDaySleepMaxMinutes,
+    targetDaySleepMinMinutes,
+    wakeUpEndMinutes,
+    wakeUpStartMinutes,
+  };
+  const eveningRules =
+    draft.eveningRulesMode === 'auto' ? deriveEveningSleepRulesForPlan(basePlanInput) : null;
+  const latestEveningNapEndMinutes =
+    eveningRules?.latestEveningNapEndMinutes ?? parseClockInput(draft.latestEveningNapEnd);
+  const maxEveningNapMinutes =
+    eveningRules?.maxEveningNapMinutes ?? parseMinuteInput(draft.maxEveningNap);
+  const microNapMinutes = eveningRules?.microNapMinutes ?? parseMinuteInput(draft.microNap);
+
+  if (latestEveningNapEndMinutes === null) {
+    return { errorMessage: 'Проверьте время вечернего ограничения', plan: null };
+  }
+
+  if (microNapMinutes === null || microNapMinutes > MAX_MICRO_NAP_MINUTES) {
+    return { errorMessage: 'Микро-сон может быть от 0 до 60 минут', plan: null };
+  }
+
+  if (
+    maxEveningNapMinutes === null ||
+    maxEveningNapMinutes < 1 ||
+    maxEveningNapMinutes > MAX_EVENING_NAP_MINUTES
+  ) {
+    return { errorMessage: 'Короткий вечерний сон может быть от 1 до 120 минут', plan: null };
+  }
+
+  if (microNapMinutes > maxEveningNapMinutes) {
+    return { errorMessage: 'Микро-сон должен быть короче вечернего ограничения', plan: null };
+  }
+
   return {
     errorMessage: null,
     plan: buildSleepPlanPreset({
-      latestEveningNapEndMinutes: DEFAULT_SLEEP_PLAN.latestEveningNapEndMinutes,
-      maxEveningNapMinutes: DEFAULT_SLEEP_PLAN.maxEveningNapMinutes,
-      microNapMinutes: DEFAULT_SLEEP_PLAN.microNapMinutes,
+      ...basePlanInput,
+      latestEveningNapEndMinutes,
+      maxEveningNapMinutes,
+      microNapMinutes,
       minNightSleepMinutes: DEFAULT_SLEEP_PLAN.minNightSleepMinutes,
-      napCount,
-      targetAwakeMaxMinutes,
-      targetAwakeMinMinutes,
-      targetDaySleepMaxMinutes,
-      targetDaySleepMinMinutes,
-      wakeUpEndMinutes,
-      wakeUpStartMinutes,
     }),
   };
 }
@@ -583,7 +659,10 @@ function arePlanFieldsEqual(first: SleepPlanPreset, second: SleepPlanPreset): bo
     first.targetAwakeMaxMinutes === second.targetAwakeMaxMinutes &&
     first.napCount === second.napCount &&
     first.targetDaySleepMinMinutes === second.targetDaySleepMinMinutes &&
-    first.targetDaySleepMaxMinutes === second.targetDaySleepMaxMinutes
+    first.targetDaySleepMaxMinutes === second.targetDaySleepMaxMinutes &&
+    first.latestEveningNapEndMinutes === second.latestEveningNapEndMinutes &&
+    first.maxEveningNapMinutes === second.maxEveningNapMinutes &&
+    first.microNapMinutes === second.microNapMinutes
   );
 }
 
@@ -676,6 +755,84 @@ function PlanCard({ ageMonths, plan, isSelected, disabled, onPress }: PlanCardPr
         ) : null}
       </View>
     </Pressable>
+  );
+}
+
+function EveningSettingsCard({
+  disabled,
+  eveningRulesMode,
+  isExpanded,
+  latestNapEndLabel,
+  maxNapLabel,
+  microNapLabel,
+  onOpenInfo,
+  onPress,
+  onToggle,
+}: EveningSettingsCardProps) {
+  return (
+    <View style={styles.eveningPanel}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: isExpanded }}
+        disabled={disabled}
+        onPress={onToggle}
+        style={({ pressed }) => [
+          styles.eveningToggle,
+          pressed && !disabled ? styles.metricCardPressed : null,
+          disabled ? styles.disabledCard : null,
+        ]}>
+        <View style={styles.eveningCardTextBlock}>
+          <Text style={styles.metricLabel}>Дополнительно</Text>
+          <Text numberOfLines={1} adjustsFontSizeToFit style={styles.eveningCardValue}>
+            Вечерние сны
+          </Text>
+          <Text numberOfLines={2} style={styles.metricCaption}>
+            {eveningRulesMode === 'auto' ? 'авто · ' : 'ручные · '}микро-сон {microNapLabel} ·
+            не позже {latestNapEndLabel}
+          </Text>
+        </View>
+        <Text style={styles.eveningCardArrow}>{isExpanded ? 'v' : '>'}</Text>
+      </Pressable>
+
+      {isExpanded ? (
+        <View style={styles.eveningExpandedBody}>
+          <Text style={styles.eveningExplanation}>
+            {eveningRulesMode === 'auto'
+              ? 'Сейчас правила считаются автоматически из отбоя и числа дневных снов.'
+              : 'Сейчас используются ручные вечерние правила для этого плана.'}{' '}
+            Они помогают вечером выбрать: короткий сон, микро-сон или ранний отбой.
+          </Text>
+          <View style={styles.eveningRuleList}>
+            <Text style={styles.eveningRuleText}>Микро-сон: {microNapLabel}</Text>
+            <Text style={styles.eveningRuleText}>Последний вечерний сон: до {latestNapEndLabel}</Text>
+            <Text style={styles.eveningRuleText}>Короткий вечерний сон: до {maxNapLabel}</Text>
+          </View>
+          <View style={styles.eveningActions}>
+            <Pressable
+              accessibilityRole="button"
+              disabled={disabled}
+              onPress={onPress}
+              style={({ pressed }) => [
+                styles.eveningEditButton,
+                pressed && !disabled ? styles.guidelineSecondaryButtonPressed : null,
+                disabled ? styles.disabledCard : null,
+              ]}>
+              <Text style={styles.eveningEditButtonText}>Изменить</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="link"
+              hitSlop={8}
+              onPress={onOpenInfo}
+              style={({ pressed }) => [
+                styles.eveningInfoLink,
+                pressed ? styles.scientificEvidenceLinkPressed : null,
+              ]}>
+              <Text style={styles.eveningInfoLinkText}>Как это работает</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -1134,6 +1291,7 @@ export default function SleepPlanScreen() {
   const [childBirthDate, setChildBirthDate] = useState<string | null>(null);
   const [isDeleteConfirmVisible, setIsDeleteConfirmVisible] = useState(false);
   const [isNapDropdownOpen, setIsNapDropdownOpen] = useState(false);
+  const [isEveningSettingsExpanded, setIsEveningSettingsExpanded] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -1219,10 +1377,22 @@ export default function SleepPlanScreen() {
   const bedtimeLabel = bedtimeRange
     ? formatClockRange(bedtimeRange.startMinutes, bedtimeRange.endMinutes)
     : '--:--';
+  const eveningLatestNapEndLabel = parsedDraft.plan
+    ? formatClockMinutes(parsedDraft.plan.latestEveningNapEndMinutes)
+    : draft.latestEveningNapEnd;
+  const eveningMaxNapLabel = parsedDraft.plan
+    ? formatMinuteDurationOrOff(parsedDraft.plan.maxEveningNapMinutes)
+    : `${draft.maxEveningNap} мин`;
+  const eveningMicroNapLabel = parsedDraft.plan
+    ? formatMinuteDurationOrOff(parsedDraft.plan.microNapMinutes)
+    : `${draft.microNap} мин`;
   const hasPlanChanges =
     selectedPlan && parsedDraft.plan ? !arePlanFieldsEqual(parsedDraft.plan, selectedPlan.plan) : false;
+  const hasEveningRulesModeChanges = selectedPlan
+    ? draft.eveningRulesMode !== selectedPlan.eveningRulesMode
+    : false;
   const hasNameChanges = selectedPlan ? draft.name.trim() !== selectedPlan.name : false;
-  const hasChanges = hasPlanChanges || hasNameChanges;
+  const hasChanges = hasPlanChanges || hasEveningRulesModeChanges || hasNameChanges;
   const visibleErrorMessage =
     errorMessage ??
     (nameEditorMode === 'edit' ? draftNameError : activeEditor ? parsedDraft.errorMessage : null);
@@ -1246,6 +1416,29 @@ export default function SleepPlanScreen() {
       ...currentDraft,
       [field]: value,
     }));
+    setErrorMessage(null);
+  }
+
+  function updateEveningRulesMode(eveningRulesMode: EveningSleepRulesMode) {
+    const nextDraftBase = {
+      ...draft,
+      eveningRulesMode,
+    };
+    const sourcePlan =
+      eveningRulesMode === 'custom'
+        ? parsedDraft.plan
+        : parsePlanDraft(nextDraftBase).plan ?? parsedDraft.plan;
+
+    setDraft({
+      ...nextDraftBase,
+      latestEveningNapEnd: sourcePlan
+        ? formatClockMinutes(sourcePlan.latestEveningNapEndMinutes)
+        : nextDraftBase.latestEveningNapEnd,
+      maxEveningNap: sourcePlan
+        ? String(sourcePlan.maxEveningNapMinutes)
+        : nextDraftBase.maxEveningNap,
+      microNap: sourcePlan ? String(sourcePlan.microNapMinutes) : nextDraftBase.microNap,
+    });
     setErrorMessage(null);
   }
 
@@ -1309,6 +1502,7 @@ export default function SleepPlanScreen() {
 
     try {
       const updatedPlan = await updateTargetDayPlan(db, planId, {
+        eveningRulesMode: nextDraft.eveningRulesMode,
         name: nextDraft.name.trim(),
         plan,
       });
@@ -1352,6 +1546,7 @@ export default function SleepPlanScreen() {
 
     try {
       const createdPlan = await createTargetDayPlan(db, {
+        eveningRulesMode: draft.eveningRulesMode,
         name: trimmedPlanName,
         plan: sourcePlan,
       });
@@ -1586,6 +1781,110 @@ export default function SleepPlanScreen() {
       );
     }
 
+    if (activeEditor === 'evening') {
+      return (
+        <View style={styles.editorBlock}>
+          <Text style={styles.editorTitle}>Вечерние сны</Text>
+          <Text style={styles.editorHelper}>
+            Эти параметры не меняют записи сна. Они помогают рекомендациям понять, когда вечером
+            ещё уместен короткий сон, а когда спокойнее вести к отбою.
+          </Text>
+          {draft.eveningRulesMode === 'auto' ? (
+            <>
+              <View style={styles.autoEveningSummary}>
+                <Text style={styles.eveningRuleText}>Авто из текущего плана:</Text>
+                <Text style={styles.eveningRuleText}>Микро-сон: {eveningMicroNapLabel}</Text>
+                <Text style={styles.eveningRuleText}>
+                  Последний вечерний сон: до {eveningLatestNapEndLabel}
+                </Text>
+                <Text style={styles.eveningRuleText}>
+                  Короткий вечерний сон: до {eveningMaxNapLabel}
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => updateEveningRulesMode('custom')}
+                style={({ pressed }) => [
+                  styles.eveningEditButton,
+                  pressed ? styles.guidelineSecondaryButtonPressed : null,
+                ]}>
+                <Text style={styles.eveningEditButtonText}>Настроить вручную</Text>
+              </Pressable>
+            </>
+          ) : (
+            <>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => updateEveningRulesMode('auto')}
+                style={({ pressed }) => [
+                  styles.eveningEditButton,
+                  pressed ? styles.guidelineSecondaryButtonPressed : null,
+                ]}>
+                <Text style={styles.eveningEditButtonText}>Вернуть авто</Text>
+              </Pressable>
+              <View style={styles.editorInputRow}>
+                <View style={styles.editorInputGroup}>
+                  <Text style={styles.compactLabel}>микро-сон, мин</Text>
+                  <SelectAllTextInput
+                    keyboardType="number-pad"
+                    maxLength={3}
+                    normalizeText={normalizeMinuteInput}
+                    onChangeText={(value) => updateDraft('microNap', value)}
+                    placeholder="20"
+                    placeholderTextColor={colors.textMuted}
+                    returnKeyType="done"
+                    style={styles.editorInput}
+                    underlineColorAndroid="transparent"
+                    value={draft.microNap}
+                  />
+                </View>
+                <View style={styles.editorInputGroup}>
+                  <Text style={styles.compactLabel}>сон до, мин</Text>
+                  <SelectAllTextInput
+                    keyboardType="number-pad"
+                    maxLength={3}
+                    normalizeText={normalizeMinuteInput}
+                    onChangeText={(value) => updateDraft('maxEveningNap', value)}
+                    placeholder="45"
+                    placeholderTextColor={colors.textMuted}
+                    returnKeyType="done"
+                    style={styles.editorInput}
+                    underlineColorAndroid="transparent"
+                    value={draft.maxEveningNap}
+                  />
+                </View>
+              </View>
+              <View style={styles.editorInputGroup}>
+                <Text style={styles.compactLabel}>не позже</Text>
+                <SelectAllTextInput
+                  keyboardType="number-pad"
+                  maxLength={5}
+                  normalizeText={normalizeTimeInput}
+                  onChangeText={(value) => updateDraft('latestEveningNapEnd', value)}
+                  placeholder="2000"
+                  placeholderTextColor={colors.textMuted}
+                  returnKeyType="done"
+                  style={styles.editorInput}
+                  underlineColorAndroid="transparent"
+                  value={draft.latestEveningNapEnd}
+                />
+              </View>
+            </>
+          )}
+          <Pressable
+            accessibilityRole="link"
+            hitSlop={8}
+            onPress={() => router.push(EVENING_SLEEP_INFO_ROUTE)}
+            style={({ pressed }) => [
+              styles.eveningInfoLink,
+              pressed ? styles.scientificEvidenceLinkPressed : null,
+            ]}>
+            <Text style={styles.eveningInfoLinkText}>Открыть объяснение в справке</Text>
+          </Pressable>
+        </View>
+      );
+    }
+
     return (
       <View style={styles.editorBlock}>
         <Text style={styles.editorTitle}>Дневных снов</Text>
@@ -1810,6 +2109,18 @@ export default function SleepPlanScreen() {
               }
             />
           </View>
+
+          <EveningSettingsCard
+            disabled={isEditingDisabled}
+            eveningRulesMode={draft.eveningRulesMode}
+            isExpanded={isEveningSettingsExpanded}
+            latestNapEndLabel={eveningLatestNapEndLabel}
+            maxNapLabel={eveningMaxNapLabel}
+            microNapLabel={eveningMicroNapLabel}
+            onOpenInfo={() => router.push(EVENING_SLEEP_INFO_ROUTE)}
+            onPress={() => openEditor('evening')}
+            onToggle={() => setIsEveningSettingsExpanded((isExpanded) => !isExpanded)}
+          />
 
           <OfficialSleepGuidelineCard
             ageMonths={childAgeMonths}
@@ -2286,6 +2597,94 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 13,
     fontWeight: '700',
+  },
+  eveningPanel: {
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  eveningToggle: {
+    minHeight: 78,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  eveningCardTextBlock: {
+    flex: 1,
+    gap: 4,
+    minWidth: 0,
+  },
+  eveningCardValue: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  eveningCardArrow: {
+    color: colors.primary,
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  eveningExpandedBody: {
+    gap: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    padding: spacing.md,
+  },
+  eveningExplanation: {
+    color: colors.textMuted,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  eveningRuleList: {
+    gap: spacing.xs,
+  },
+  autoEveningSummary: {
+    gap: spacing.xs,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    backgroundColor: colors.background,
+  },
+  eveningRuleText: {
+    color: colors.text,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '800',
+  },
+  eveningActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  eveningEditButton: {
+    minHeight: 40,
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.primarySoft,
+  },
+  eveningEditButtonText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  eveningInfoLink: {
+    minHeight: 36,
+    justifyContent: 'center',
+    paddingVertical: spacing.xs,
+  },
+  eveningInfoLinkText: {
+    color: colors.primary,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
   },
   guidelineCard: {
     gap: spacing.sm,

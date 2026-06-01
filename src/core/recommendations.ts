@@ -4,10 +4,27 @@ interface RecommendationInput {
   currentWakeMinutes: number;
   remainingAwakeMinutes: number;
   completedNaps: number;
+  maxEveningNapMinutes: number;
+  projectedMicroNapMinutes: number;
   wakeWindow: WakeWindowPreset;
   nextSleepKind: SleepKind;
   predictedBedtimeDeltaMinutes: number;
   isSleeping: boolean;
+}
+
+function formatDuration(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+
+  if (hours === 0) {
+    return `${restMinutes} мин`;
+  }
+
+  if (restMinutes === 0) {
+    return `${hours} ч`;
+  }
+
+  return `${hours} ч ${restMinutes} мин`;
 }
 
 function buildEarlyBedtimeScenario(
@@ -55,7 +72,7 @@ export function buildRecommendationScenarios(input: RecommendationInput): Recomm
     ];
   }
 
-  if (input.currentWakeMinutes >= input.wakeWindow.maxWakeMinutes) {
+  if (input.projectedMicroNapMinutes > 0) {
     const nightScenario =
       input.nextSleepKind === 'night' && input.predictedBedtimeDeltaMinutes >= 0
         ? buildClosingNightScenario(input.predictedBedtimeDeltaMinutes, 'secondary')
@@ -68,10 +85,35 @@ export function buildRecommendationScenarios(input: RecommendationInput): Recomm
       {
         id: 'microNap',
         title: 'Микросон',
-        detail: 'Окно бодрствования уже близко к верхней границе. Подойдёт короткий сон.',
+        detail: `Окно бодрствования получится длинным. В прогноз помещается микро-сон на ${formatDuration(
+          input.projectedMicroNapMinutes,
+        )}.`,
         priority: 'primary',
       },
       nightScenario,
+    ];
+  }
+
+  if (input.currentWakeMinutes >= input.wakeWindow.maxWakeMinutes) {
+    if (input.nextSleepKind === 'night' && input.predictedBedtimeDeltaMinutes >= 0) {
+      return [buildClosingNightScenario(input.predictedBedtimeDeltaMinutes)];
+    }
+
+    if (input.nextSleepKind === 'night') {
+      return [
+        buildEarlyBedtimeScenario(
+          'Микро-сон уже не помещается по вечерним правилам. Спокойнее двигаться к отбою.',
+        ),
+      ];
+    }
+
+    return [
+      {
+        id: 'normal',
+        title: 'Сон сейчас',
+        detail: 'Окно бодрствования уже у верхней границы. Лучше начинать следующий сон.',
+        priority: 'primary',
+      },
     ];
   }
 
@@ -91,7 +133,9 @@ export function buildRecommendationScenarios(input: RecommendationInput): Recomm
       {
         id: 'capLastNap',
         title: 'Укоротить сон',
-        detail: 'Последний сон лучше держать коротким, чтобы не увести ночь поздно.',
+        detail: `Последний вечерний сон лучше держать до ${formatDuration(
+          input.maxEveningNapMinutes,
+        )}, чтобы не увести ночь поздно.`,
         priority: 'secondary',
       },
       {

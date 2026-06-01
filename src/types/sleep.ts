@@ -4,6 +4,8 @@ export type SleepKind = 'nap' | 'night';
 
 export type SleepState = 'awake' | 'sleeping';
 
+export type EveningSleepRulesMode = 'auto' | 'custom';
+
 export type RecommendationScenarioId =
   | 'normal'
   | 'microNap'
@@ -61,6 +63,7 @@ export interface TargetDayPlan {
   childId: string;
   name: string;
   isActive: boolean;
+  eveningRulesMode: EveningSleepRulesMode;
   plan: SleepPlanPreset;
   updatedAt: ISODateString;
 }

@@ -39,6 +39,7 @@ interface BedtimeProjection {
   nextSleepAt: Date;
   nextSleepKind: SleepKind;
   predictedBedtimeAt: Date;
+  projectedMicroNapMinutes: number;
   projectedRemainingDaySleepMinutes: number;
 }
 
@@ -193,6 +194,7 @@ function buildBedtimeProjection(input: BedtimeProjectionInput): BedtimeProjectio
       nextSleepAt: new Date(input.activeSession.startedAt),
       nextSleepKind: 'night',
       predictedBedtimeAt: new Date(input.activeSession.startedAt),
+      projectedMicroNapMinutes: 0,
       projectedRemainingDaySleepMinutes: 0,
     };
   }
@@ -212,6 +214,7 @@ function buildBedtimeProjection(input: BedtimeProjectionInput): BedtimeProjectio
   );
   let nextSleepAt: Date | null = null;
   let nextSleepKind: SleepKind = 'night';
+  let projectedMicroNapMinutes = 0;
   let projectedRemainingDaySleepMinutes = 0;
   let wakeStartedAt = input.state === 'awake' ? input.statusStartedAt : cursor;
 
@@ -294,6 +297,7 @@ function buildBedtimeProjection(input: BedtimeProjectionInput): BedtimeProjectio
 
       cursor = microNapEndAt;
       awakeLeft -= awakeBeforeMicroNap;
+      projectedMicroNapMinutes = input.plan.microNapMinutes;
       projectedRemainingDaySleepMinutes += input.plan.microNapMinutes;
     }
   }
@@ -304,6 +308,7 @@ function buildBedtimeProjection(input: BedtimeProjectionInput): BedtimeProjectio
     nextSleepAt: nextSleepAt ?? predictedBedtimeAt,
     nextSleepKind,
     predictedBedtimeAt,
+    projectedMicroNapMinutes,
     projectedRemainingDaySleepMinutes,
   };
 }
@@ -690,6 +695,8 @@ export function buildTodaySleepSnapshot(
       currentWakeMinutes: state === 'awake' ? currentDurationMinutes : 0,
       remainingAwakeMinutes,
       completedNaps,
+      maxEveningNapMinutes: plan.maxEveningNapMinutes,
+      projectedMicroNapMinutes: bedtimeProjection.projectedMicroNapMinutes,
       wakeWindow,
       nextSleepKind,
       predictedBedtimeDeltaMinutes,

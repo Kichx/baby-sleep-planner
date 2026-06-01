@@ -14,6 +14,22 @@ interface SleepPlanRangeInput {
   microNapMinutes: number;
 }
 
+interface EveningSleepRulesInput {
+  wakeUpStartMinutes: number;
+  wakeUpEndMinutes: number;
+  targetAwakeMinMinutes: number;
+  targetAwakeMaxMinutes: number;
+  napCount: number;
+  targetDaySleepMinMinutes: number;
+  targetDaySleepMaxMinutes: number;
+}
+
+export interface EveningSleepRules {
+  latestEveningNapEndMinutes: number;
+  maxEveningNapMinutes: number;
+  microNapMinutes: number;
+}
+
 interface BedtimeRange {
   startMinutes: number;
   endMinutes: number;
@@ -32,6 +48,15 @@ const DAY_MINUTES = 24 * 60;
 const EARLY_BEDTIME_OFFSET_MINUTES = 60;
 const MIN_NAP_COUNT = 1;
 const MAX_NAP_COUNT = 5;
+const SINGLE_NAP_LATEST_END_BEFORE_BEDTIME_MINUTES = 180;
+const TWO_NAP_LATEST_END_BEFORE_BEDTIME_MINUTES = 120;
+const MANY_NAP_LATEST_END_BEFORE_BEDTIME_MINUTES = 0;
+const SINGLE_NAP_MAX_EVENING_NAP_MINUTES = 30;
+const TWO_NAP_MAX_EVENING_NAP_MINUTES = 40;
+const MANY_NAP_MAX_EVENING_NAP_MINUTES = 45;
+const SINGLE_NAP_MICRO_NAP_MINUTES = 0;
+const TWO_NAP_MICRO_NAP_MINUTES = 15;
+const MANY_NAP_MICRO_NAP_MINUTES = 20;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -87,6 +112,37 @@ export function buildWakeWindowsForPlan(input: {
     napNumber: index + 1,
     targetWakeMinutes,
   }));
+}
+
+export function deriveEveningSleepRulesForPlan(input: EveningSleepRulesInput): EveningSleepRules {
+  const napCount = clampNapCount(input.napCount);
+  const bedtimeRange = calculatePlanBedtimeRange(input);
+  const latestEndOffsetMinutes =
+    napCount === 1
+      ? SINGLE_NAP_LATEST_END_BEFORE_BEDTIME_MINUTES
+      : napCount === 2
+        ? TWO_NAP_LATEST_END_BEFORE_BEDTIME_MINUTES
+        : MANY_NAP_LATEST_END_BEFORE_BEDTIME_MINUTES;
+  const maxEveningNapMinutes =
+    napCount === 1
+      ? SINGLE_NAP_MAX_EVENING_NAP_MINUTES
+      : napCount === 2
+        ? TWO_NAP_MAX_EVENING_NAP_MINUTES
+        : MANY_NAP_MAX_EVENING_NAP_MINUTES;
+  const microNapMinutes =
+    napCount === 1
+      ? SINGLE_NAP_MICRO_NAP_MINUTES
+      : napCount === 2
+        ? TWO_NAP_MICRO_NAP_MINUTES
+        : MANY_NAP_MICRO_NAP_MINUTES;
+
+  return {
+    latestEveningNapEndMinutes: normalizeClockMinutes(
+      bedtimeRange.startMinutes - latestEndOffsetMinutes,
+    ),
+    maxEveningNapMinutes,
+    microNapMinutes,
+  };
 }
 
 export function buildSleepPlanPreset(input: SleepPlanRangeInput): SleepPlanPreset {

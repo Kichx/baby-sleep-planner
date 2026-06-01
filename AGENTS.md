@@ -493,6 +493,34 @@ Before considering sleep-plan editing done, verify:
 - "Предполагаемый отбой" and the ideal schedule update after every edit;
 - returning to the main screen uses the saved plan values.
 
+## Implementation lessons from auto-derived sleep-plan settings
+
+For advanced plan parameters that mostly tune recommendations, prefer an automatic mode with a compact manual override. Parents should not have to maintain values such as `microNapMinutes`, `latestEveningNapEndMinutes`, or `maxEveningNapMinutes` after changing bedtime, nap count, wake windows, or day-sleep targets.
+
+Keep auto derivation in `src/core` as a pure TypeScript function. UI should call the core function for draft previews and saved values, not duplicate the formula in React components or database code. The default plan should be built from the same derivation so defaults and edited plans do not drift.
+
+When adding an auto/custom mode for plan settings, persist the mode explicitly in SQLite, for example `evening_rules_mode`, and update all data paths together:
+- fresh schema in `INITIAL_SCHEMA_SQL`;
+- idempotent existing-database column checks before any `PRAGMA user_version` early return;
+- repository SELECT/INSERT/UPDATE mapping;
+- export/import backup rows with a fallback for older backups;
+- tests for both new backups and legacy backups without the new field.
+
+Saved plans should still contain the effective numeric values used by calculations. In `auto` mode, map database rows to derived values from the current base plan; in `custom` mode, use the stored numeric override values. This keeps recommendations deterministic while avoiding extra routine settings work for the parent.
+
+Recommendation scenarios must describe what the projection actually did. Do not show a `microNap` scenario only because wake time is near a limit; show it only when the bedtime projection really inserted a micro-nap and expose the projected micro-nap minutes from core. If micro-naps are disabled or no longer fit the evening limits, choose early bedtime or normal next-sleep copy instead.
+
+For UI, keep these controls under a collapsed "additional" area with short text and a help link. The collapsed state should show whether values are `auto` or manual, plus only the most useful summary. The edit sheet should explain that the settings affect suggestions, not logged sleep records, and should provide "set manually" / "return auto" actions instead of making every numeric field visible by default.
+
+Before considering auto-derived plan settings done, verify:
+- changing nap count or bedtime recalculates auto values in the draft before saving;
+- switching to manual preserves the current effective values as editable inputs;
+- returning to auto replaces manual values with derived values;
+- saved active-plan calculations, snapshots, reminders, recommendations, and shared-plan text use the effective saved plan;
+- old databases and old backups without the mode field still load;
+- core tests cover representative nap counts and disabled micro-naps;
+- `/sleep-plan` and the relevant `/info?article=...` deep link render in the in-app browser without adding visual clutter.
+
 ## Implementation lessons from multiple sleep-plan work
 
 Keep "selected plan" and "active plan" separate. The selected plan is only the plan currently displayed or edited on the "План дня" screen. The active plan is the persisted plan used by current-day calculations and recommendations. Do not make carousel highlighting depend on `isActive`; highlight the selected card, and show active state separately as a badge or short status text.
@@ -575,6 +603,8 @@ Level D copy must stay cautious and non-clinical. Use phrases such as "науч�
 
 Keep `/info?article=scientific-evidence` compact and read-only. The article should explain that Level D is for internal model backing, does not set nap count or wake windows, does not replace Level A official guidance, and is not medical advice. Add the article id to any `InfoArticleId` guard so the deep link opens directly.
 
+If the user explicitly asks for a more scientific or detailed Level D article, it may be more detailed than other help entries, but it must stay readable and read-only. Explain evidence kinds, normal variability, and limitations using `SCIENTIFIC_SLEEP_EVIDENCE_SOURCES`, `trustNote`, `limitations`, and existing formatters instead of hard-coding new study claims in UI text. Do not add new studies only in `/info`; add them to `src/core/scientificSleepEvidence.ts` and update `src/core/scientificSleepEvidence.test.ts`.
+
 On `/sleep-plan`, Level D should usually be only a compact text link such as "Научная база модели: Уровень D" or "Почему ориентиры разные?" pointing to `/info?article=scientific-evidence`. Do not add a fourth full card next to A/B/C, an apply button, or extra settings unless a separate product task explicitly asks for that added surface area.
 
 Before considering scientific evidence guidance done, verify:
@@ -587,6 +617,16 @@ Before considering scientific evidence guidance done, verify:
 - TypeScript checks pass and core tests pass.
 
 When documenting Level A/B/C/D changes in Confluence, update both the conceptual and screen-level pages. The conceptual page is `Уровни доверия сна: A и B` or its successor if Level C/D has been added there. The screen pages that usually need updates are `Экран: План дня` for the cards/actions, `Экран: Справка` for help articles and deep links, and `Экран: Сон сегодня` when a guideline status appears on the main/past-day screen. This prevents Confluence from describing only the core principle while missing visible UI behavior.
+
+## Implementation lessons from Help level-chain articles
+
+In `/info`, keep the user-facing level articles adjacent and ordered as one chain: official sleep guidelines (Level A), practical daytime sleep guidelines (Level B), wake-window guidance (Level C), and scientific evidence (Level D). Do not insert unrelated help articles such as night forecast, night classification, evening sleep rules, or editor instructions between those four articles.
+
+Level article titles in `INFO_ARTICLES` should start with `Уровень X · ...`, not end with the level label. This makes the collapsed help list read as one connected sequence.
+
+When editing this chain, the first paragraph of each article should define that level's role: Level A = official 24-hour total sleep check, Level B = practical daytime sleep distribution, Level C = practical wake-window guidance, Level D = evidence backing for ranges and variability. Keep that separation visible in copy; do not imply that official Level A sources define nap counts or wake windows, and do not let Level D become a direct scheduling rule.
+
+For `/info` text-only changes, run `cmd /c npm run typecheck`. If the Level D table, source labels, or source-backed copy changes, also run `cmd /c npm run test -- src/core/scientificSleepEvidence.test.ts`. If a local Expo server is already running, visually check `/info` for wrapping and spacing; do not start a new server solely for a tiny copy change unless layout risk is real.
 
 ## Implementation lessons from Android keyboard/input modal work
 

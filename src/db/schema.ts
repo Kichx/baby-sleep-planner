@@ -1,6 +1,6 @@
 export const DATABASE_NAME = 'baby_sleep_planner.db';
 
-export const DATABASE_VERSION = 6;
+export const DATABASE_VERSION = 8;
 
 export const INITIAL_SCHEMA_SQL = `
 PRAGMA journal_mode = WAL;
@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS target_day_plan (
   child_id TEXT NOT NULL,
   name TEXT NOT NULL DEFAULT 'Основной',
   is_active INTEGER NOT NULL DEFAULT 1,
+  evening_rules_mode TEXT NOT NULL DEFAULT 'auto',
   wake_up_start_minutes INTEGER,
   wake_up_end_minutes INTEGER,
   target_awake_min_minutes INTEGER,
@@ -41,6 +42,9 @@ CREATE TABLE IF NOT EXISTS target_day_plan (
   target_day_sleep_max_minutes INTEGER,
   target_day_sleep_minutes INTEGER NOT NULL,
   bedtime_target_minutes INTEGER NOT NULL,
+  latest_evening_nap_end_minutes INTEGER NOT NULL DEFAULT 1200,
+  max_evening_nap_minutes INTEGER NOT NULL DEFAULT 45,
+  micro_nap_minutes INTEGER NOT NULL DEFAULT 20,
   updated_at TEXT NOT NULL,
   FOREIGN KEY (child_id) REFERENCES child_profile(id)
 );

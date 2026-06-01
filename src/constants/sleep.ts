@@ -1,15 +1,12 @@
 import type { SleepPlanPreset } from '@/types/sleep';
-import { buildSleepPlanPreset } from '@/core/sleepPlan';
+import { buildSleepPlanPreset, deriveEveningSleepRulesForPlan } from '@/core/sleepPlan';
 
 export const DEFAULT_CHILD_ID = 'default-child';
 
 export const DEFAULT_CHILD_NAME = 'Ребёнок';
 
-export const DEFAULT_SLEEP_PLAN: SleepPlanPreset = buildSleepPlanPreset({
-  latestEveningNapEndMinutes: 20 * 60,
-  maxEveningNapMinutes: 45,
+const DEFAULT_SLEEP_PLAN_BASE = {
   minNightSleepMinutes: 3 * 60,
-  microNapMinutes: 20,
   napCount: 3,
   targetAwakeMaxMinutes: 10 * 60 + 30,
   targetAwakeMinMinutes: 10 * 60,
@@ -17,4 +14,9 @@ export const DEFAULT_SLEEP_PLAN: SleepPlanPreset = buildSleepPlanPreset({
   targetDaySleepMinMinutes: 3 * 60,
   wakeUpEndMinutes: 7 * 60 + 30,
   wakeUpStartMinutes: 7 * 60,
+};
+
+export const DEFAULT_SLEEP_PLAN: SleepPlanPreset = buildSleepPlanPreset({
+  ...DEFAULT_SLEEP_PLAN_BASE,
+  ...deriveEveningSleepRulesForPlan(DEFAULT_SLEEP_PLAN_BASE),
 });

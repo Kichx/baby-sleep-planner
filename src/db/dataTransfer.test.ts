@@ -58,8 +58,12 @@ const validBackup: AppDataBackup = {
       {
         bedtime_target_minutes: 1170,
         child_id: 'default-child',
+        evening_rules_mode: 'auto',
         id: 'default-target-day-plan',
         is_active: 1,
+        latest_evening_nap_end_minutes: 1200,
+        max_evening_nap_minutes: 45,
+        micro_nap_minutes: 20,
         name: 'Основной',
         nap_count: 3,
         target_awake_max_minutes: 540,
@@ -103,6 +107,27 @@ describe('data transfer backup parsing', () => {
     const parsedBackup = parseAppDataBackup(JSON.stringify(oldBackup));
 
     expect(parsedBackup.data.sleepDayPlanSnapshots).toEqual([]);
+  });
+
+  it('uses default evening settings for an old target day plan backup', () => {
+    const { latest_evening_nap_end_minutes, max_evening_nap_minutes, micro_nap_minutes, ...oldPlan } =
+      validBackup.data.targetDayPlans[0];
+    const oldBackup = {
+      ...validBackup,
+      data: {
+        ...validBackup.data,
+        targetDayPlans: [oldPlan],
+      },
+      formatVersion: 2,
+    };
+    const parsedBackup = parseAppDataBackup(JSON.stringify(oldBackup));
+
+    expect(parsedBackup.data.targetDayPlans[0]).toMatchObject({
+      evening_rules_mode: 'auto',
+      latest_evening_nap_end_minutes: 1200,
+      max_evening_nap_minutes: 45,
+      micro_nap_minutes: 20,
+    });
   });
 
   it('rejects files from another format', () => {

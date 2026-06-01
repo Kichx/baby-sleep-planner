@@ -147,6 +147,10 @@ describe('buildTodaySleepSnapshot bedtime projection', () => {
 
     expect(clock(snapshot.predictedBedtimeAt)).toBe('19:20');
     expect(snapshot.projectedRemainingDaySleepMinutes).toBe(65);
+    expect(snapshot.scenarios[0]).toMatchObject({
+      id: 'capLastNap',
+      detail: 'Последний вечерний сон лучше держать до 45 мин, чтобы не увести ночь поздно.',
+    });
   });
 
   it('allows a late third nap when it still fits before the evening nap cutoff', () => {
@@ -191,6 +195,39 @@ describe('buildTodaySleepSnapshot bedtime projection', () => {
     expect(snapshot.nextSleepKind).toBe('nap');
     expect(clock(snapshot.predictedBedtimeAt)).toBe('19:05');
     expect(snapshot.projectedRemainingDaySleepMinutes).toBe(20);
+    expect(snapshot.scenarios[0]).toMatchObject({
+      id: 'microNap',
+      title: 'Микросон',
+    });
+  });
+
+  it('does not suggest a micro-nap scenario when micro-naps are disabled in the plan', () => {
+    const noMicroNapPlan = buildSleepPlanPreset({
+      latestEveningNapEndMinutes: DEFAULT_SLEEP_PLAN.latestEveningNapEndMinutes,
+      maxEveningNapMinutes: DEFAULT_SLEEP_PLAN.maxEveningNapMinutes,
+      minNightSleepMinutes: DEFAULT_SLEEP_PLAN.minNightSleepMinutes,
+      microNapMinutes: 0,
+      napCount: DEFAULT_SLEEP_PLAN.napCount,
+      targetAwakeMaxMinutes: DEFAULT_SLEEP_PLAN.targetAwakeMaxMinutes,
+      targetAwakeMinMinutes: DEFAULT_SLEEP_PLAN.targetAwakeMinMinutes,
+      targetDaySleepMaxMinutes: DEFAULT_SLEEP_PLAN.targetDaySleepMaxMinutes,
+      targetDaySleepMinMinutes: DEFAULT_SLEEP_PLAN.targetDaySleepMinMinutes,
+      wakeUpEndMinutes: DEFAULT_SLEEP_PLAN.wakeUpEndMinutes,
+      wakeUpStartMinutes: DEFAULT_SLEEP_PLAN.wakeUpStartMinutes,
+    });
+    const snapshot = buildTodaySleepSnapshot(
+      [
+        sleepSession('nap-1', 'nap', 8, 30, 9, 0),
+        sleepSession('nap-2', 'nap', 11, 30, 12, 0),
+        sleepSession('nap-3', 'nap', 14, 30, 15, 0),
+      ],
+      at(17, 30),
+      noMicroNapPlan,
+    );
+
+    expect(snapshot.nextSleepKind).toBe('night');
+    expect(snapshot.projectedRemainingDaySleepMinutes).toBe(0);
+    expect(snapshot.scenarios.some((scenario) => scenario.id === 'microNap')).toBe(false);
   });
 
   it('uses early bedtime when a remaining planned nap no longer fits', () => {
