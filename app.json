@@ -49,6 +49,7 @@
           "defaultChannel": "active-sleep"
         }
       ],
+      "./plugins/withActiveSleepNotificationService",
       "expo-sharing"
     ],
     "experiments": {
