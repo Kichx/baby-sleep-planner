@@ -1,11 +1,16 @@
 import {
   addMinutes,
-  buildSleepDaySummary,
   buildTodaySleepSnapshot,
   getDayStart,
   getSessionKindForCalculations,
   minutesBetween,
 } from '@/core/sleepCalculations';
+import {
+  formatLocalClock,
+  formatLocalDateLabel,
+  getLocalCalendarDayDiff,
+  isSameLocalCalendarDay,
+} from '@/core/localDateTime';
 import type { SleepKind, SleepPlanPreset, SleepSession } from '@/types/sleep';
 
 interface TodayPlanShareInput {
@@ -23,14 +28,19 @@ interface ShareSessionRow {
   isActive: boolean;
 }
 
+interface FutureSleepRow {
+  kind: SleepKind;
+  startAt: Date;
+  endAt: Date | null;
+  isCurrent: boolean;
+}
+
 const DAY_MINUTES = 24 * 60;
-const MAX_SHARED_SCENARIOS = 2;
+const MAX_PROJECTION_STEPS = 8;
+const PROJECTION_CHILD_ID = 'share-projection';
 
 function formatClock(date: Date): string {
-  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(
-    2,
-    '0',
-  )}`;
+  return formatLocalClock(date);
 }
 
 function formatDuration(minutes: number): string {
@@ -49,19 +59,29 @@ function formatDuration(minutes: number): string {
   return `${hours} ч ${restMinutes} мин`;
 }
 
-function startOfCalendarDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+function formatCount(value: number, one: string, few: string, many: string): string {
+  const mod10 = value % 10;
+  const mod100 = value % 100;
+  const suffix =
+    mod10 === 1 && mod100 !== 11
+      ? one
+      : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
+        ? few
+        : many;
+
+  return `${value} ${suffix}`;
 }
 
-function isSameCalendarDay(first: Date, second: Date): boolean {
-  return startOfCalendarDay(first).getTime() === startOfCalendarDay(second).getTime();
+function formatNapProgress(completedNaps: number, targetNaps: number): string {
+  return `${completedNaps} из ${formatCount(targetNaps, 'сна', 'снов', 'снов')}`;
 }
 
 function getCalendarDayDiff(first: Date, second: Date): number {
-  const firstStart = startOfCalendarDay(first).getTime();
-  const secondStart = startOfCalendarDay(second).getTime();
+  return getLocalCalendarDayDiff(first, second);
+}
 
-  return Math.round((firstStart - secondStart) / (DAY_MINUTES * 60_000));
+function isSameCalendarDay(first: Date, second: Date): boolean {
+  return isSameLocalCalendarDay(first, second);
 }
 
 function formatRelativeDay(date: Date, referenceDate: Date): string {
@@ -79,29 +99,54 @@ function formatRelativeDay(date: Date, referenceDate: Date): string {
     return 'завтра';
   }
 
-  return new Intl.DateTimeFormat('ru-RU', {
+  return formatLocalDateLabel(date, {
     day: 'numeric',
     month: 'short',
-  }).format(date);
+  });
 }
 
 function formatClockWithDay(date: Date, referenceDate: Date): string {
   return `${formatClock(date)} ${formatRelativeDay(date, referenceDate)}`;
 }
 
-function formatSessionRange(startedAt: Date, endedAt: Date | null, referenceDate: Date): string {
-  if (!endedAt) {
-    return `с ${formatClockWithDay(startedAt, referenceDate)}`;
-  }
+function formatTodayClock(date: Date, referenceDate: Date): string {
+  return getCalendarDayDiff(date, referenceDate) === 0
+    ? formatClock(date)
+    : formatClockWithDay(date, referenceDate);
+}
 
+function formatClockRange(startedAt: Date, endedAt: Date, referenceDate: Date): string {
   if (isSameCalendarDay(startedAt, endedAt)) {
-    return `${formatClock(startedAt)}-${formatClock(endedAt)}`;
+    return `${formatTodayClock(startedAt, referenceDate)}-${formatClock(endedAt)}`;
   }
 
   return `${formatClockWithDay(startedAt, referenceDate)} - ${formatClockWithDay(
     endedAt,
     referenceDate,
   )}`;
+}
+
+function formatSessionRange(startedAt: Date, endedAt: Date | null, referenceDate: Date): string {
+  if (!endedAt) {
+    return `с ${formatTodayClock(startedAt, referenceDate)}`;
+  }
+
+  return formatClockRange(startedAt, endedAt, referenceDate);
+}
+
+function minDate(first: Date, second: Date): Date {
+  return first.getTime() <= second.getTime() ? first : second;
+}
+
+function maxDate(first: Date, second: Date): Date {
+  return first.getTime() >= second.getTime() ? first : second;
+}
+
+function sortSessionsByStart(sessions: SleepSession[]): SleepSession[] {
+  return [...sessions].sort(
+    (first, second) =>
+      new Date(first.startedAt).getTime() - new Date(second.startedAt).getTime(),
+  );
 }
 
 function getVisibleSessionEnd(session: SleepSession, now: Date, dayEnd: Date): Date {
@@ -131,12 +176,8 @@ function buildShareSessionRows(
   dayEnd: Date,
   plan: SleepPlanPreset,
 ): ShareSessionRow[] {
-  return sessions
+  return sortSessionsByStart(sessions)
     .filter((session) => sessionOverlapsRange(session, dayStart, dayEnd, now))
-    .sort(
-      (first, second) =>
-        new Date(first.startedAt).getTime() - new Date(second.startedAt).getTime(),
-    )
     .map((session) => {
       const startedAt = new Date(session.startedAt);
       const endedAt = session.endedAt ? new Date(session.endedAt) : null;
@@ -151,37 +192,254 @@ function buildShareSessionRows(
     });
 }
 
-function formatShareSessionRows(rows: ShareSessionRow[]): string[] {
-  if (rows.length === 0) {
-    return ['• записей сна пока нет'];
+function formatNapRows(rows: ShareSessionRow[]): string[] {
+  const napRows = rows.filter((row) => row.kind === 'nap');
+
+  if (napRows.length === 0) {
+    return ['• Дневных снов пока не было'];
   }
 
-  let napNumber = 0;
+  return napRows.map((row, index) => {
+    const durationLabel = row.isActive
+      ? `идёт ${formatDuration(row.durationMinutes)}`
+      : formatDuration(row.durationMinutes);
 
-  return rows.map((row) => {
-    let title = 'Ночной сон';
-
-    if (row.kind === 'nap') {
-      napNumber += 1;
-      title = `Сон ${napNumber}`;
-    }
-
-    const durationPrefix = row.isActive ? 'идёт ' : '';
-
-    return `• ${title} | ${row.rangeLabel} | ${durationPrefix}${formatDuration(
-      row.durationMinutes,
-    )}`;
+    return `• ${index + 1}-й сон: ${row.rangeLabel}, ${durationLabel}`;
   });
 }
 
-function formatWaitLabel(now: Date, targetAt: Date): string {
-  const waitMinutes = minutesBetween(now, targetAt);
+function getTargetNapMinutes(plan: SleepPlanPreset): number {
+  return Math.max(0, Math.round(plan.targetDaySleepMinutes / Math.max(1, plan.napCount)));
+}
 
-  if (waitMinutes === 0) {
-    return 'сейчас';
+function dateAtSleepDayMinutes(
+  dayStart: Date,
+  minutesFromMidnight: number,
+  plan: SleepPlanPreset,
+): Date {
+  const offsetMinutes = minutesFromMidnight - plan.dayStartMinutes;
+
+  return addMinutes(dayStart, offsetMinutes >= 0 ? offsetMinutes : offsetMinutes + DAY_MINUTES);
+}
+
+function getProjectedActiveNapEnd(
+  session: SleepSession,
+  now: Date,
+  dayStart: Date,
+  dayEnd: Date,
+  plan: SleepPlanPreset,
+): Date {
+  const startedAt = new Date(session.startedAt);
+  const targetEndAt = addMinutes(startedAt, getTargetNapMinutes(plan));
+  const latestNapEndAt = dateAtSleepDayMinutes(dayStart, plan.latestEveningNapEndMinutes, plan);
+  const plannedEndAt = maxDate(targetEndAt, now);
+  const latestAllowedEndAt = minDate(dayEnd, latestNapEndAt);
+
+  return plannedEndAt.getTime() <= latestAllowedEndAt.getTime() ? plannedEndAt : now;
+}
+
+function getProjectedNapDuration(snapshotRemainingSleepMinutes: number, plan: SleepPlanPreset) {
+  return Math.min(getTargetNapMinutes(plan), Math.max(0, snapshotRemainingSleepMinutes));
+}
+
+function closeActiveSession(
+  sessions: SleepSession[],
+  activeSessionId: string,
+  endedAt: Date,
+): SleepSession[] {
+  return sessions.map((session) =>
+    session.id === activeSessionId ? { ...session, endedAt: endedAt.toISOString() } : session,
+  );
+}
+
+function appendProjectedNap(
+  sessions: SleepSession[],
+  index: number,
+  startedAt: Date,
+  endedAt: Date,
+): SleepSession[] {
+  return sortSessionsByStart([
+    ...sessions,
+    {
+      childId: PROJECTION_CHILD_ID,
+      endedAt: endedAt.toISOString(),
+      id: `projected-nap-${index}`,
+      kind: 'nap',
+      startedAt: startedAt.toISOString(),
+    },
+  ]);
+}
+
+function buildFutureSleepRows(
+  sessions: SleepSession[],
+  now: Date,
+  dayStart: Date,
+  dayEnd: Date,
+  plan: SleepPlanPreset,
+): FutureSleepRow[] {
+  const rows: FutureSleepRow[] = [];
+  let simulatedSessions = sortSessionsByStart(sessions);
+  let cursor = now;
+  const activeSession = simulatedSessions.find((session) => session.endedAt === null);
+
+  if (activeSession) {
+    const activeKind = getSessionKindForCalculations(activeSession, now, plan);
+
+    if (activeKind === 'night') {
+      return [
+        {
+          endAt: null,
+          isCurrent: true,
+          kind: 'night',
+          startAt: new Date(activeSession.startedAt),
+        },
+      ];
+    }
+
+    const projectedEndAt = getProjectedActiveNapEnd(activeSession, now, dayStart, dayEnd, plan);
+
+    rows.push({
+      endAt: projectedEndAt,
+      isCurrent: true,
+      kind: 'nap',
+      startAt: new Date(activeSession.startedAt),
+    });
+
+    simulatedSessions = closeActiveSession(simulatedSessions, activeSession.id, projectedEndAt);
+    cursor = projectedEndAt;
   }
 
-  return `через ${formatDuration(waitMinutes)}`;
+  for (let index = 0; index < MAX_PROJECTION_STEPS; index += 1) {
+    const snapshot = buildTodaySleepSnapshot(simulatedSessions, cursor, plan);
+
+    if (snapshot.state === 'sleeping') {
+      break;
+    }
+
+    if (snapshot.nextSleepKind === 'night') {
+      rows.push({
+        endAt: null,
+        isCurrent: false,
+        kind: 'night',
+        startAt: snapshot.nextSleepAt,
+      });
+      break;
+    }
+
+    if (snapshot.nextSleepAt.getTime() >= dayEnd.getTime()) {
+      break;
+    }
+
+    const napDurationMinutes = getProjectedNapDuration(
+      snapshot.projectedRemainingDaySleepMinutes,
+      plan,
+    );
+
+    if (napDurationMinutes <= 0) {
+      rows.push({
+        endAt: null,
+        isCurrent: false,
+        kind: 'night',
+        startAt: snapshot.predictedBedtimeAt,
+      });
+      break;
+    }
+
+    const napStartAt = snapshot.nextSleepAt;
+    const napEndAt = minDate(addMinutes(napStartAt, napDurationMinutes), dayEnd);
+
+    if (napEndAt.getTime() <= napStartAt.getTime()) {
+      break;
+    }
+
+    rows.push({
+      endAt: napEndAt,
+      isCurrent: false,
+      kind: 'nap',
+      startAt: napStartAt,
+    });
+
+    simulatedSessions = appendProjectedNap(simulatedSessions, index, napStartAt, napEndAt);
+    cursor = napEndAt;
+  }
+
+  return rows;
+}
+
+function formatFutureSleepRows(
+  rows: FutureSleepRow[],
+  existingNapCount: number,
+  referenceDate: Date,
+): string[] {
+  if (rows.length === 0) {
+    return ['• До отбоя больше снов не планируем'];
+  }
+
+  let napNumber = existingNapCount;
+
+  return rows.map((row) => {
+    if (row.kind === 'night') {
+      return row.isCurrent
+        ? `• Ночной сон уже начался: ${formatTodayClock(row.startAt, referenceDate)}`
+        : `• Отбой: ${formatTodayClock(row.startAt, referenceDate)}`;
+    }
+
+    if (row.isCurrent) {
+      if (row.endAt && row.endAt.getTime() > referenceDate.getTime()) {
+        return `• Текущий сон: ориентир до ${formatTodayClock(row.endAt, referenceDate)}`;
+      }
+
+      return '• Текущий сон: идёт, после пробуждения лучше обновить план';
+    }
+
+    napNumber += 1;
+
+    if (!row.endAt) {
+      return `• ${napNumber}-й сон: с ${formatTodayClock(row.startAt, referenceDate)}`;
+    }
+
+    return `• ${napNumber}-й сон: ${formatClockRange(row.startAt, row.endAt, referenceDate)}`;
+  });
+}
+
+function getWakeUpAt(
+  sessions: SleepSession[],
+  now: Date,
+  dayStart: Date,
+  dayEnd: Date,
+  plan: SleepPlanPreset,
+): Date | null {
+  const activeNight = sessions.some((session) => {
+    if (session.endedAt !== null || !sessionOverlapsRange(session, dayStart, dayEnd, now)) {
+      return false;
+    }
+
+    return getSessionKindForCalculations(session, now, plan) === 'night';
+  });
+
+  if (activeNight) {
+    return null;
+  }
+
+  const nightWakeUps = sessions
+    .filter((session) => session.endedAt !== null)
+    .map((session) => {
+      const endedAt = new Date(session.endedAt ?? '');
+
+      return {
+        endedAt,
+        kind: getSessionKindForCalculations(session, endedAt, plan),
+      };
+    })
+    .filter(
+      ({ endedAt, kind }) =>
+        kind === 'night' &&
+        endedAt.getTime() >= dayStart.getTime() &&
+        endedAt.getTime() <= dayEnd.getTime(),
+    )
+    .sort((first, second) => first.endedAt.getTime() - second.endedAt.getTime());
+
+  return nightWakeUps.length > 0 ? nightWakeUps[nightWakeUps.length - 1].endedAt : dayStart;
 }
 
 export function buildTodayPlanShareText(input: TodayPlanShareInput): string {
@@ -189,66 +447,48 @@ export function buildTodayPlanShareText(input: TodayPlanShareInput): string {
   const planName = input.planName.trim() || 'Основной';
   const dayStart = getDayStart(input.generatedAt, input.plan);
   const dayEnd = addMinutes(dayStart, DAY_MINUTES);
-  const snapshot = buildTodaySleepSnapshot(input.sessions, input.generatedAt, input.plan);
-  const summary = buildSleepDaySummary(
-    input.sessions,
-    input.generatedAt,
-    input.generatedAt,
-    input.plan,
+  const daySessions = sortSessionsByStart(
+    input.sessions.filter((session) =>
+      sessionOverlapsRange(session, dayStart, dayEnd, input.generatedAt),
+    ),
   );
+  const snapshot = buildTodaySleepSnapshot(daySessions, input.generatedAt, input.plan);
   const sessionRows = buildShareSessionRows(
-    input.sessions,
+    daySessions,
     input.generatedAt,
     dayStart,
     dayEnd,
     input.plan,
   );
-  const currentStateLabel = snapshot.state === 'sleeping' ? 'Спит' : 'Бодрствует';
-  const nextSleepLabel = snapshot.nextSleepKind === 'night' ? 'Отбой' : 'Следующий сон';
-  const nextSleepLine =
-    snapshot.state === 'sleeping'
-      ? '• Сейчас идёт сон, после пробуждения план пересчитается'
-      : `• ${nextSleepLabel}: ${formatClock(snapshot.nextSleepAt)} (${formatWaitLabel(
-          input.generatedAt,
-          snapshot.nextSleepAt,
-        )})`;
-  const projectedDaySleepLine =
-    snapshot.projectedRemainingDaySleepMinutes > 0
-      ? `• Дневного сна впереди по плану: ${formatDuration(
-          snapshot.projectedRemainingDaySleepMinutes,
-        )}`
-      : '• Дневной сон на сегодня больше не планируется';
-  const scenarioLines = snapshot.scenarios
-    .slice(0, MAX_SHARED_SCENARIOS)
-    .map((scenario) => `• ${scenario.title}: ${scenario.detail}`);
+  const futureRows = buildFutureSleepRows(
+    daySessions,
+    input.generatedAt,
+    dayStart,
+    dayEnd,
+    input.plan,
+  );
+  const wakeUpAt = getWakeUpAt(daySessions, input.generatedAt, dayStart, dayEnd, input.plan);
+  const currentStateLabel = snapshot.state === 'sleeping' ? 'спит' : 'бодрствует';
+  const existingNapCount = sessionRows.filter((row) => row.kind === 'nap').length;
 
   return [
-    `План сна на сегодня: ${childName}`,
-    `Обновлено: ${formatClock(input.generatedAt)}. План: ${planName}`,
+    `Сон на сегодня: ${childName}`,
+    `Обновлено в ${formatClock(input.generatedAt)}. Ориентир: ${planName}`,
     '',
-    `Сейчас: ${currentStateLabel} ${formatDuration(
-      snapshot.currentDurationMinutes,
-    )} с ${formatClockWithDay(snapshot.statusStartedAt, input.generatedAt)}`,
+    'Коротко по дню:',
+    `• Подъём: ${wakeUpAt ? formatTodayClock(wakeUpAt, input.generatedAt) : 'пока не было'}`,
+    `• Сейчас ${currentStateLabel} с ${formatTodayClock(
+      snapshot.statusStartedAt,
+      input.generatedAt,
+    )} (${formatDuration(snapshot.currentDurationMinutes)})`,
+    `• Дневной сон: ${formatDuration(snapshot.totalDaySleepMinutes)}, ${
+      formatNapProgress(snapshot.completedNaps, input.plan.napCount)
+    }`,
     '',
-    'Уже было:',
-    ...formatShareSessionRows(sessionRows),
+    'Сны уже были:',
+    ...formatNapRows(sessionRows),
     '',
-    'Дальше:',
-    nextSleepLine,
-    `• Прогноз отбоя: ${formatClock(snapshot.predictedBedtimeAt)}`,
-    projectedDaySleepLine,
-    '',
-    'Итоги дня:',
-    `• Бодрствование: ${formatDuration(snapshot.totalAwakeMinutes)} из цели ${formatDuration(
-      input.plan.targetAwakeMinutes,
-    )}; осталось ${formatDuration(snapshot.remainingAwakeMinutes)}`,
-    `• Дневной сон: ${formatDuration(snapshot.totalDaySleepMinutes)} из цели ${formatDuration(
-      input.plan.targetDaySleepMinutes,
-    )}`,
-    `• Сны: ${snapshot.completedNaps}/${input.plan.napCount}`,
-    `• ${summary.onTrackLabel}`,
-    '',
-    'Сценарии:',
-    ...scenarioLines,
+    'Дальше сегодня:',
+    ...formatFutureSleepRows(futureRows, existingNapCount, input.generatedAt),
   ].join('\n');
 }
