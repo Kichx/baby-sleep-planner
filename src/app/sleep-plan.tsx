@@ -9,11 +9,11 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SelectAllTextInput } from '@/components/SelectAllTextInput';
 import { SleepPlanIcon } from '@/components/SleepPlanIcon';
 import { DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import { colors, radius, spacing } from '@/constants/theme';
@@ -437,14 +437,14 @@ function RangeEditor({
       <View style={styles.editorInputRow}>
         <View style={styles.editorInputGroup}>
           <Text style={styles.compactLabel}>от</Text>
-          <TextInput
+          <SelectAllTextInput
             keyboardType="number-pad"
             maxLength={5}
-            onChangeText={(value) => onChangeStart(normalizeTimeInput(value))}
+            normalizeText={normalizeTimeInput}
+            onChangeText={onChangeStart}
             placeholder={startPlaceholder}
             placeholderTextColor={colors.textMuted}
             returnKeyType="done"
-            selectTextOnFocus
             style={styles.editorInput}
             underlineColorAndroid="transparent"
             value={startValue}
@@ -452,14 +452,14 @@ function RangeEditor({
         </View>
         <View style={styles.editorInputGroup}>
           <Text style={styles.compactLabel}>до</Text>
-          <TextInput
+          <SelectAllTextInput
             keyboardType="number-pad"
             maxLength={5}
-            onChangeText={(value) => onChangeEnd(normalizeTimeInput(value))}
+            normalizeText={normalizeTimeInput}
+            onChangeText={onChangeEnd}
             placeholder={endPlaceholder}
             placeholderTextColor={colors.textMuted}
             returnKeyType="done"
-            selectTextOnFocus
             style={styles.editorInput}
             underlineColorAndroid="transparent"
             value={endValue}
@@ -932,7 +932,7 @@ export default function SleepPlanScreen() {
     return (
       <View style={styles.nameInputGroup}>
         <Text style={styles.compactLabel}>план</Text>
-        <TextInput
+        <SelectAllTextInput
           autoCapitalize="sentences"
           autoFocus
           maxLength={PLAN_NAME_MAX_LENGTH}
@@ -947,7 +947,6 @@ export default function SleepPlanScreen() {
           placeholder="Основной"
           placeholderTextColor={colors.textMuted}
           returnKeyType="done"
-          selectTextOnFocus
           style={styles.nameDialogInput}
           underlineColorAndroid="transparent"
           value={nameEditorMode === 'create' ? newPlanName : draft.name}

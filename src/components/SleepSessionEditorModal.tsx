@@ -9,10 +9,10 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 
+import { SelectAllTextInput } from '@/components/SelectAllTextInput';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
   addLocalCalendarDays,
@@ -631,14 +631,14 @@ export function SleepSessionEditorModal({
             <Text style={[styles.compactLabel, areFieldsDisabled ? styles.disabledText : null]}>
               Время
             </Text>
-            <TextInput
+            <SelectAllTextInput
               editable={!areFieldsDisabled}
               keyboardType="number-pad"
               maxLength={5}
-              onChangeText={(value) => onTimeChange(normalizeTimeInput(value))}
+              normalizeText={normalizeTimeInput}
+              onChangeText={onTimeChange}
               placeholder={timePlaceholder}
               placeholderTextColor={colors.textMuted}
-              selectTextOnFocus={!areFieldsDisabled}
               style={[styles.timeInput, areFieldsDisabled ? styles.disabledText : null]}
               underlineColorAndroid="transparent"
               value={areFieldsDisabled ? '' : timeText}
