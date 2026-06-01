@@ -1,6 +1,7 @@
 import { StyleSheet, Text, View, type DimensionValue } from 'react-native';
 
 import { colors, radius, spacing } from '@/constants/theme';
+import { formatLocalClock } from '@/core/localDateTime';
 import { addMinutes } from '@/core/sleepCalculations';
 import type { SleepTimelineSegment } from '@/types/sleep';
 
@@ -14,10 +15,7 @@ const MIN_SEGMENT_WIDTH_PERCENT = 1.4;
 const MIN_LABEL_DURATION_MINUTES = 45;
 
 function formatClock(date: Date): string {
-  return new Intl.DateTimeFormat('ru-RU', {
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
+  return formatLocalClock(date);
 }
 
 function formatShortDuration(minutes: number): string {

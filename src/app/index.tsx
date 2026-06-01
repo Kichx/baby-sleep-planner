@@ -25,6 +25,15 @@ import {
   inferSleepKindForStart,
   minutesBetween,
 } from '@/core/sleepCalculations';
+import {
+  addLocalCalendarDays,
+  dateAtLocalNoon,
+  formatLocalClock,
+  formatLocalDateLabel,
+  getLocalCalendarDayDiff,
+  isSameLocalCalendarDay,
+  startOfLocalCalendarDay,
+} from '@/core/localDateTime';
 import { buildTodayPlanShareText } from '@/core/shareTodayPlan';
 import {
   assignSleepDayPlanSnapshot,
@@ -82,16 +91,9 @@ const DEFAULT_TIMER_REFRESH_MS = 30_000;
 const ACTIVE_SLEEP_DETAIL_REFRESH_MS = 1_000;
 const MAX_PAST_DAY_FEEDBACK_LINES = 3;
 const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
-const dateLabelFormatter = new Intl.DateTimeFormat('ru-RU', {
-  day: 'numeric',
-  month: 'long',
-});
 
 function formatClock(date: Date): string {
-  return new Intl.DateTimeFormat('ru-RU', {
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
+  return formatLocalClock(date);
 }
 
 function formatDuration(minutes: number): string {
@@ -219,29 +221,23 @@ function formatNextSleepWaitLabel(
 }
 
 function startOfCalendarDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  return startOfLocalCalendarDay(date);
 }
 
 function isSameCalendarDay(first: Date, second: Date): boolean {
-  return startOfCalendarDay(first).getTime() === startOfCalendarDay(second).getTime();
+  return isSameLocalCalendarDay(first, second);
 }
 
 function dateAtNoon(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0);
+  return dateAtLocalNoon(date);
 }
 
 function addCalendarDays(date: Date, days: number): Date {
-  const nextDate = dateAtNoon(date);
-  nextDate.setDate(nextDate.getDate() + days);
-
-  return nextDate;
+  return addLocalCalendarDays(date, days);
 }
 
 function getCalendarDayDiff(first: Date, second: Date): number {
-  const firstStart = startOfCalendarDay(first).getTime();
-  const secondStart = startOfCalendarDay(second).getTime();
-
-  return Math.round((firstStart - secondStart) / (DAY_MINUTES * 60_000));
+  return getLocalCalendarDayDiff(first, second);
 }
 
 function getSelectedDayType(selectedDate: Date, now: Date): SelectedDayType {
@@ -291,7 +287,10 @@ function sleepSessionOverlapsDay(
 }
 
 function formatDateLabel(date: Date): string {
-  return dateLabelFormatter.format(date);
+  return formatLocalDateLabel(date, {
+    day: 'numeric',
+    month: 'long',
+  });
 }
 
 function formatSelectedDayTitle(selectedDate: Date, now: Date): string {

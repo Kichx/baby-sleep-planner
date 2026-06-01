@@ -14,6 +14,15 @@ import {
 } from 'react-native';
 
 import { colors, radius, spacing } from '@/constants/theme';
+import {
+  addLocalCalendarDays,
+  dateFromLocalDateTime,
+  dateWithLocalDateAndTime,
+  formatLocalClock,
+  formatLocalDateInput,
+  getLocalDateTimeParts,
+  isSameLocalCalendarDay,
+} from '@/core/localDateTime';
 import { addMinutes, minutesBetween } from '@/core/sleepCalculations';
 import type { SleepSession } from '@/types/sleep';
 
@@ -51,16 +60,12 @@ interface ParsedFormDates {
   endedAt: Date | null;
 }
 
-function padTimePart(value: number): string {
-  return value.toString().padStart(2, '0');
-}
-
 function formatTimeInput(date: Date): string {
-  return `${padTimePart(date.getHours())}:${padTimePart(date.getMinutes())}`;
+  return formatLocalClock(date);
 }
 
 function formatDateInput(date: Date): string {
-  return `${padTimePart(date.getDate())}.${padTimePart(date.getMonth() + 1)}`;
+  return formatLocalDateInput(date);
 }
 
 function formatRussianDateLabel(date: Date): string {
@@ -79,7 +84,9 @@ function formatRussianDateLabel(date: Date): string {
     'дек',
   ];
 
-  return `${date.getDate()} ${months[date.getMonth()]}`;
+  const parts = getLocalDateTimeParts(date);
+
+  return `${parts.day} ${months[parts.month - 1]}`;
 }
 
 function parseTimeInput(value: string): TimeParts | null {
@@ -133,7 +140,7 @@ function parseDateParts(value: string, referenceDate: Date): DateParts | null {
 
   if (digits.length <= 2) {
     const day = Number(digits);
-    const month = referenceDate.getMonth() + 1;
+    const month = getLocalDateTimeParts(referenceDate).month;
 
     return isValidDateParts(day, month) ? { day, month } : null;
   }
@@ -177,12 +184,17 @@ function isValidDateParts(day: number, month: number): boolean {
 }
 
 function resolveDateNearReference(parts: DateParts, referenceDate: Date): Date | null {
-  const referenceYear = referenceDate.getFullYear();
+  const referenceYear = getLocalDateTimeParts(referenceDate).year;
   const candidates = [referenceYear - 1, referenceYear, referenceYear + 1]
     .map((year) => {
-      const date = new Date(year, parts.month - 1, parts.day, 0, 0, 0, 0);
+      const date = dateFromLocalDateTime({
+        day: parts.day,
+        month: parts.month,
+        year,
+      });
+      const localParts = getLocalDateTimeParts(date);
 
-      if (date.getDate() !== parts.day || date.getMonth() !== parts.month - 1) {
+      if (localParts.day !== parts.day || localParts.month !== parts.month) {
         return null;
       }
 
@@ -203,25 +215,15 @@ function resolveDateNearReference(parts: DateParts, referenceDate: Date): Date |
 }
 
 function dateWithDateAndTime(dateBase: Date, timeParts: TimeParts): Date {
-  const date = new Date(dateBase);
-  date.setHours(timeParts.hours, timeParts.minutes, 0, 0);
-
-  return date;
-}
-
-function startOfCalendarDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+  return dateWithLocalDateAndTime(dateBase, timeParts);
 }
 
 function addCalendarDays(date: Date, days: number): Date {
-  const nextDate = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0);
-  nextDate.setDate(nextDate.getDate() + days);
-
-  return nextDate;
+  return addLocalCalendarDays(date, days);
 }
 
 function isSameCalendarDay(first: Date, second: Date): boolean {
-  return startOfCalendarDay(first).getTime() === startOfCalendarDay(second).getTime();
+  return isSameLocalCalendarDay(first, second);
 }
 
 function hasValidInterval(parsed: ParsedFormDates): boolean {
@@ -493,6 +495,10 @@ export function SleepSessionEditorModal({
       },
       onDismiss: () => {},
       onValueChange: (_event, selectedDate) => {
+        if (!selectedDate) {
+          return;
+        }
+
         const dateText = formatDateInput(selectedDate);
 
         if (target === 'start') {

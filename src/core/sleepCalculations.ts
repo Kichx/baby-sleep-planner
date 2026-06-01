@@ -1,4 +1,9 @@
 import { buildRecommendationScenarios } from '@/core/recommendations';
+import {
+  dateAtLocalMinutes,
+  formatLocalDateKey,
+  getLocalMinutesFromMidnight,
+} from '@/core/localDateTime';
 import { calculatePlanBedtimeRange } from '@/core/sleepPlan';
 import type {
   SleepDaySummary,
@@ -46,13 +51,11 @@ export function addMinutes(date: Date, minutes: number): Date {
 }
 
 export function dateAtMinutes(referenceDate: Date, minutesFromMidnight: number): Date {
-  const date = new Date(referenceDate);
-  date.setHours(0, minutesFromMidnight, 0, 0);
-  return date;
+  return dateAtLocalMinutes(referenceDate, minutesFromMidnight);
 }
 
 export function getMinutesFromMidnight(date: Date): number {
-  return date.getHours() * 60 + date.getMinutes();
+  return getLocalMinutesFromMidnight(date);
 }
 
 export function inferSleepKindForStart(startedAt: Date, plan: SleepPlanPreset): SleepKind {
@@ -76,7 +79,7 @@ export function inferSleepKindForInterval(
 
   const endMinutesFromMidnight = getMinutesFromMidnight(endedAt);
   const durationMinutes = minutesBetween(startedAt, endedAt);
-  const crossesMidnight = startedAt.toDateString() !== endedAt.toDateString();
+  const crossesMidnight = formatLocalDateKey(startedAt) !== formatLocalDateKey(endedAt);
 
   if (crossesMidnight || startMinutesFromMidnight >= plan.bedtimeTargetMinutes) {
     return 'night';

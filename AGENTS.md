@@ -239,16 +239,24 @@ For an ongoing sleep notification, use one stable notification identifier so upd
 
 Minute-by-minute notification text can be updated while the JS runtime is alive, plus immediately after start, stop, delete, or manual ongoing edits. Do not promise reliable background minute updates after Android kills the app unless the task explicitly accepts native foreground-service work and the extra APK/dev-build complexity.
 
+If the notification must show always-current elapsed sleep time while the app is backgrounded, do not use a JS interval or repeated local notification rescheduling as the main mechanism. Use Android's system chronometer in a native notification (`setWhen(startedAt)`, `setShowWhen(true)`, `setUsesChronometer(true)`, `setChronometerCountDown(false)`), so Android updates the visible time without the JS runtime.
+
+For SDK 56, a small Android-only native notification module can be implemented as an Expo inline Kotlin module under `src/notifications`. Enable it with `expo.experiments.inlineModules.watchedDirectories` in `app.json`, keep the Kotlin filename, class name, and module name aligned, and load it from TypeScript with `requireOptionalNativeModule` so Expo Go and builds without the native module degrade safely. After adding or moving an inline module, verify Expo autolinking can see it, for example by using the local `expo-modules-autolinking` inline-module scanner.
+
+TypeScript checks and unit tests do not compile Kotlin inline modules. Any change to `*.kt`, inline module configuration, notification channels, Android permissions, or native notification behavior needs an Android APK/dev build before it can be considered fully verified. Keep reporting this explicitly if only JS checks were run.
+
 Before considering active sleep notifications done, verify:
 - Expo Go still starts without importing or crashing on `expo-notifications`;
+- Expo inline-module discovery sees the Kotlin module when native notification code was added;
 - starting sleep creates or refreshes the notification in an APK/dev build;
+- the notification elapsed time keeps changing while the app is backgrounded, without reopening the app;
 - stopping sleep dismisses it;
 - creating an ongoing manual sleep shows it;
 - editing the latest completed sleep to ongoing shows it;
 - editing or deleting an active sleep dismisses or refreshes it correctly;
 - relaunching the app with an existing active sleep resynchronizes the notification;
 - denying notification permission does not break sleep logging;
-- TypeScript checks pass and tests pass.
+- TypeScript checks pass, tests pass, and Android build succeeds if native code changed.
 
 ## Implementation lessons from cross-day sleep record lists
 
@@ -355,6 +363,32 @@ When changing backup or restore logic, add focused tests for backup parsing/vali
 - restoring a valid file updates profile, plans, and sleep rows;
 - returning to the main screen uses restored profile, active plan, and sleep sessions;
 - `android.package` and `DATABASE_NAME` are unchanged.
+
+## Implementation lessons from shared sleep-plan messages and local time
+
+For sending the current day plan to another caregiver, keep the generated message in `src/core` as pure TypeScript. UI code should only call the core formatter and open the system share sheet. For plain text sharing, use React Native `Share.share`; reserve `expo-sharing` for file export/share flows such as JSON backups.
+
+The shared message should read like a short caregiver note, not an analytics report. Keep the structure stable and scannable:
+- title and update time;
+- short day facts: wake-up time, current state, total daytime sleep, nap progress;
+- naps that already happened with time ranges and durations;
+- the remaining schedule for today with projected next naps and bedtime.
+
+Do not include long recommendation explanations, scenario details, medical language, or internal calculation terms in the shared text. Use friendly but precise Russian wording such as "Ориентир", "Коротко по дню", "Сны уже были", and "Дальше сегодня". Avoid decorative clutter and keep each line useful to someone caring for the baby right now.
+
+When calculating shared-day facts, keep selected-day data and display-only nearby data separate. A wake-up time should come from the completed night sleep ending inside the current sleep-day window when available; otherwise fall back to the sleep-day start. An active night sleep means wake-up has not happened yet. Active sessions must be clipped with the same open-session guard used elsewhere: treat an open session as ending at `min(now, dayEnd)` for overlap checks.
+
+For projecting the rest of the shared day, reuse existing core sleep calculations instead of duplicating recommendation rules in UI. If multiple future naps need to be listed, simulate the day step-by-step by adding projected completed nap sessions and then call `buildTodaySleepSnapshot` again. Cap projected naps by the plan target nap duration, latest evening nap end, and sleep-day end. For an active nap, show it as current and give an approximate end only as an orientation, not a guarantee.
+
+All user-facing date and clock formatting should use the shared local-time helpers from `src/core/localDateTime.ts`, not direct `Date#getHours`, `Date#getDate`, `toDateString`, or unconfigured `Intl.DateTimeFormat`. This avoids UTC/device-time-zone mismatches in tests, APKs, and shared messages. When adding date/time helpers, write tests with explicit time zones such as `Europe/Moscow` and `America/New_York`.
+
+Before considering shared-plan text done, verify:
+- no sleep records yet;
+- completed overnight sleep plus completed daytime naps;
+- an active daytime nap;
+- an active night sleep;
+- a late day where no more naps are planned before bedtime;
+- TypeScript checks pass and core tests pass.
 
 ## Implementation lessons from editable sleep plan work
 
@@ -480,6 +514,7 @@ Branching:
 Commits and history:
 - Do not run `git add`, `git commit`, `git push`, `git reset`, `git checkout --`, or `git restore` unless the user explicitly asks.
 - When asked to commit, stage only files related to the current task. Avoid `git add .` when unrelated changes exist.
+- If a file contains both current-task changes and unrelated existing changes, stage only the relevant hunks or paths. After committing, re-check `git status --short --branch` and clearly report any remaining uncommitted changes that were intentionally left out.
 - Before committing, run TypeScript checks and tests if available.
 - Use short, descriptive commit messages in English, for example `Add manual sleep session editor`.
 - Never amend, reset, rebase, force-push, or discard changes unless the user explicitly asks for that exact operation.
@@ -498,6 +533,72 @@ After coding:
 - List changed files.
 - Mention checks that were run.
 - Clearly state whether any Git actions were performed.
+
+## Confluence workflow
+
+The project Confluence site is `https://kichxdota.atlassian.net/wiki`.
+
+Project space:
+- key: `BSP`;
+- name: `Baby Sleep Planner`;
+- URL: `https://kichxdota.atlassian.net/wiki/spaces/BSP`.
+
+Authentication:
+- Use the `CONFLU_TOKEN` environment variable for the Atlassian API token.
+- Do not print, commit, persist, or echo the token.
+- Do not put the token into scripts, docs, `.env` files, or Confluence pages.
+- Use Basic Auth with the Atlassian account email and API token. This token is not an OAuth Bearer token for this project.
+- Prefer the email from `git config --get user.email`. The expected account is `kichxdota@gmail.com`.
+- On Windows, if `$env:CONFLU_TOKEN` is empty, check the user environment without printing the value:
+  `[Environment]::GetEnvironmentVariable('CONFLU_TOKEN', 'User')`.
+
+Before any Confluence write:
+1. Verify the token works with a read-only request.
+2. Check whether the target space or page already exists.
+3. Keep generated docs concise and project-specific.
+4. Do not publish secrets, local paths containing private data, build credentials, keystore details, or raw database contents.
+
+Recommended PowerShell setup for ad hoc API calls:
+
+```powershell
+$baseUrl = 'https://kichxdota.atlassian.net/wiki'
+$email = git config --get user.email
+$token = $env:CONFLU_TOKEN
+if ([string]::IsNullOrWhiteSpace($token)) {
+  $token = [Environment]::GetEnvironmentVariable('CONFLU_TOKEN', 'User')
+}
+if ([string]::IsNullOrWhiteSpace($token)) {
+  throw 'CONFLU_TOKEN is not available'
+}
+```
+
+Use `curl.exe` for Confluence calls on Windows because PowerShell `Invoke-WebRequest` can fail noisily with Basic Auth responses:
+
+```powershell
+curl.exe -sS -u "$($email):$token" -H 'Accept: application/json' "$baseUrl/rest/api/user/current"
+```
+
+Useful tested REST endpoints:
+- Check current user: `GET /wiki/rest/api/user/current`.
+- List spaces: `GET /wiki/rest/api/space?limit=10`.
+- Read the project space: `GET /wiki/rest/api/space/BSP?expand=homepage,description.plain`.
+- Resolve the project space id for REST API v2: `GET /wiki/api/v2/spaces?keys=BSP&limit=1`.
+- Create a space: `POST /wiki/rest/api/space` with JSON containing `key`, `name`, and optional `description.plain`.
+- Search content with CQL: `GET /wiki/rest/api/content/search?cql=space=BSP`.
+- For page operations, prefer Confluence REST API v2:
+  - list pages: `GET /wiki/api/v2/pages?space-id=<spaceId>&limit=25`;
+  - create page: `POST /wiki/api/v2/pages`;
+  - read page: `GET /wiki/api/v2/pages/<pageId>?body-format=storage`;
+  - update page: `PUT /wiki/api/v2/pages/<pageId>` with the next version number.
+
+When creating or updating pages:
+- Use `representation: "storage"` for page body HTML.
+- Read the existing page first and increment its version for updates.
+- Prefer updating an existing page with the same title in `BSP` instead of creating duplicates.
+- Keep project documentation aligned with the app scope in this file: offline-first baby sleep planning only.
+- Use official Atlassian Confluence Cloud REST API docs when adding an untested endpoint:
+  `https://developer.atlassian.com/cloud/confluence/rest/v2/` and
+  `https://developer.atlassian.com/cloud/confluence/rest/v1/`.
 
 ## Language
 

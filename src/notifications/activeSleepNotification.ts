@@ -5,6 +5,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { Platform } from 'react-native';
 
 import { colors } from '@/constants/theme';
+import { formatLocalClock } from '@/core/localDateTime';
 import { getActiveSleepSession } from '@/db';
 import type { SleepSession } from '@/types/sleep';
 
@@ -56,10 +57,7 @@ function getActiveSleepChronometerModule(): ActiveSleepChronometerModule | null 
 }
 
 function formatClock(date: Date): string {
-  return new Intl.DateTimeFormat('ru-RU', {
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
+  return formatLocalClock(date);
 }
 
 function formatDuration(minutes: number): string {
@@ -190,6 +188,7 @@ export async function showActiveSleepNotification(session: SleepSession, now = n
 
 export async function hideActiveSleepNotification() {
   getActiveSleepChronometerModule()?.hide();
+
   const Notifications = await loadNotificationsModule();
 
   if (!Notifications) {

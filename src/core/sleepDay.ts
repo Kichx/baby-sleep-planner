@@ -1,32 +1,27 @@
 import type { SleepPlanPreset } from '@/types/sleep';
-
-const DAY_MINUTES = 24 * 60;
-const MS_PER_MINUTE = 60_000;
-const MS_PER_DAY = DAY_MINUTES * MS_PER_MINUTE;
+import {
+  addLocalCalendarDays,
+  dateFromLocalDateTime,
+  formatLocalDateKey,
+  getLocalMinutesFromMidnight,
+} from '@/core/localDateTime';
 
 function getMinutesFromMidnight(date: Date): number {
-  return date.getHours() * 60 + date.getMinutes();
+  return getLocalMinutesFromMidnight(date);
 }
 
 function addCalendarDays(date: Date, days: number): Date {
-  const nextDate = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0, 0);
-  nextDate.setDate(nextDate.getDate() + days);
-
-  return nextDate;
+  return addLocalCalendarDays(date, days);
 }
 
 export function formatSleepDayDateKey(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-
-  return `${year}-${month}-${day}`;
+  return formatLocalDateKey(date);
 }
 
 export function dateFromSleepDayDateKey(dateKey: string): Date {
   const [year, month, day] = dateKey.split('-').map(Number);
 
-  return new Date(year, month - 1, day, 12, 0, 0, 0);
+  return dateFromLocalDateTime({ day, hours: 12, minutes: 0, month, year });
 }
 
 export function getSleepDayDateKeyForDate(
@@ -63,7 +58,7 @@ export function getSleepDayDateKeysForInterval(
 
   while (cursor.getTime() <= lastTime) {
     keys.push(formatSleepDayDateKey(cursor));
-    cursor = new Date(cursor.getTime() + MS_PER_DAY);
+    cursor = addCalendarDays(cursor, 1);
   }
 
   return keys;
