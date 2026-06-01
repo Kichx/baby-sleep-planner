@@ -426,7 +426,11 @@ For multiple-plan SQLite changes, update both fresh-install schema and idempoten
 
 For creating a new plan, ask for the name before inserting the row. Pre-fill a short sequential default such as "План 2", "План 3", and keep the dialog compact. Use a centered compact modal for short name prompts; reserve bottom sheets for larger time/range editors.
 
-The selected-plan summary block should stay compact. Avoid repeating active/selected labels in several nearby places; if the carousel and header already show active state, the summary block should focus on the plan name, edit affordance, and one short disclaimer such as "Используется для расчётов и рекомендаций текущего дня." Verify on a real narrow phone viewport or screenshot when changing this area.
+Plan carousel cards must not become miniature metric tables. Keep each card focused on identification and one main comparison value. Do not repeat wake-up, total wake time, nap count, day sleep, and 24-hour sleep all together in the carousel when those values already appear in the selected plan metric cards below. Prefer: plan name, a tiny active marker, one primary value such as "Сон за сутки", and at most one short chip such as "3 сна".
+
+The selected-plan summary block should stay compact. Avoid repeating active/selected labels in several nearby places; if the carousel and header already show active state, the summary block should focus on the plan name, edit affordance, and one short disclaimer. Keep the icon, title, subtitle, and edit button aligned on one horizontal axis where possible, and avoid large card-like vertical padding. Verify on a real narrow phone viewport or screenshot when changing this area.
+
+Official sleep guideline UI should be an orientation layer, not an explanatory article inside the plan screen. Keep the plan screen card to the age/range, plan range, compact status, and a small `i`/info affordance. Put source details, caveats, and the age table in `/info`, and deep-link with a query such as `/info?article=official-sleep-guidelines` so the relevant article opens immediately.
 
 Before considering multiple-plan UI done, verify:
 - selecting a non-active plan changes the highlighted carousel card and editor contents without changing current-day calculations;
@@ -435,6 +439,7 @@ Before considering multiple-plan UI done, verify:
 - creating a plan prompts for a name with a sensible default;
 - deleting a selected plan requires confirmation and leaves one active plan;
 - compact plan summary text does not wrap into an oversized block on small Android screens.
+- carousel plan cards remain scannable on a narrow phone screenshot and do not duplicate all four metric cards.
 
 ## Implementation lessons from Android keyboard/input modal work
 
@@ -479,6 +484,32 @@ On Windows, before starting Expo/Metro, check whether running Metro is actually 
 When Metro is needed, first check whether the default port is already occupied and whether an existing Metro server can be reused. If Expo reports that `8081` is in use but no reusable server is clearly identified, make at most one alternate-port attempt. Do not keep trying multiple wrappers such as `npm`, `cmd /k`, local Expo CLI, and absolute Node paths after the first background startup failure.
 
 Avoid short foreground timeouts as a Metro verification strategy. If Expo reaches `Waiting on http://localhost:<port>`, treat startup as successful for that run; do not kill it just to continue probing. If the process cannot be kept alive from the agent environment, stop and report the exact manual command, for example `cmd /c npm run start -- --port <port>`.
+
+## Implementation lessons from browser UI verification
+
+For browser-based UI checks, prefer the Codex in-app browser against the user's already-running local app. In this project the user usually keeps Expo web running at:
+
+`http://localhost:8081/`
+
+Before starting any new Expo/Metro process, check whether `8081` is already usable:
+- `Get-NetTCPConnection -LocalPort 8081 -ErrorAction SilentlyContinue`;
+- a quick HTTP probe such as `Invoke-WebRequest -Uri 'http://localhost:8081/' -UseBasicParsing -TimeoutSec 5`.
+
+If `http://localhost:8081/` responds and the DOM snapshot shows app content such as "Сон сегодня", "План дня", or "Справка", reuse that browser session for visual verification. Do not start another server on `8082` or another port just for routine UI checks.
+
+When using the in-app browser, verify the changed UI with a DOM snapshot first, then take screenshots only where layout or text wrapping matters. Useful routes for smoke checks are:
+- `/` for the main day state and summary cards;
+- `/sleep-plan` for plan metrics, editors, and compact card layout;
+- `/profile` for profile/date input behavior;
+- `/info` for static help articles.
+
+If a temporary Expo web server is truly needed because `8081` is unavailable, start only one alternate server, record the port in the progress update, and stop only the process you started after verification. Do not kill the user's long-running `8081` Metro process. Remove temporary logs such as `expo-web.log` before finishing.
+
+For SDK 56 and `expo-sqlite` on web, a failure like `Unable to resolve module ./wa-sqlite/wa-sqlite.wasm` usually means the web/Metro setup is incomplete, not that the wasm file is missing. Keep `metro.config.js` configured with `config.resolver.assetExts.push('wasm')`, and keep the Expo Router web headers in `app.json`:
+- `Cross-Origin-Embedder-Policy: credentialless`;
+- `Cross-Origin-Opener-Policy: same-origin`.
+
+After changing Metro config, restart Expo web with a cleared cache before judging the result, for example `cmd /c npx expo start --web --port 8081 --clear` if the user wants the main local server refreshed.
 
 ## Development workflow
 

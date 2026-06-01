@@ -34,6 +34,13 @@ import {
   isSameLocalCalendarDay,
   startOfLocalCalendarDay,
 } from '@/core/localDateTime';
+import {
+  checkTotalSleepAgainstOfficialGuideline,
+  formatDurationRangeShort,
+  getAgeInCompletedMonths,
+  type OfficialSleepGuideline,
+  type SleepGuidelineStatus,
+} from '@/core/officialSleepGuidelines';
 import { buildTodayPlanShareText } from '@/core/shareTodayPlan';
 import {
   assignSleepDayPlanSnapshot,
@@ -91,6 +98,8 @@ const DEFAULT_TIMER_REFRESH_MS = 30_000;
 const ACTIVE_SLEEP_DETAIL_REFRESH_MS = 1_000;
 const MAX_PAST_DAY_FEEDBACK_LINES = 3;
 const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
+const OFFICIAL_SLEEP_SOURCE_SUMMARY =
+  'Источники: ВОЗ, CDC, AASM, Australian/Canadian 24-Hour';
 
 function formatClock(date: Date): string {
   return formatLocalClock(date);
@@ -105,6 +114,78 @@ function formatDuration(minutes: number): string {
   }
 
   return `${hours} ч ${restMinutes} мин`;
+}
+
+function parseBirthDateValue(value: string | null): Date | null {
+  if (!value) {
+    return null;
+  }
+
+  const [rawYear, rawMonth, rawDay] = value.split('-');
+  const year = Number(rawYear);
+  const month = Number(rawMonth);
+  const day = Number(rawDay);
+  const date = new Date(year, month - 1, day, 0, 0, 0, 0);
+
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day) ||
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return date;
+}
+
+function getOfficialRangeCaption(params: {
+  recommendedMinMinutes: number | null;
+  recommendedMaxMinutes: number | null;
+}): string {
+  if (params.recommendedMinMinutes === null || params.recommendedMaxMinutes === null) {
+    return 'ориентир не рассчитан';
+  }
+
+  return `ориентир ${formatDurationRangeShort(
+    params.recommendedMinMinutes,
+    params.recommendedMaxMinutes,
+  )}`;
+}
+
+function getOfficialSleepStatusLabel(status: SleepGuidelineStatus): string {
+  switch (status) {
+    case 'below_recommended':
+      return 'ниже ориентира';
+    case 'above_recommended':
+      return 'выше ориентира';
+    case 'within_recommended':
+      return 'в рамках ориентира';
+    case 'unknown':
+      return 'ориентир не рассчитан';
+  }
+}
+
+function formatOfficialGuidelineSources(guideline: OfficialSleepGuideline | null): string {
+  if (!guideline) {
+    return `${OFFICIAL_SLEEP_SOURCE_SUMMARY}. Укажите дату рождения, чтобы выбрать возрастной диапазон.`;
+  }
+
+  const sourceNames = guideline.sourceNames.map((sourceName) => {
+    if (sourceName === 'Australian 24-Hour Movement Guidelines') {
+      return 'Australian 24-Hour';
+    }
+
+    if (sourceName === 'Canadian 24-Hour Movement Guidelines') {
+      return 'Canadian 24-Hour';
+    }
+
+    return sourceName;
+  });
+
+  return `Источники: ${sourceNames.join(', ')}`;
 }
 
 function formatClockMinutes(minutes: number): string {
@@ -432,6 +513,7 @@ export default function TodaySleepScreen() {
   const [nearbySessions, setNearbySessions] = useState<SleepSession[]>([]);
   const [latestSleepSessionId, setLatestSleepSessionId] = useState<string | null>(null);
   const [childName, setChildName] = useState(DEFAULT_CHILD_NAME);
+  const [childBirthDate, setChildBirthDate] = useState<string | null>(null);
   const [childPhotoUri, setChildPhotoUri] = useState<string | null>(null);
   const [sleepPlan, setSleepPlan] = useState(DEFAULT_SLEEP_PLAN);
   const [sleepDayPlan, setSleepDayPlan] = useState<SleepDayPlan | null>(null);
@@ -500,11 +582,13 @@ export default function TodaySleepScreen() {
           const profile = await getChildProfile(db);
 
           if (isActive) {
+            setChildBirthDate(profile.birthDate);
             setChildName(profile.name);
             setChildPhotoUri(profile.photoUri);
           }
         } catch {
           if (isActive) {
+            setChildBirthDate(null);
             setChildName(DEFAULT_CHILD_NAME);
             setChildPhotoUri(null);
           }
@@ -636,6 +720,17 @@ export default function TodaySleepScreen() {
     return Array.from(uniqueSessions.values());
   }, [nearbySessions, sessions]);
   const summaryReferenceDate = dayType === 'today' ? now : dateAtNoon(selectedDate);
+  const childBirthDateValue = useMemo(
+    () => parseBirthDateValue(childBirthDate),
+    [childBirthDate],
+  );
+  const childAgeMonths = useMemo(
+    () =>
+      childBirthDateValue
+        ? getAgeInCompletedMonths(childBirthDateValue, summaryReferenceDate)
+        : null,
+    [childBirthDateValue, summaryReferenceDate],
+  );
   const daySummary = useMemo(
     () => buildSleepDaySummary(sessions, summaryReferenceDate, now, sleepPlan),
     [now, sessions, sleepPlan, summaryReferenceDate],
@@ -690,6 +785,20 @@ export default function TodaySleepScreen() {
       ? 'Завершить сон'
       : 'Начать сон';
   const hasPastDayRecords = daySummary.sleepSessionCount > 0;
+  const pastDayTotalSleepMinutes = daySummary.totalDaySleepMinutes + daySummary.totalNightSleepMinutes;
+  const pastDayOfficialSleepCheck = useMemo(
+    () =>
+      checkTotalSleepAgainstOfficialGuideline({
+        ageMonths: childAgeMonths,
+        totalSleepMinutes: pastDayTotalSleepMinutes,
+      }),
+    [childAgeMonths, pastDayTotalSleepMinutes],
+  );
+  const pastDayOfficialSleepCaption = hasPastDayRecords
+    ? `${getOfficialRangeCaption(pastDayOfficialSleepCheck)} · ${getOfficialSleepStatusLabel(
+        pastDayOfficialSleepCheck.status,
+      )}`
+    : getOfficialRangeCaption(pastDayOfficialSleepCheck);
   const pastDayFeedbackLines = daySummary.feedbackLines.slice(0, MAX_PAST_DAY_FEEDBACK_LINES);
   const pastDayMetrics = useMemo(() => {
     const wakeUpDeltaMinutes = getWakeUpDeltaMinutes(
@@ -1303,6 +1412,22 @@ export default function TodaySleepScreen() {
                     ) : null}
                   </View>
                 ))}
+              </View>
+
+              <View style={styles.grid}>
+                <SummaryCard
+                  title="Сон за 24 ч"
+                  value={hasPastDayRecords ? formatDuration(pastDayTotalSleepMinutes) : '--'}
+                  detail={hasPastDayRecords ? pastDayOfficialSleepCaption : 'нет записей сна'}
+                  caption={formatOfficialGuidelineSources(pastDayOfficialSleepCheck.guideline)}
+                  tone={
+                    hasPastDayRecords &&
+                    (pastDayOfficialSleepCheck.status === 'below_recommended' ||
+                      pastDayOfficialSleepCheck.status === 'above_recommended')
+                      ? 'warning'
+                      : 'default'
+                  }
+                />
               </View>
 
               <View style={styles.section}>

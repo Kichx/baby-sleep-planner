@@ -1,16 +1,29 @@
-import { useState } from 'react';
-import { Stack } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { Stack, useLocalSearchParams } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors, radius, spacing } from '@/constants/theme';
+import {
+  OFFICIAL_SLEEP_GUIDELINES,
+  formatDurationRangeShort,
+} from '@/core/officialSleepGuidelines';
 
-type InfoArticleId = 'night-sleep' | 'night-forecast';
+type InfoArticleId = 'night-sleep' | 'night-forecast' | 'official-sleep-guidelines';
+
+interface InfoArticleTable {
+  columns: [string, string];
+  rows: {
+    cells: [string, string];
+    id: string;
+  }[];
+}
 
 interface InfoArticle {
   id: InfoArticleId;
   paragraphs: string[];
   subtitle: string;
+  table?: InfoArticleTable;
   title: string;
 }
 
@@ -39,12 +52,46 @@ const INFO_ARTICLES: InfoArticle[] = [
     subtitle: 'Почему время отбоя может сдвигаться в течение дня.',
     title: 'Как рассчитывается «Прогноз ночи»',
   },
+  {
+    id: 'official-sleep-guidelines',
+    paragraphs: [
+      'Официальные источники дают возрастные диапазоны суммарного сна за 24 часа. В этот сон входят и ночной сон, и дневные сны.',
+      'Для младенцев 4–11 месяцев ориентир обычно составляет 12–16 часов сна за сутки, для детей 1–2 лет — 11–14 часов.',
+      'В приложении используются ориентиры ВОЗ, CDC, AASM, Australian 24-Hour Movement Guidelines и Canadian 24-Hour Movement Guidelines.',
+      'Эти источники не задают точное количество дневных снов и окна бодрствования. Поэтому приложение использует официальные нормы как рамку безопасности, а дневной график и подсказки строит отдельно — по параметрам плана и фактическим записям сна.',
+      'Один день вне диапазона не означает проблему. Сон ребёнка может меняться из-за самочувствия, поездок, скачков развития и других факторов. Если сильные отклонения повторяются часто или ребёнок выглядит необычно вялым/плохо себя чувствует, лучше обсудить это с врачом.',
+    ],
+    subtitle:
+      'Как приложение сверяет график с рекомендациями ВОЗ, CDC и других источников',
+    table: {
+      columns: ['Возраст', 'Сон за 24 часа'],
+      rows: OFFICIAL_SLEEP_GUIDELINES.map((guideline) => ({
+        cells: [
+          guideline.label,
+          formatDurationRangeShort(
+            guideline.totalSleepMinMinutes,
+            guideline.totalSleepMaxMinutes,
+          ),
+        ],
+        id: guideline.id,
+      })),
+    },
+    title: 'Официальные нормы сна',
+  },
 ];
 
 interface ArticleItemProps {
   article: InfoArticle;
   isOpen: boolean;
   onToggle: () => void;
+}
+
+function isInfoArticleId(value: unknown): value is InfoArticleId {
+  return (
+    value === 'night-sleep' ||
+    value === 'night-forecast' ||
+    value === 'official-sleep-guidelines'
+  );
 }
 
 function ArticleItem({ article, isOpen, onToggle }: ArticleItemProps) {
@@ -72,6 +119,26 @@ function ArticleItem({ article, isOpen, onToggle }: ArticleItemProps) {
               {paragraph}
             </Text>
           ))}
+          {article.table ? (
+            <View style={styles.articleTable}>
+              <View style={[styles.tableRow, styles.tableHeaderRow]}>
+                {article.table.columns.map((column) => (
+                  <Text key={column} style={[styles.tableCell, styles.tableHeaderCell]}>
+                    {column}
+                  </Text>
+                ))}
+              </View>
+              {article.table.rows.map((row) => (
+                <View key={row.id} style={styles.tableRow}>
+                  {row.cells.map((cell) => (
+                    <Text key={cell} style={styles.tableCell}>
+                      {cell}
+                    </Text>
+                  ))}
+                </View>
+              ))}
+            </View>
+          ) : null}
         </View>
       ) : null}
     </View>
@@ -79,7 +146,14 @@ function ArticleItem({ article, isOpen, onToggle }: ArticleItemProps) {
 }
 
 export default function InfoScreen() {
+  const params = useLocalSearchParams<{ article?: string }>();
   const [openArticleId, setOpenArticleId] = useState<InfoArticleId | null>(null);
+
+  useEffect(() => {
+    if (isInfoArticleId(params.article)) {
+      setOpenArticleId(params.article);
+    }
+  }, [params.article]);
 
   function toggleArticle(articleId: InfoArticleId) {
     setOpenArticleId((currentArticleId) =>
@@ -198,5 +272,36 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     fontWeight: '700',
+  },
+  articleTable: {
+    overflow: 'hidden',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  tableRow: {
+    minHeight: 42,
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  tableHeaderRow: {
+    borderTopWidth: 0,
+    backgroundColor: colors.primarySoft,
+  },
+  tableCell: {
+    flex: 1,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    color: colors.text,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '800',
+  },
+  tableHeaderCell: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '900',
   },
 });

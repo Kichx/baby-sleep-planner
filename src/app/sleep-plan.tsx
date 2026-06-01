@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Stack } from 'expo-router';
+import { Stack, type Href, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import {
   KeyboardAvoidingView,
@@ -18,6 +18,13 @@ import { SleepPlanIcon } from '@/components/SleepPlanIcon';
 import { DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
+  calculateTotalSleepRangeFromWakeRange,
+  checkTotalSleepRangeAgainstOfficialGuideline,
+  formatDurationRangeShort,
+  getAgeInCompletedMonths,
+  type SleepGuidelineRangeStatus,
+} from '@/core/officialSleepGuidelines';
+import {
   buildIdealSleepPlanSegments,
   buildSleepPlanPreset,
   calculatePlanBedtimeRange,
@@ -27,6 +34,7 @@ import {
   activateTargetDayPlan,
   createTargetDayPlan,
   deleteTargetDayPlan,
+  getChildProfile,
   listTargetDayPlans,
   updateTargetDayPlan,
 } from '@/db';
@@ -60,10 +68,18 @@ interface MetricCardProps {
 }
 
 interface PlanCardProps {
+  ageMonths: number | null;
   plan: TargetDayPlan;
   isSelected: boolean;
   disabled: boolean;
   onPress: () => void;
+}
+
+interface OfficialSleepGuidelineCardProps {
+  ageMonths: number | null;
+  hasBirthDate: boolean;
+  onOpenInfo: () => void;
+  plan: SleepPlanPreset | null;
 }
 
 interface TimeParts {
@@ -84,6 +100,7 @@ interface RangeEditorProps {
 
 const NAP_COUNT_OPTIONS = [1, 2, 3, 4, 5] as const;
 const DEFAULT_PLAN_NAME = 'Основной';
+const OFFICIAL_SLEEP_INFO_ROUTE = '/info?article=official-sleep-guidelines' as Href;
 const PLAN_NAME_MAX_LENGTH = 40;
 
 function padTimePart(value: number): string {
@@ -125,6 +142,108 @@ function formatDurationRange(startMinutes: number, endMinutes: number): string {
   const end = formatDuration(endMinutes);
 
   return start === end ? start : `${start} - ${end}`;
+}
+
+function parseBirthDateValue(value: string | null): Date | null {
+  if (!value) {
+    return null;
+  }
+
+  const [rawYear, rawMonth, rawDay] = value.split('-');
+  const year = Number(rawYear);
+  const month = Number(rawMonth);
+  const day = Number(rawDay);
+  const date = new Date(year, month - 1, day, 0, 0, 0, 0);
+
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day) ||
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+
+  return date;
+}
+
+function formatAgeMonthsLabel(ageMonths: number): string {
+  const lastTwoDigits = ageMonths % 100;
+  const lastDigit = ageMonths % 10;
+
+  if (lastTwoDigits >= 11 && lastTwoDigits <= 14) {
+    return `${ageMonths} месяцев`;
+  }
+
+  if (lastDigit === 1) {
+    return `${ageMonths} месяц`;
+  }
+
+  if (lastDigit >= 2 && lastDigit <= 4) {
+    return `${ageMonths} месяца`;
+  }
+
+  return `${ageMonths} месяцев`;
+}
+
+function getPlanTotalSleepRange(plan: SleepPlanPreset): {
+  minTotalSleepMinutes: number;
+  maxTotalSleepMinutes: number;
+} {
+  return calculateTotalSleepRangeFromWakeRange({
+    maxWakeMinutes: plan.targetAwakeMaxMinutes,
+    minWakeMinutes: plan.targetAwakeMinMinutes,
+  });
+}
+
+function getGuidelineBadgeLabel(status: SleepGuidelineRangeStatus): string {
+  switch (status) {
+    case 'within_recommended':
+      return 'В рамках официального ориентира';
+    case 'partially_within_recommended':
+      return 'Частично пересекается с ориентиром';
+    case 'below_recommended':
+      return 'Ниже официального ориентира';
+    case 'above_recommended':
+      return 'Выше официального ориентира';
+    case 'unknown':
+      return 'Ориентир не рассчитан';
+  }
+}
+
+function getCompactGuidelineBadgeLabel(status: SleepGuidelineRangeStatus): string | null {
+  switch (status) {
+    case 'within_recommended':
+      return 'В ориентире';
+    case 'partially_within_recommended':
+      return 'Частично';
+    case 'below_recommended':
+      return 'Ниже';
+    case 'above_recommended':
+      return 'Выше';
+    case 'unknown':
+      return null;
+  }
+}
+
+function formatPlanNapCount(napCount: number): string {
+  if (napCount === 1) {
+    return '1 сон';
+  }
+
+  if (napCount >= 2 && napCount <= 4) {
+    return `${napCount} сна`;
+  }
+
+  return `${napCount} снов`;
+}
+
+function getGuidelineBadgeTone(status: SleepGuidelineRangeStatus): 'default' | 'warning' {
+  return status === 'within_recommended' || status === 'partially_within_recommended'
+    ? 'default'
+    : 'warning';
 }
 
 function formatClockRange(startMinutes: number, endMinutes: number): string {
@@ -363,7 +482,15 @@ function MetricCard({ label, value, caption, disabled, onPress }: MetricCardProp
   );
 }
 
-function PlanCard({ plan, isSelected, disabled, onPress }: PlanCardProps) {
+function PlanCard({ ageMonths, plan, isSelected, disabled, onPress }: PlanCardProps) {
+  const totalSleepRange = getPlanTotalSleepRange(plan.plan);
+  const guidelineCheck = checkTotalSleepRangeAgainstOfficialGuideline({
+    ageMonths,
+    maxTotalSleepMinutes: totalSleepRange.maxTotalSleepMinutes,
+    minTotalSleepMinutes: totalSleepRange.minTotalSleepMinutes,
+  });
+  const compactBadgeLabel = getCompactGuidelineBadgeLabel(guidelineCheck.status);
+
   return (
     <Pressable
       accessibilityRole="button"
@@ -381,19 +508,147 @@ function PlanCard({ plan, isSelected, disabled, onPress }: PlanCardProps) {
         </Text>
         {plan.isActive ? (
           <View style={styles.activeBadge}>
-            <Text style={styles.activeBadgeText}>Активный</Text>
+            <Text style={styles.activeBadgeText}>✓</Text>
           </View>
         ) : null}
       </View>
-      <Text numberOfLines={1} style={styles.planCardMeta}>
-        {formatClockRange(plan.plan.wakeUpStartMinutes, plan.plan.wakeUpEndMinutes)}
-        {' · '}
-        {formatDuration(plan.plan.targetAwakeMinutes)}
-      </Text>
-      <Text numberOfLines={1} style={styles.planCardMeta}>
-        {plan.plan.napCount} сна · сон {formatDuration(plan.plan.targetDaySleepMinutes)}
-      </Text>
+      <View style={styles.planCardSleepBlock}>
+        <Text style={styles.planCardLabel}>Сон за сутки</Text>
+        <Text numberOfLines={2} style={styles.planCardSleepValue}>
+          {formatDurationRangeShort(
+            totalSleepRange.minTotalSleepMinutes,
+            totalSleepRange.maxTotalSleepMinutes,
+          )}
+        </Text>
+      </View>
+      <View style={styles.planCardFooter}>
+        <View style={styles.planCardChip}>
+          <Text numberOfLines={1} style={styles.planCardChipText}>
+            {formatPlanNapCount(plan.plan.napCount)}
+          </Text>
+        </View>
+        {compactBadgeLabel ? (
+          <View
+            style={[
+              styles.compactGuidelineBadge,
+              getGuidelineBadgeTone(guidelineCheck.status) === 'warning'
+                ? styles.compactGuidelineBadgeWarning
+                : null,
+            ]}>
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.compactGuidelineBadgeText,
+                getGuidelineBadgeTone(guidelineCheck.status) === 'warning'
+                  ? styles.compactGuidelineBadgeTextWarning
+                  : null,
+              ]}>
+              {compactBadgeLabel}
+            </Text>
+          </View>
+        ) : null}
+      </View>
     </Pressable>
+  );
+}
+
+function OfficialSleepGuidelineCard({
+  ageMonths,
+  hasBirthDate,
+  onOpenInfo,
+  plan,
+}: OfficialSleepGuidelineCardProps) {
+  const header = (
+    <View style={styles.guidelineHeader}>
+      <Text style={styles.guidelineTitle}>Официальный ориентир сна</Text>
+      <Pressable
+        accessibilityLabel="Открыть справку про нормы сна"
+        accessibilityRole="button"
+        hitSlop={8}
+        onPress={onOpenInfo}
+        style={({ pressed }) => [
+          styles.guidelineInfoButton,
+          pressed ? styles.guidelineInfoButtonPressed : null,
+        ]}>
+        <Text style={styles.guidelineInfoButtonText}>i</Text>
+      </Pressable>
+    </View>
+  );
+
+  if (!hasBirthDate) {
+    return (
+      <View style={styles.guidelineCard}>
+        {header}
+        <Text style={styles.guidelineBody}>Дата рождения нужна для возрастного ориентира.</Text>
+      </View>
+    );
+  }
+
+  if (!plan) {
+    return (
+      <View style={styles.guidelineCard}>
+        {header}
+        <Text style={styles.guidelineBody}>Проверьте параметры плана.</Text>
+      </View>
+    );
+  }
+
+  const totalSleepRange = getPlanTotalSleepRange(plan);
+  const guidelineCheck = checkTotalSleepRangeAgainstOfficialGuideline({
+    ageMonths,
+    maxTotalSleepMinutes: totalSleepRange.maxTotalSleepMinutes,
+    minTotalSleepMinutes: totalSleepRange.minTotalSleepMinutes,
+  });
+
+  if (!guidelineCheck.guideline || ageMonths === null) {
+    return (
+      <View style={styles.guidelineCard}>
+        {header}
+        <Text style={styles.guidelineBody}>Для этого возраста пока нет диапазона сна.</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.guidelineCard}>
+      {header}
+
+      <View style={styles.guidelineLines}>
+        <Text style={styles.guidelineBody}>
+          {formatAgeMonthsLabel(ageMonths)} · ориентир{' '}
+          {formatDurationRangeShort(
+            guidelineCheck.guideline.totalSleepMinMinutes,
+            guidelineCheck.guideline.totalSleepMaxMinutes,
+          )}
+        </Text>
+        <Text style={styles.guidelineBody}>
+          План:{' '}
+          {formatDurationRangeShort(
+            guidelineCheck.minTotalSleepMinutes,
+            guidelineCheck.maxTotalSleepMinutes,
+          )}
+        </Text>
+      </View>
+
+      <View
+        style={[
+          styles.guidelineBadge,
+          getGuidelineBadgeTone(guidelineCheck.status) === 'warning'
+            ? styles.guidelineBadgeWarning
+            : null,
+        ]}>
+        <Text
+          style={[
+            styles.guidelineBadgeText,
+            getGuidelineBadgeTone(guidelineCheck.status) === 'warning'
+              ? styles.guidelineBadgeTextWarning
+              : null,
+          ]}>
+          {getGuidelineBadgeLabel(guidelineCheck.status)}
+        </Text>
+      </View>
+      <Text style={styles.guidelineMicroText}>Сверяется только суммарный сон за 24 ч.</Text>
+    </View>
   );
 }
 
@@ -472,12 +727,14 @@ function RangeEditor({
 
 export default function SleepPlanScreen() {
   const db = useSQLiteContext();
+  const router = useRouter();
   const [plans, setPlans] = useState<TargetDayPlan[]>([]);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [draft, setDraft] = useState<PlanDraft>(() => createDraftFromPlan(DEFAULT_SLEEP_PLAN));
   const [activeEditor, setActiveEditor] = useState<EditorType | null>(null);
   const [nameEditorMode, setNameEditorMode] = useState<NameEditorMode | null>(null);
   const [newPlanName, setNewPlanName] = useState('');
+  const [childBirthDate, setChildBirthDate] = useState<string | null>(null);
   const [isDeleteConfirmVisible, setIsDeleteConfirmVisible] = useState(false);
   const [isNapDropdownOpen, setIsNapDropdownOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -492,10 +749,12 @@ export default function SleepPlanScreen() {
 
       try {
         const loadedPlans = await listTargetDayPlans(db);
+        const profile = await getChildProfile(db);
         const planToSelect =
           loadedPlans.find((targetPlan) => targetPlan.isActive) ?? loadedPlans[0] ?? null;
 
         if (isMounted) {
+          setChildBirthDate(profile.birthDate);
           setPlans(sortPlansForDisplay(loadedPlans));
           setSelectedPlanId(planToSelect?.id ?? null);
           setDraft(planToSelect ? createDraftFromTargetPlan(planToSelect) : createDraftFromPlan(DEFAULT_SLEEP_PLAN));
@@ -522,6 +781,14 @@ export default function SleepPlanScreen() {
   const selectedPlan = useMemo(
     () => plans.find((plan) => plan.id === selectedPlanId) ?? null,
     [plans, selectedPlanId],
+  );
+  const childBirthDateValue = useMemo(
+    () => parseBirthDateValue(childBirthDate),
+    [childBirthDate],
+  );
+  const childAgeMonths = useMemo(
+    () => (childBirthDateValue ? getAgeInCompletedMonths(childBirthDateValue, new Date()) : null),
+    [childBirthDateValue],
   );
   const activePlanName = useMemo(
     () => plans.find((plan) => plan.isActive)?.name ?? DEFAULT_PLAN_NAME,
@@ -997,6 +1264,7 @@ export default function SleepPlanScreen() {
               {plans.length > 0 ? (
                 plans.map((plan) => (
                   <PlanCard
+                    ageMonths={childAgeMonths}
                     disabled={isLoading || isSaving}
                     isSelected={plan.id === selectedPlanId}
                     key={plan.id}
@@ -1009,9 +1277,7 @@ export default function SleepPlanScreen() {
               )}
             </ScrollView>
 
-            {selectedPlan?.isActive ? (
-              <Text style={styles.activePlanNote}>Этот план используется для расчётов сегодня</Text>
-            ) : (
+            {selectedPlan?.isActive ? null : (
               <Pressable
                 accessibilityRole="button"
                 disabled={isEditingDisabled}
@@ -1033,30 +1299,28 @@ export default function SleepPlanScreen() {
               <SleepPlanIcon backgroundColor={colors.primarySoft} />
             </View>
             <View style={styles.heroTextBlock}>
-              <View style={styles.heroTitleRow}>
-                <Text numberOfLines={1} adjustsFontSizeToFit style={styles.heroTitle}>
-                  {draft.name.trim() || 'План дня'}
-                </Text>
-                <Pressable
-                  accessibilityLabel="Изменить название плана"
-                  accessibilityRole="button"
-                  disabled={isEditingDisabled}
-                  hitSlop={8}
-                  onPress={openNameEditor}
-                  style={({ pressed }) => [
-                    styles.editNameButton,
-                    pressed && !isEditingDisabled ? styles.editNameButtonPressed : null,
-                    isEditingDisabled ? styles.disabledCard : null,
-                  ]}>
-                  <Text style={styles.editNameIcon}>✎</Text>
-                </Pressable>
-              </View>
+              <Text numberOfLines={1} adjustsFontSizeToFit style={styles.heroTitle}>
+                {draft.name.trim() || 'План дня'}
+              </Text>
               {selectedPlan?.isActive ? (
                 <Text numberOfLines={1} adjustsFontSizeToFit style={styles.heroText}>
-                  Используется для расчётов и рекомендаций текущего дня.
+                  Расчёты и рекомендации сегодня
                 </Text>
               ) : null}
             </View>
+            <Pressable
+              accessibilityLabel="Изменить название плана"
+              accessibilityRole="button"
+              disabled={isEditingDisabled}
+              hitSlop={8}
+              onPress={openNameEditor}
+              style={({ pressed }) => [
+                styles.editNameButton,
+                pressed && !isEditingDisabled ? styles.editNameButtonPressed : null,
+                isEditingDisabled ? styles.disabledCard : null,
+              ]}>
+              <Text style={styles.editNameIcon}>✎</Text>
+            </Pressable>
           </View>
 
           <View style={styles.metricGrid}>
@@ -1103,6 +1367,13 @@ export default function SleepPlanScreen() {
               }
             />
           </View>
+
+          <OfficialSleepGuidelineCard
+            ageMonths={childAgeMonths}
+            hasBirthDate={childBirthDateValue !== null}
+            onOpenInfo={() => router.push(OFFICIAL_SLEEP_INFO_ROUTE)}
+            plan={parsedDraft.plan}
+          />
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Идеальный график</Text>
@@ -1335,10 +1606,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
   },
   planCard: {
-    width: 184,
-    minHeight: 96,
+    width: 172,
+    minHeight: 132,
     justifyContent: 'space-between',
-    gap: spacing.xs,
+    gap: spacing.sm,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
@@ -1365,26 +1636,68 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   activeBadge: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+  },
+  activeBadgeText: {
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  planCardSleepBlock: {
+    gap: 2,
+  },
+  planCardLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  planCardSleepValue: {
+    color: colors.text,
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: '900',
+  },
+  planCardFooter: {
+    minHeight: 26,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  planCardChip: {
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 3,
+    backgroundColor: colors.surfaceMuted,
+  },
+  planCardChipText: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  compactGuidelineBadge: {
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
     borderRadius: radius.sm,
     paddingHorizontal: spacing.xs,
     paddingVertical: 3,
     backgroundColor: colors.surface,
   },
-  activeBadgeText: {
+  compactGuidelineBadgeWarning: {
+    backgroundColor: colors.warningSoft,
+  },
+  compactGuidelineBadgeText: {
     color: colors.primary,
     fontSize: 11,
     fontWeight: '900',
   },
-  planCardMeta: {
-    color: colors.textMuted,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  activePlanNote: {
-    minHeight: 36,
-    color: colors.textMuted,
-    fontSize: 14,
-    fontWeight: '700',
+  compactGuidelineBadgeTextWarning: {
+    color: colors.warning,
   },
   activatePlanButton: {
     minHeight: 44,
@@ -1402,53 +1715,47 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   hero: {
-    minHeight: 76,
+    minHeight: 58,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
     backgroundColor: colors.primarySoft,
   },
   heroCompact: {
-    minHeight: 58,
+    minHeight: 52,
   },
   heroIcon: {
-    width: 34,
-    height: 34,
+    width: 30,
+    height: 30,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 17,
+    borderRadius: 15,
     borderWidth: 1,
     borderColor: colors.primary,
     backgroundColor: colors.primarySoft,
   },
   heroTextBlock: {
     flex: 1,
-    gap: 2,
+    gap: 1,
     minWidth: 0,
   },
   heroTitle: {
-    flex: 1,
     color: colors.text,
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: '900',
-  },
-  heroTitleRow: {
-    minHeight: 40,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
+    lineHeight: 22,
   },
   editNameButton: {
-    width: 34,
-    height: 34,
+    width: 30,
+    height: 30,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 17,
+    borderRadius: 15,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
@@ -1458,13 +1765,13 @@ const styles = StyleSheet.create({
   },
   editNameIcon: {
     color: colors.primary,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '900',
   },
   heroText: {
     color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 17,
+    fontSize: 12,
+    lineHeight: 15,
     fontWeight: '700',
   },
   metricGrid: {
@@ -1502,6 +1809,81 @@ const styles = StyleSheet.create({
   metricCaption: {
     color: colors.textMuted,
     fontSize: 13,
+    fontWeight: '700',
+  },
+  guidelineCard: {
+    gap: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  guidelineHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  guidelineTitle: {
+    flex: 1,
+    minWidth: 0,
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  guidelineInfoButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  guidelineInfoButtonPressed: {
+    backgroundColor: colors.surfaceMuted,
+  },
+  guidelineInfoButtonText: {
+    color: colors.primary,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  guidelineBadge: {
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    backgroundColor: colors.primarySoft,
+  },
+  guidelineBadgeWarning: {
+    backgroundColor: colors.warningSoft,
+  },
+  guidelineBadgeText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '900',
+    lineHeight: 16,
+    textAlign: 'center',
+  },
+  guidelineBadgeTextWarning: {
+    color: colors.warning,
+  },
+  guidelineLines: {
+    gap: spacing.xs,
+  },
+  guidelineBody: {
+    color: colors.text,
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '800',
+  },
+  guidelineMicroText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
     fontWeight: '700',
   },
   section: {
