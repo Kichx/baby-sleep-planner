@@ -448,6 +448,8 @@ For modal forms with inputs, prefer the built-in React Native approach first:
 
 Keep primary actions usable when the keyboard is open. For bottom sheets, keep Save/Delete actions outside the scrolling form when practical, and make only the field area scroll. For centered short dialogs with a `TextInput`, wrap the dialog in `KeyboardAvoidingView` even if the dialog looks small on a tall device.
 
+Do not put `selectTextOnFocus` directly on controlled `TextInput` fields that users are expected to replace quickly, especially Android numeric time fields. It can leave the old selection active after the first typed character, so the second character replaces the first one. Use the shared `SelectAllTextInput` component for "select all on focus" behavior; pass `normalizeText` for forgiving time inputs, and let the component collapse the selection after the first edit.
+
 Do not add `react-native-keyboard-controller`, change `android.softwareKeyboardLayoutMode`, or add another keyboard dependency for simple one-screen/modal input fixes unless the built-in approach fails. If changing Android app config is truly required, remember it only affects a new APK build and re-check `android.package`, the APK-producing `preview` profile, and `DATABASE_NAME`.
 
 Before considering keyboard/input UI done, verify:
@@ -455,6 +457,7 @@ Before considering keyboard/input UI done, verify:
 - manual sleep entry with the end time focused;
 - editing an existing sleep record with the end time focused;
 - sleep-plan range editors with the second field focused;
+- replacing a selected existing time by typing several digits in a row, for example `1314`, without the first digit being eaten;
 - plan name create/edit dialog with the keyboard open;
 - profile name input on a narrow Android screen;
 - TypeScript checks pass, and tests pass if the touched area can affect app behavior.
@@ -524,6 +527,8 @@ Remote setup and push:
 - If the user says the wrong hosting name but an exact remote URL is already configured, state the configured remote and ask only if the target is still ambiguous. Do not replace a correct remote because of a likely wording mistake.
 - Prefer normal Git operations for repository upload. Do not use GitHub contents/API tools for a full initial upload unless the user explicitly asks for an API-based workaround; API upload does not preserve local Git history like `git push` does.
 - For a first GitHub SSH push, test authentication with `ssh -T -o BatchMode=yes git@github.com` before repeated push attempts.
+- If GitHub SSH to `github.com:22` times out, keep the existing `origin` remote unchanged and try a one-off push through GitHub SSH-over-443 with `GIT_SSH_COMMAND`, for example PowerShell: `$env:GIT_SSH_COMMAND='ssh -o Hostname=ssh.github.com -p 443'; git push origin <branch>`.
+- Before trusting `ssh.github.com:443`, verify the ED25519 host key fingerprint against official GitHub documentation. The expected fingerprint from GitHub Docs is `SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU`. Add only the verified `[ssh.github.com]:443` host key to `known_hosts`; do not disable strict host key checking for real pushes.
 - If SSH fails with `Host key verification failed`, verify GitHub's host key fingerprint against official GitHub documentation before adding it to `known_hosts`.
 - If SSH fails with `Permission denied (publickey)`, show only the public key from `%USERPROFILE%\.ssh\id_ed25519.pub` and tell the user to add it in GitHub Settings > SSH and GPG keys. Never print or copy the private key.
 - After the user adds the key, rerun the SSH authentication test, then run `git push -u origin <current-branch>`, and finish by checking `git status --short --branch`.
