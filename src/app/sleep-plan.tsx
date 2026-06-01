@@ -25,6 +25,15 @@ import {
   type SleepGuidelineRangeStatus,
 } from '@/core/officialSleepGuidelines';
 import {
+  formatNapCountText,
+  getDaySleepRangeStatusForPracticalPreset,
+  getNapCountStatusForPracticalPreset,
+  getPracticalSleepPresetByAgeMonths,
+  type PracticalDaySleepStatus,
+  type PracticalNapCountStatus,
+  type PracticalSleepPreset,
+} from '@/core/practicalSleepPresets';
+import {
   buildIdealSleepPlanSegments,
   buildSleepPlanPreset,
   calculatePlanBedtimeRange,
@@ -82,6 +91,16 @@ interface OfficialSleepGuidelineCardProps {
   plan: SleepPlanPreset | null;
 }
 
+interface PracticalSleepPresetCardProps {
+  ageMonths: number | null;
+  canApplyPreset: boolean;
+  hasBirthDate: boolean;
+  onApplyPreset: (preset: PracticalSleepPreset) => void;
+  onOpenInfo: () => void;
+  onOpenProfile: () => void;
+  plan: SleepPlanPreset | null;
+}
+
 interface TimeParts {
   hours: number;
   minutes: number;
@@ -101,6 +120,8 @@ interface RangeEditorProps {
 const NAP_COUNT_OPTIONS = [1, 2, 3, 4, 5] as const;
 const DEFAULT_PLAN_NAME = 'Основной';
 const OFFICIAL_SLEEP_INFO_ROUTE = '/info?article=official-sleep-guidelines' as Href;
+const PRACTICAL_SLEEP_INFO_ROUTE = '/info?article=practical-sleep-guidelines' as Href;
+const PROFILE_ROUTE = '/profile' as Href;
 const PLAN_NAME_MAX_LENGTH = 40;
 
 function padTimePart(value: number): string {
@@ -226,6 +247,70 @@ function getCompactGuidelineBadgeLabel(status: SleepGuidelineRangeStatus): strin
     case 'unknown':
       return null;
   }
+}
+
+function getPracticalNapCountCaption(status: PracticalNapCountStatus): string | null {
+  switch (status) {
+    case 'typical':
+      return 'типично для возраста';
+    case 'transition':
+      return 'переходный вариант';
+    case 'outside_typical':
+      return 'отличается от ориентира';
+    case 'unknown':
+      return null;
+  }
+}
+
+function getPracticalNapCountMessage(status: PracticalNapCountStatus): string {
+  switch (status) {
+    case 'typical':
+      return 'Количество дневных снов выглядит типично для возраста.';
+    case 'transition':
+      return 'Это возможный переходный вариант для возраста.';
+    case 'outside_typical':
+      return 'Количество снов отличается от возрастного ориентира. План можно оставить, если ребёнку так комфортно.';
+    case 'unknown':
+      return 'Количество дневных снов пока не оценено.';
+  }
+}
+
+function getPracticalDaySleepMessage(status: PracticalDaySleepStatus): string {
+  switch (status) {
+    case 'within_practical_range':
+      return 'Суммарный дневной сон в плане попадает в практический ориентир.';
+    case 'partially_within_practical_range':
+      return 'Диапазон дневного сна частично пересекается с практическим ориентиром.';
+    case 'below_practical_range':
+      return 'Дневной сон в плане ниже практического ориентира.';
+    case 'above_practical_range':
+      return 'Дневной сон в плане выше практического ориентира.';
+    case 'unknown':
+      return 'Суммарный дневной сон пока не оценен.';
+  }
+}
+
+function formatPracticalAlternativeNapCounts(preset: PracticalSleepPreset): string | null {
+  if (preset.alternativeNapCounts.length === 0) {
+    return null;
+  }
+
+  const label =
+    preset.alternativeNapCounts.length === 1 ? 'Возможный вариант' : 'Возможные варианты';
+  const values = preset.alternativeNapCounts.map(formatNapCountText).join(', ');
+
+  return `${label}: ${values}`;
+}
+
+function getPracticalDaySleepCaption(
+  preset: PracticalSleepPreset | null,
+): string {
+  return preset
+    ? `ориентир: ${formatDurationRangeShort(
+        preset.daySleepMinMinutes,
+        preset.daySleepMaxMinutes,
+      )}`
+    : 'суммарно';
 }
 
 function formatPlanNapCount(napCount: number): string {
@@ -652,6 +737,142 @@ function OfficialSleepGuidelineCard({
   );
 }
 
+function PracticalSleepPresetCard({
+  ageMonths,
+  canApplyPreset,
+  hasBirthDate,
+  onApplyPreset,
+  onOpenInfo,
+  onOpenProfile,
+  plan,
+}: PracticalSleepPresetCardProps) {
+  const header = (
+    <View style={styles.guidelineHeader}>
+      <Text style={styles.guidelineTitle}>Ориентир дневного сна</Text>
+      <Pressable
+        accessibilityLabel="Открыть справку про дневной сон"
+        accessibilityRole="button"
+        hitSlop={8}
+        onPress={onOpenInfo}
+        style={({ pressed }) => [
+          styles.guidelineInfoButton,
+          pressed ? styles.guidelineInfoButtonPressed : null,
+        ]}>
+        <Text style={styles.guidelineInfoButtonText}>i</Text>
+      </Pressable>
+    </View>
+  );
+
+  if (!hasBirthDate) {
+    return (
+      <View style={styles.guidelineCard}>
+        {header}
+        <Text style={styles.guidelineMicroText}>Уровень B · практический ориентир</Text>
+        <Text style={styles.guidelineBody}>
+          Укажите дату рождения в профиле, чтобы видеть возрастной ориентир дневного сна.
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={onOpenProfile}
+          style={({ pressed }) => [
+            styles.guidelineSecondaryButton,
+            pressed ? styles.guidelineSecondaryButtonPressed : null,
+          ]}>
+          <Text style={styles.guidelineSecondaryButtonText}>Открыть профиль</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  const preset = getPracticalSleepPresetByAgeMonths(ageMonths);
+
+  if (!preset || ageMonths === null) {
+    return (
+      <View style={styles.guidelineCard}>
+        {header}
+        <Text style={styles.guidelineMicroText}>Уровень B · практический ориентир</Text>
+        <Text style={styles.guidelineBody}>
+          Для этого возраста практический ориентир дневного сна пока не задан.
+        </Text>
+      </View>
+    );
+  }
+
+  const napCountStatus = getNapCountStatusForPracticalPreset({
+    ageMonths,
+    napCount: plan?.napCount,
+  });
+  const daySleepStatus = getDaySleepRangeStatusForPracticalPreset({
+    ageMonths,
+    daySleepMaxMinutes: plan?.targetDaySleepMaxMinutes,
+    daySleepMinMinutes: plan?.targetDaySleepMinMinutes,
+  });
+  const alternativeNapCounts = formatPracticalAlternativeNapCounts(preset);
+
+  return (
+    <View style={styles.guidelineCard}>
+      {header}
+      <Text style={styles.guidelineMicroText}>Уровень B · практический ориентир</Text>
+
+      <View style={styles.guidelineLines}>
+        <Text style={styles.guidelineBody}>
+          Для {preset.label} обычно: {formatNapCountText(preset.recommendedNapCount)}
+        </Text>
+        {alternativeNapCounts ? (
+          <Text style={styles.guidelineBody}>{alternativeNapCounts}</Text>
+        ) : null}
+        <Text style={styles.guidelineBody}>
+          Дневной сон:{' '}
+          {formatDurationRangeShort(preset.daySleepMinMinutes, preset.daySleepMaxMinutes)}{' '}
+          суммарно
+        </Text>
+      </View>
+
+      <Text style={styles.guidelineMicroText}>{preset.note}</Text>
+      {preset.transitionNote ? (
+        <Text style={styles.guidelineMicroText}>{preset.transitionNote}</Text>
+      ) : null}
+
+      {plan ? (
+        <View style={styles.practicalStatusList}>
+          <View style={styles.practicalStatusRow}>
+            <Text style={styles.practicalStatusDot}>•</Text>
+            <Text style={styles.practicalStatusText}>
+              {getPracticalNapCountMessage(napCountStatus.status)}
+            </Text>
+          </View>
+          <View style={styles.practicalStatusRow}>
+            <Text style={styles.practicalStatusDot}>•</Text>
+            <Text style={styles.practicalStatusText}>
+              {getPracticalDaySleepMessage(daySleepStatus.status)}
+            </Text>
+          </View>
+        </View>
+      ) : (
+        <Text style={styles.guidelineMicroText}>
+          Проверьте параметры плана, чтобы сравнить их с ориентиром.
+        </Text>
+      )}
+
+      {canApplyPreset ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => onApplyPreset(preset)}
+          style={({ pressed }) => [
+            styles.guidelinePrimaryButton,
+            pressed ? styles.guidelinePrimaryButtonPressed : null,
+          ]}>
+          <Text style={styles.guidelinePrimaryButtonText}>Подставить ориентир</Text>
+        </Pressable>
+      ) : null}
+
+      <Text style={styles.guidelineMicroText}>
+        Это не строгая медицинская норма. План можно настроить вручную.
+      </Text>
+    </View>
+  );
+}
+
 function IdealScheduleRow({ segment }: { segment: IdealSleepPlanSegment }) {
   const isSleep = segment.kind === 'sleep';
 
@@ -796,6 +1017,18 @@ export default function SleepPlanScreen() {
   );
   const parsedDraft = useMemo(() => parsePlanDraft(draft), [draft]);
   const draftNameError = useMemo(() => getDraftNameError(draft), [draft]);
+  const practicalPreset = useMemo(
+    () => getPracticalSleepPresetByAgeMonths(childAgeMonths),
+    [childAgeMonths],
+  );
+  const practicalNapCountStatus = useMemo(
+    () =>
+      getNapCountStatusForPracticalPreset({
+        ageMonths: childAgeMonths,
+        napCount: parsedDraft.plan?.napCount,
+      }),
+    [childAgeMonths, parsedDraft.plan?.napCount],
+  );
   const bedtimeRange = useMemo(() => {
     if (!parsedDraft.plan) {
       return null;
@@ -818,6 +1051,8 @@ export default function SleepPlanScreen() {
     errorMessage ??
     (nameEditorMode === 'edit' ? draftNameError : activeEditor ? parsedDraft.errorMessage : null);
   const isEditingDisabled = isLoading || isSaving || !selectedPlan;
+  const canApplyPracticalPreset =
+    childBirthDateValue !== null && practicalPreset !== null && !isEditingDisabled;
   const isPlanDeleteDisabled = isLoading || isSaving || !selectedPlan || plans.length <= 1;
   const isEditorModalVisible = activeEditor !== null;
   const sheetTitle =
@@ -1097,6 +1332,31 @@ export default function SleepPlanScreen() {
     }
   }
 
+  async function applyPracticalPreset(preset: PracticalSleepPreset) {
+    if (!selectedPlan || isSaving) {
+      return;
+    }
+
+    const nextDraft: PlanDraft = {
+      ...draft,
+      daySleepEnd: formatDurationInput(preset.daySleepMaxMinutes),
+      daySleepStart: formatDurationInput(preset.daySleepMinMinutes),
+      name: selectedPlan.name,
+      napCount: String(preset.recommendedNapCount),
+    };
+    const nextParsedDraft = parsePlanDraft(nextDraft);
+
+    setDraft(nextDraft);
+    setErrorMessage(null);
+
+    if (!nextParsedDraft.plan) {
+      setErrorMessage(nextParsedDraft.errorMessage ?? 'Проверьте план сна');
+      return;
+    }
+
+    await saveDraftPlan(nextDraft, nextParsedDraft.plan);
+  }
+
   function renderEditorContent() {
     if (activeEditor === 'wakeUp') {
       return (
@@ -1346,14 +1606,14 @@ export default function SleepPlanScreen() {
               }
             />
             <MetricCard
-              caption="в день"
+              caption={getPracticalNapCountCaption(practicalNapCountStatus.status) ?? 'в день'}
               disabled={isEditingDisabled}
               label="Дневных снов"
               onPress={() => openEditor('napCount')}
               value={draft.napCount}
             />
             <MetricCard
-              caption="суммарно"
+              caption={getPracticalDaySleepCaption(practicalPreset)}
               disabled={isEditingDisabled}
               label="Дневной сон"
               onPress={() => openEditor('daySleep')}
@@ -1372,6 +1632,18 @@ export default function SleepPlanScreen() {
             ageMonths={childAgeMonths}
             hasBirthDate={childBirthDateValue !== null}
             onOpenInfo={() => router.push(OFFICIAL_SLEEP_INFO_ROUTE)}
+            plan={parsedDraft.plan}
+          />
+
+          <PracticalSleepPresetCard
+            ageMonths={childAgeMonths}
+            canApplyPreset={canApplyPracticalPreset}
+            hasBirthDate={childBirthDateValue !== null}
+            onApplyPreset={(preset) => {
+              void applyPracticalPreset(preset);
+            }}
+            onOpenInfo={() => router.push(PRACTICAL_SLEEP_INFO_ROUTE)}
+            onOpenProfile={() => router.push(PROFILE_ROUTE)}
             plan={parsedDraft.plan}
           />
 
@@ -1885,6 +2157,61 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     fontWeight: '700',
+  },
+  practicalStatusList: {
+    gap: spacing.xs,
+  },
+  practicalStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.xs,
+  },
+  practicalStatusDot: {
+    color: colors.primary,
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '900',
+  },
+  practicalStatusText: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '800',
+  },
+  guidelinePrimaryButton: {
+    minHeight: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.primary,
+  },
+  guidelinePrimaryButtonPressed: {
+    backgroundColor: colors.primaryPressed,
+  },
+  guidelinePrimaryButtonText: {
+    color: colors.surface,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  guidelineSecondaryButton: {
+    minHeight: 40,
+    alignSelf: 'flex-start',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.primarySoft,
+  },
+  guidelineSecondaryButtonPressed: {
+    backgroundColor: colors.surfaceMuted,
+  },
+  guidelineSecondaryButtonText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '900',
   },
   section: {
     gap: spacing.sm,

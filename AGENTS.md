@@ -441,6 +441,25 @@ Before considering multiple-plan UI done, verify:
 - compact plan summary text does not wrap into an oversized block on small Android screens.
 - carousel plan cards remain scannable on a narrow phone screenshot and do not duplicate all four metric cards.
 
+## Implementation lessons from practical daytime sleep guidelines
+
+Keep practical daytime sleep guidance (Level B) separate from official 24-hour sleep guidance (Level A). Level A answers whether total sleep over 24 hours is inside an official range. Level B answers how daytime sleep is often distributed by age. Do not merge these into one card, one status, or one source explanation.
+
+Store Level B age presets and status checks in `src/core/practicalSleepPresets.ts` as pure TypeScript. UI screens and `/info` should reuse `PRACTICAL_SLEEP_PRESETS` instead of copying table rows or duration ranges by hand. When changing those presets, update `src/core/practicalSleepPresets.test.ts`.
+
+For practical daytime sleep copy, avoid words that imply a required direction unless the data explicitly encodes that direction. In tables, do not label all alternative nap counts as `переход`, because an alternative can be either fewer or more naps. Prefer neutral labels such as `обычно` and `ещё встречается`, or spell out a specific transition only in explanatory text where it is actually true.
+
+Keep `/info?article=practical-sleep-guidelines` compact. The article should explain that HSE Ireland, Raising Children Network, and Pregnancy Birth & Baby Australia are practical health sources, then let the table carry the age-by-age data. Avoid long source-by-source prose that makes the help screen feel like an article instead of a quick reference.
+
+When adding an apply-guideline action for Level B, do not auto-apply it. A button such as "Подставить ориентир" should only change the selected plan's daytime nap count and daytime sleep range, preserving wake-up time, total awake time, plan name, and active state. After applying, Level A should still recalculate independently and may show that the resulting 24-hour sleep range is below or above its official range.
+
+Before considering practical daytime sleep guidance done, verify:
+- `/sleep-plan` shows Level A and Level B as separate blocks;
+- `/info?article=practical-sleep-guidelines` opens directly and shows the table from `PRACTICAL_SLEEP_PRESETS`;
+- alternative nap-count labels cannot be read as a required transition direction;
+- source text is short and does not claim that WHO, CDC, or AASM define nap counts;
+- TypeScript checks pass and core tests pass.
+
 ## Implementation lessons from Android keyboard/input modal work
 
 APK keyboard behavior can differ from Expo Go, especially for `Modal` bottom sheets and compact dialogs. When a user reports the Android keyboard covering an input, inspect all `TextInput` usages and all `Modal` windows in the project, not only the field from the screenshot.

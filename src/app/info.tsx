@@ -8,13 +8,21 @@ import {
   OFFICIAL_SLEEP_GUIDELINES,
   formatDurationRangeShort,
 } from '@/core/officialSleepGuidelines';
+import {
+  PRACTICAL_SLEEP_PRESETS,
+  formatNapCountText,
+} from '@/core/practicalSleepPresets';
 
-type InfoArticleId = 'night-sleep' | 'night-forecast' | 'official-sleep-guidelines';
+type InfoArticleId =
+  | 'night-sleep'
+  | 'night-forecast'
+  | 'official-sleep-guidelines'
+  | 'practical-sleep-guidelines';
 
 interface InfoArticleTable {
-  columns: [string, string];
+  columns: string[];
   rows: {
-    cells: [string, string];
+    cells: string[];
     id: string;
   }[];
 }
@@ -25,6 +33,16 @@ interface InfoArticle {
   subtitle: string;
   table?: InfoArticleTable;
   title: string;
+}
+
+function formatPracticalNapCountsCell(recommendedNapCount: number, alternativeNapCounts: number[]): string {
+  if (alternativeNapCounts.length === 0) {
+    return `обычно: ${formatNapCountText(recommendedNapCount)}`;
+  }
+
+  return `обычно: ${formatNapCountText(recommendedNapCount)}\nещё встречается: ${alternativeNapCounts
+    .map(formatNapCountText)
+    .join(', ')}`;
 }
 
 const INFO_ARTICLES: InfoArticle[] = [
@@ -78,6 +96,34 @@ const INFO_ARTICLES: InfoArticle[] = [
     },
     title: 'Официальные нормы сна',
   },
+  {
+    id: 'practical-sleep-guidelines',
+    paragraphs: [
+      'Официальные рекомендации дают общий диапазон сна за 24 часа. Они помогают понять, достаточно ли сна в целом.',
+      'Но количество дневных снов, суммарный дневной сон и переходы между режимами — это уже практические ориентиры. Для них приложение использует доверенные health-источники: HSE Ireland, Raising Children Network и Pregnancy Birth & Baby Australia.',
+      'Эти источники немного по-разному описывают возрастные периоды, поэтому таблица ниже — сглаженный стартовый ориентир, а не строгая схема.',
+      'В колонке “обычно” показан основной вариант для возраста. “Ещё встречается” — соседний режим, который может быть нормальным рядом с этим возрастом. Это не направление перехода и не требование увеличивать или уменьшать количество снов.',
+      'Такие ориентиры помогают выбрать стартовый план: например, в одном возрасте чаще встречается 3 дневных сна, позже — 2, затем 1. Но дети переходят между режимами не строго по календарю.',
+      'Если ребёнок хорошо себя чувствует, нормально засыпает и день складывается спокойно, план можно оставить даже при отличии от ориентира. Если сон регулярно разваливается, ориентир помогает понять, какой параметр попробовать изменить.',
+      'Приложение не ставит диагнозы и не заменяет врача. Оно помогает вести записи и аккуратно настраивать режим.',
+    ],
+    subtitle: 'Почему приложение предлагает разное количество дневных снов',
+    table: {
+      columns: ['Возраст', 'Дневные сны', 'Сон днём'],
+      rows: PRACTICAL_SLEEP_PRESETS.map((preset) => ({
+        cells: [
+          preset.label,
+          formatPracticalNapCountsCell(
+            preset.recommendedNapCount,
+            preset.alternativeNapCounts,
+          ),
+          formatDurationRangeShort(preset.daySleepMinMinutes, preset.daySleepMaxMinutes),
+        ],
+        id: preset.id,
+      })),
+    },
+    title: 'Возрастные ориентиры дневного сна',
+  },
 ];
 
 interface ArticleItemProps {
@@ -90,7 +136,8 @@ function isInfoArticleId(value: unknown): value is InfoArticleId {
   return (
     value === 'night-sleep' ||
     value === 'night-forecast' ||
-    value === 'official-sleep-guidelines'
+    value === 'official-sleep-guidelines' ||
+    value === 'practical-sleep-guidelines'
   );
 }
 
