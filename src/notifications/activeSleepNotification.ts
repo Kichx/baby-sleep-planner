@@ -1,4 +1,5 @@
 import Constants, { AppOwnership } from 'expo-constants';
+import { requireOptionalNativeModule } from 'expo';
 import type * as ExpoNotifications from 'expo-notifications';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { Platform } from 'react-native';
@@ -14,6 +15,12 @@ const ACTIVE_SLEEP_NOTIFICATION_CHANNEL_ID = 'active-sleep';
 
 type NotificationsModule = typeof ExpoNotifications;
 
+interface ActiveSleepChronometerModule {
+  hide: () => boolean;
+  show: (startedAtMillis: number, startedAtLabel: string) => boolean;
+}
+
+let activeSleepChronometerModule: ActiveSleepChronometerModule | null | undefined;
 let notificationsModulePromise: Promise<NotificationsModule | null> | null = null;
 let isNotificationHandlerConfigured = false;
 let isAndroidChannelConfigured = false;
@@ -35,6 +42,17 @@ function loadNotificationsModule(): Promise<NotificationsModule | null> {
   notificationsModulePromise ??= import('expo-notifications').catch(() => null);
 
   return notificationsModulePromise;
+}
+
+function getActiveSleepChronometerModule(): ActiveSleepChronometerModule | null {
+  if (!canUseNativeNotifications()) {
+    return null;
+  }
+
+  activeSleepChronometerModule ??=
+    requireOptionalNativeModule<ActiveSleepChronometerModule>('ActiveSleepChronometer');
+
+  return activeSleepChronometerModule;
 }
 
 function formatClock(date: Date): string {
@@ -142,6 +160,11 @@ export async function showActiveSleepNotification(session: SleepSession, now = n
 
   const startedAt = new Date(session.startedAt);
   const durationMinutes = getActiveSleepDurationMinutes(startedAt, now);
+  const activeSleepChronometerModule = getActiveSleepChronometerModule();
+
+  if (activeSleepChronometerModule?.show(startedAt.getTime(), formatClock(startedAt))) {
+    return;
+  }
 
   await Notifications.scheduleNotificationAsync({
     content: {
@@ -166,6 +189,7 @@ export async function showActiveSleepNotification(session: SleepSession, now = n
 }
 
 export async function hideActiveSleepNotification() {
+  getActiveSleepChronometerModule()?.hide();
   const Notifications = await loadNotificationsModule();
 
   if (!Notifications) {

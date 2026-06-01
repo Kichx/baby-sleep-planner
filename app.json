@@ -52,6 +52,11 @@
       "expo-sharing"
     ],
     "experiments": {
+      "inlineModules": {
+        "watchedDirectories": [
+          "src"
+        ]
+      },
       "typedRoutes": true,
       "reactCompiler": true
     },
