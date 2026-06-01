@@ -12,12 +12,17 @@ import {
   PRACTICAL_SLEEP_PRESETS,
   formatNapCountText,
 } from '@/core/practicalSleepPresets';
+import {
+  WAKE_WINDOW_GUIDELINES,
+  formatWakeWindowRangeShort,
+} from '@/core/wakeWindowGuidelines';
 
 type InfoArticleId =
   | 'night-sleep'
   | 'night-forecast'
   | 'official-sleep-guidelines'
-  | 'practical-sleep-guidelines';
+  | 'practical-sleep-guidelines'
+  | 'wake-window-guidelines';
 
 interface InfoArticleTable {
   columns: string[];
@@ -124,6 +129,25 @@ const INFO_ARTICLES: InfoArticle[] = [
     },
     title: 'Возрастные ориентиры дневного сна',
   },
+  {
+    id: 'wake-window-guidelines',
+    paragraphs: [
+      'Окно бодрствования — это время между пробуждением и следующим сном.',
+      'Уровень C показывает практический ориентир по возрасту. Это не официальная медицинская норма и не требование укладывать ребёнка ровно через указанное время.',
+      'Официальные источники уровня A задают суммарный сон за 24 часа, но не задают окна бодрствования, количество дневных снов или подробное расписание.',
+      'Дети индивидуальны, поэтому приложение показывает диапазон и предлагает смотреть также на признаки усталости и фактическую историю сна.',
+      'Практический клинический источник: Cleveland Clinic.',
+    ],
+    subtitle: 'Уровень C: практический ориентир между снами',
+    table: {
+      columns: ['Возраст', 'Окно бодрствования'],
+      rows: WAKE_WINDOW_GUIDELINES.map((guideline) => ({
+        cells: [guideline.label, formatWakeWindowRangeShort(guideline)],
+        id: `${guideline.label}-${guideline.minWakeWindowMinutes}`,
+      })),
+    },
+    title: 'Окна бодрствования',
+  },
 ];
 
 interface ArticleItemProps {
@@ -137,7 +161,8 @@ function isInfoArticleId(value: unknown): value is InfoArticleId {
     value === 'night-sleep' ||
     value === 'night-forecast' ||
     value === 'official-sleep-guidelines' ||
-    value === 'practical-sleep-guidelines'
+    value === 'practical-sleep-guidelines' ||
+    value === 'wake-window-guidelines'
   );
 }
 

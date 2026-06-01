@@ -508,7 +508,33 @@ Before considering practical daytime sleep guidance done, verify:
 - source text is short and does not claim that WHO, CDC, or AASM define nap counts;
 - TypeScript checks pass and core tests pass.
 
-When documenting Level A/B changes in Confluence, update both the conceptual and screen-level pages. The conceptual page is `Уровни доверия сна: A и B`. The screen pages that usually need updates are `Экран: План дня` for the cards/actions, `Экран: Справка` for help articles and deep links, and `Экран: Сон сегодня` when a guideline status appears on the main/past-day screen. This prevents Confluence from describing only the core principle while missing visible UI behavior.
+## Implementation lessons from wake window guidance
+
+Keep wake window guidance (Level C) separate from Level A and Level B. Level A answers total sleep over 24 hours, Level B answers practical daytime sleep distribution, and Level C answers practical wake-window ranges between sleeps. Do not merge these into one status, one source explanation, or one apply action.
+
+Store Level C age ranges and status checks in `src/core/wakeWindowGuidelines.ts` as pure TypeScript. UI screens and `/info` should reuse `WAKE_WINDOW_GUIDELINES` and `formatWakeWindowRangeShort` instead of copying wake-window rows or formatting by hand. When changing those ranges or statuses, update `src/core/wakeWindowGuidelines.test.ts`.
+
+Level C copy must stay cautious: use phrases such as "практический ориентир", "мягкий ориентир", and "дети индивидуальны". Do not write that WHO, CDC, AASM, or another official Level A source defines wake windows. Do not call wake windows a medical norm or promise a medical result.
+
+On `/sleep-plan`, compare Level C against the currently displayed draft plan, not necessarily the active plan. Reuse `plan.wakeWindows` produced by `buildSleepPlanPreset`/`buildWakeWindowsForPlan` to derive the draft wake-window range; do not duplicate schedule math in the UI. Handle missing birth date, unsupported age, and invalid draft plan as calm read-only states.
+
+Do not add "Применить к плану" for Level C unless the task explicitly asks for it and defines how total awake time, nap count, day sleep, bedtime, and Level A/B checks should change together. A first Level C implementation should be read-only guidance and comparison.
+
+Keep `/info?article=wake-window-guidelines` compact. The article should explain what a wake window is, that Level C is practical guidance rather than an official medical norm, that Level A sources do not define wake windows, and then show the table from `WAKE_WINDOW_GUIDELINES`. Keep the source label short, for example "Практический клинический источник: Cleveland Clinic".
+
+Do not add a large Level C card to the main "Сон сегодня" screen unless explicitly requested. That screen should stay focused on current state, next sleep, predicted bedtime, and simple day guidance. If Level C later affects recommendation scenarios, update core recommendation tests instead of only changing UI text.
+
+Before considering wake window guidance done, verify:
+- `/sleep-plan` shows Level C after Level B and before the ideal schedule;
+- missing birth date shows the profile prompt and does not crash;
+- unsupported ages outside the configured table show a calm "not set" state;
+- invalid draft plan shows a calm "check plan parameters" state;
+- `/info?article=wake-window-guidelines` opens directly and shows the table from `WAKE_WINDOW_GUIDELINES`;
+- wording does not claim official sources define wake windows or medical norms;
+- SQLite schema, `DATABASE_NAME`, and `android.package` are unchanged;
+- TypeScript checks pass and core tests pass.
+
+When documenting Level A/B/C changes in Confluence, update both the conceptual and screen-level pages. The conceptual page is `Уровни доверия сна: A и B` or its successor if Level C has been added there. The screen pages that usually need updates are `Экран: План дня` for the cards/actions, `Экран: Справка` for help articles and deep links, and `Экран: Сон сегодня` when a guideline status appears on the main/past-day screen. This prevents Confluence from describing only the core principle while missing visible UI behavior.
 
 ## Implementation lessons from Android keyboard/input modal work
 
@@ -564,6 +590,8 @@ Before starting any new Expo/Metro process, check whether `8081` is already usab
 - `Get-NetTCPConnection -LocalPort 8081 -ErrorAction SilentlyContinue`;
 - a quick HTTP probe such as `Invoke-WebRequest -Uri 'http://localhost:8081/' -UseBasicParsing -TimeoutSec 5`.
 
+If `8081` is not the active port, inspect existing Expo command lines before starting another server, for example with `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'expo start' }`. The user may already have Expo web running on another port such as `19006`.
+
 If `http://localhost:8081/` responds and the DOM snapshot shows app content such as "Сон сегодня", "План дня", or "Справка", reuse that browser session for visual verification. Do not start another server on `8082` or another port just for routine UI checks.
 
 When using the in-app browser, verify the changed UI with a DOM snapshot first, then take screenshots only where layout or text wrapping matters. Useful routes for smoke checks are:
@@ -577,6 +605,8 @@ If a temporary Expo web server is truly needed because `8081` is unavailable, st
 For SDK 56 and `expo-sqlite` on web, a failure like `Unable to resolve module ./wa-sqlite/wa-sqlite.wasm` usually means the web/Metro setup is incomplete, not that the wasm file is missing. Keep `metro.config.js` configured with `config.resolver.assetExts.push('wasm')`, and keep the Expo Router web headers in `app.json`:
 - `Cross-Origin-Embedder-Policy: credentialless`;
 - `Cross-Origin-Opener-Policy: same-origin`.
+
+For SDK 56 and `expo-sqlite` on web, `NoModificationAllowedError` from `createSyncAccessHandle` usually means another same-origin web tab or worker still holds the SQLite OPFS access handle. Close/reuse the existing same-origin tab before blaming the code change. Opening `127.0.0.1` instead of `localhost` can be useful for a smoke render check because it uses a different origin, but do not treat its local web SQLite data as the same data store as `localhost`, Expo Go, or the Android APK.
 
 After changing Metro config, restart Expo web with a cleared cache before judging the result, for example `cmd /c npx expo start --web --port 8081 --clear` if the user wants the main local server refreshed.
 

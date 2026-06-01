@@ -40,6 +40,13 @@ import {
   type IdealSleepPlanSegment,
 } from '@/core/sleepPlan';
 import {
+  checkWakeWindowRangeAgainstGuideline,
+  formatWakeWindowRangeShort,
+  formatWakeWindowStatusText,
+  getWakeWindowGuidelineByAgeMonths,
+  type WakeWindowRangeStatus,
+} from '@/core/wakeWindowGuidelines';
+import {
   activateTargetDayPlan,
   createTargetDayPlan,
   deleteTargetDayPlan,
@@ -101,6 +108,14 @@ interface PracticalSleepPresetCardProps {
   plan: SleepPlanPreset | null;
 }
 
+interface WakeWindowGuidelineCardProps {
+  ageMonths: number | null;
+  hasBirthDate: boolean;
+  onOpenInfo: () => void;
+  onOpenProfile: () => void;
+  plan: SleepPlanPreset | null;
+}
+
 interface TimeParts {
   hours: number;
   minutes: number;
@@ -121,6 +136,7 @@ const NAP_COUNT_OPTIONS = [1, 2, 3, 4, 5] as const;
 const DEFAULT_PLAN_NAME = 'Основной';
 const OFFICIAL_SLEEP_INFO_ROUTE = '/info?article=official-sleep-guidelines' as Href;
 const PRACTICAL_SLEEP_INFO_ROUTE = '/info?article=practical-sleep-guidelines' as Href;
+const WAKE_WINDOW_INFO_ROUTE = '/info?article=wake-window-guidelines' as Href;
 const PROFILE_ROUTE = '/profile' as Href;
 const PLAN_NAME_MAX_LENGTH = 40;
 
@@ -217,6 +233,26 @@ function getPlanTotalSleepRange(plan: SleepPlanPreset): {
     maxWakeMinutes: plan.targetAwakeMaxMinutes,
     minWakeMinutes: plan.targetAwakeMinMinutes,
   });
+}
+
+function getPlanWakeWindowRange(plan: SleepPlanPreset): {
+  minWakeWindowMinutes: number;
+  maxWakeWindowMinutes: number;
+} | null {
+  if (plan.wakeWindows.length === 0) {
+    return null;
+  }
+
+  return plan.wakeWindows.reduce(
+    (range, wakeWindow) => ({
+      maxWakeWindowMinutes: Math.max(range.maxWakeWindowMinutes, wakeWindow.maxWakeMinutes),
+      minWakeWindowMinutes: Math.min(range.minWakeWindowMinutes, wakeWindow.minWakeMinutes),
+    }),
+    {
+      maxWakeWindowMinutes: plan.wakeWindows[0].maxWakeMinutes,
+      minWakeWindowMinutes: plan.wakeWindows[0].minWakeMinutes,
+    },
+  );
 }
 
 function getGuidelineBadgeLabel(status: SleepGuidelineRangeStatus): string {
@@ -329,6 +365,10 @@ function getGuidelineBadgeTone(status: SleepGuidelineRangeStatus): 'default' | '
   return status === 'within_recommended' || status === 'partially_within_recommended'
     ? 'default'
     : 'warning';
+}
+
+function getWakeWindowBadgeTone(status: WakeWindowRangeStatus): 'default' | 'warning' {
+  return status === 'within' || status === 'partially_overlaps' ? 'default' : 'warning';
 }
 
 function formatClockRange(startMinutes: number, endMinutes: number): string {
@@ -868,6 +908,140 @@ function PracticalSleepPresetCard({
 
       <Text style={styles.guidelineMicroText}>
         Это не строгая медицинская норма. План можно настроить вручную.
+      </Text>
+    </View>
+  );
+}
+
+function WakeWindowGuidelineCard({
+  ageMonths,
+  hasBirthDate,
+  onOpenInfo,
+  onOpenProfile,
+  plan,
+}: WakeWindowGuidelineCardProps) {
+  const header = (
+    <View style={styles.guidelineHeader}>
+      <Text style={styles.guidelineTitle}>Ориентир бодрствования</Text>
+      <Pressable
+        accessibilityLabel="Открыть справку про окна бодрствования"
+        accessibilityRole="button"
+        hitSlop={8}
+        onPress={onOpenInfo}
+        style={({ pressed }) => [
+          styles.guidelineInfoButton,
+          pressed ? styles.guidelineInfoButtonPressed : null,
+        ]}>
+        <Text style={styles.guidelineInfoButtonText}>i</Text>
+      </Pressable>
+    </View>
+  );
+
+  if (!hasBirthDate) {
+    return (
+      <View style={[styles.guidelineCard, styles.wakeWindowCard]}>
+        {header}
+        <Text style={styles.guidelineMicroText}>Уровень C · практический ориентир</Text>
+        <Text style={styles.guidelineBody}>
+          Укажите дату рождения в профиле, чтобы увидеть ориентир окон бодрствования.
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          onPress={onOpenProfile}
+          style={({ pressed }) => [
+            styles.guidelineSecondaryButton,
+            pressed ? styles.guidelineSecondaryButtonPressed : null,
+          ]}>
+          <Text style={styles.guidelineSecondaryButtonText}>Открыть профиль</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  const guideline = getWakeWindowGuidelineByAgeMonths(ageMonths);
+
+  if (!guideline || ageMonths === null) {
+    return (
+      <View style={[styles.guidelineCard, styles.wakeWindowCard]}>
+        {header}
+        <Text style={styles.guidelineMicroText}>Уровень C · практический ориентир</Text>
+        <Text style={styles.guidelineBody}>
+          Для этого возраста ориентир окон бодрствования пока не задан.
+        </Text>
+      </View>
+    );
+  }
+
+  if (!plan) {
+    return (
+      <View style={[styles.guidelineCard, styles.wakeWindowCard]}>
+        {header}
+        <Text style={styles.guidelineMicroText}>Уровень C · практический ориентир</Text>
+        <Text style={styles.guidelineBody}>
+          Проверьте параметры плана, чтобы сравнить окна бодрствования с ориентиром.
+        </Text>
+      </View>
+    );
+  }
+
+  const planWakeWindowRange = getPlanWakeWindowRange(plan);
+
+  if (!planWakeWindowRange) {
+    return (
+      <View style={[styles.guidelineCard, styles.wakeWindowCard]}>
+        {header}
+        <Text style={styles.guidelineMicroText}>Уровень C · практический ориентир</Text>
+        <Text style={styles.guidelineBody}>
+          Проверьте параметры плана, чтобы сравнить окна бодрствования с ориентиром.
+        </Text>
+      </View>
+    );
+  }
+
+  const wakeWindowStatus = checkWakeWindowRangeAgainstGuideline(
+    planWakeWindowRange.minWakeWindowMinutes,
+    planWakeWindowRange.maxWakeWindowMinutes,
+    guideline,
+  );
+  const wakeWindowBadgeTone = getWakeWindowBadgeTone(wakeWindowStatus);
+
+  return (
+    <View style={[styles.guidelineCard, styles.wakeWindowCard]}>
+      {header}
+      <Text style={styles.guidelineMicroText}>Уровень C · практический ориентир</Text>
+
+      <View style={styles.guidelineLines}>
+        <Text style={styles.guidelineBody}>
+          Возраст: {guideline.label}
+        </Text>
+        <Text style={styles.guidelineBody}>
+          Окно бодрствования: {formatWakeWindowRangeShort(guideline)}
+        </Text>
+        <Text style={styles.guidelineBody}>
+          План: {formatWakeWindowRangeShort(planWakeWindowRange)}
+        </Text>
+      </View>
+
+      <View
+        style={[
+          styles.guidelineBadge,
+          wakeWindowBadgeTone === 'warning' ? styles.guidelineBadgeWarning : null,
+        ]}>
+        <Text
+          style={[
+            styles.guidelineBadgeText,
+            wakeWindowBadgeTone === 'warning' ? styles.guidelineBadgeTextWarning : null,
+          ]}>
+          {formatWakeWindowStatusText(wakeWindowStatus)}
+        </Text>
+      </View>
+
+      <Text style={styles.guidelineMicroText}>
+        Это мягкий ориентир между снами, а не медицинская норма. Смотрите также на
+        признаки усталости и фактическую историю сна.
+      </Text>
+      <Text style={styles.guidelineMicroText}>
+        Практический клинический источник: {guideline.sourceLabel}
       </Text>
     </View>
   );
@@ -1647,6 +1821,14 @@ export default function SleepPlanScreen() {
             plan={parsedDraft.plan}
           />
 
+          <WakeWindowGuidelineCard
+            ageMonths={childAgeMonths}
+            hasBirthDate={childBirthDateValue !== null}
+            onOpenInfo={() => router.push(WAKE_WINDOW_INFO_ROUTE)}
+            onOpenProfile={() => router.push(PROFILE_ROUTE)}
+            plan={parsedDraft.plan}
+          />
+
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Идеальный график</Text>
             <View style={styles.scheduleList}>
@@ -2090,6 +2272,10 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: spacing.md,
     backgroundColor: colors.surface,
+  },
+  wakeWindowCard: {
+    borderLeftWidth: 4,
+    borderColor: colors.primary,
   },
   guidelineHeader: {
     flexDirection: 'row',
