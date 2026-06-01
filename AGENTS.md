@@ -451,7 +451,7 @@ For practical daytime sleep copy, avoid words that imply a required direction un
 
 Keep `/info?article=practical-sleep-guidelines` compact. The article should explain that HSE Ireland, Raising Children Network, and Pregnancy Birth & Baby Australia are practical health sources, then let the table carry the age-by-age data. Avoid long source-by-source prose that makes the help screen feel like an article instead of a quick reference.
 
-When adding an apply-guideline action for Level B, do not auto-apply it. A button such as "Подставить ориентир" should only change the selected plan's daytime nap count and daytime sleep range, preserving wake-up time, total awake time, plan name, and active state. After applying, Level A should still recalculate independently and may show that the resulting 24-hour sleep range is below or above its official range.
+When adding an apply-guideline action for Level B, do not auto-apply it. A button such as "Применить к плану" should only change the selected plan's daytime nap count and daytime sleep range, preserving wake-up time, total awake time, plan name, and active state. After applying, Level A should still recalculate independently and may show that the resulting 24-hour sleep range is below or above its official range.
 
 Before considering practical daytime sleep guidance done, verify:
 - `/sleep-plan` shows Level A and Level B as separate blocks;

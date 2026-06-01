@@ -862,7 +862,7 @@ function PracticalSleepPresetCard({
             styles.guidelinePrimaryButton,
             pressed ? styles.guidelinePrimaryButtonPressed : null,
           ]}>
-          <Text style={styles.guidelinePrimaryButtonText}>Подставить ориентир</Text>
+          <Text style={styles.guidelinePrimaryButtonText}>Применить к плану</Text>
         </Pressable>
       ) : null}
 
