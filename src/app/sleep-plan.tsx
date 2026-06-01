@@ -137,6 +137,7 @@ const DEFAULT_PLAN_NAME = 'Основной';
 const OFFICIAL_SLEEP_INFO_ROUTE = '/info?article=official-sleep-guidelines' as Href;
 const PRACTICAL_SLEEP_INFO_ROUTE = '/info?article=practical-sleep-guidelines' as Href;
 const WAKE_WINDOW_INFO_ROUTE = '/info?article=wake-window-guidelines' as Href;
+const SCIENTIFIC_EVIDENCE_INFO_ROUTE = '/info?article=scientific-evidence' as Href;
 const PROFILE_ROUTE = '/profile' as Href;
 const PLAN_NAME_MAX_LENGTH = 40;
 
@@ -1829,6 +1830,19 @@ export default function SleepPlanScreen() {
             plan={parsedDraft.plan}
           />
 
+          <Pressable
+            accessibilityRole="link"
+            hitSlop={8}
+            onPress={() => router.push(SCIENTIFIC_EVIDENCE_INFO_ROUTE)}
+            style={({ pressed }) => [
+              styles.scientificEvidenceLink,
+              pressed ? styles.scientificEvidenceLinkPressed : null,
+            ]}>
+            <Text style={styles.scientificEvidenceLinkText}>
+              Почему ориентиры разные? Научная база модели: Уровень D
+            </Text>
+          </Pressable>
+
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Идеальный график</Text>
             <View style={styles.scheduleList}>
@@ -2397,6 +2411,21 @@ const styles = StyleSheet.create({
   guidelineSecondaryButtonText: {
     color: colors.primary,
     fontSize: 14,
+    fontWeight: '900',
+  },
+  scientificEvidenceLink: {
+    alignSelf: 'flex-start',
+    minHeight: 34,
+    justifyContent: 'center',
+    paddingVertical: spacing.xs,
+  },
+  scientificEvidenceLinkPressed: {
+    opacity: 0.72,
+  },
+  scientificEvidenceLinkText: {
+    color: colors.primary,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '900',
   },
   section: {

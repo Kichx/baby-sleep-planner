@@ -534,7 +534,28 @@ Before considering wake window guidance done, verify:
 - SQLite schema, `DATABASE_NAME`, and `android.package` are unchanged;
 - TypeScript checks pass and core tests pass.
 
-When documenting Level A/B/C changes in Confluence, update both the conceptual and screen-level pages. The conceptual page is `Уровни доверия сна: A и B` or its successor if Level C has been added there. The screen pages that usually need updates are `Экран: План дня` for the cards/actions, `Экран: Справка` for help articles and deep links, and `Экран: Сон сегодня` when a guideline status appears on the main/past-day screen. This prevents Confluence from describing only the core principle while missing visible UI behavior.
+## Implementation lessons from scientific sleep evidence
+
+Keep scientific sleep evidence (Level D) as a read-only evidence backing layer for the internal model. Level D explains why the app uses ranges and observed history instead of one universal schedule. It must not directly change the sleep plan, nap count, day sleep range, wake windows, active plan, sleep sessions, recommendations, SQLite schema, `DATABASE_NAME`, or `android.package`.
+
+Store Level D sources in `src/core/scientificSleepEvidence.ts` as pure TypeScript. UI screens and `/info` should reuse `SCIENTIFIC_SLEEP_EVIDENCE_SOURCES` and its formatters instead of copying source rows by hand. When changing sources, topics, labels, or allowed use text, update `src/core/scientificSleepEvidence.test.ts`.
+
+Level D copy must stay cautious and non-clinical. Use phrases such as "научная база модели", "проверка диапазонов", "объяснение вариативности", and "документация источников". Do not call Level D a medical norm, do not say it recommends a concrete schedule for a child, and do not imply diagnosis, treatment, or an automatic plan change.
+
+Keep `/info?article=scientific-evidence` compact and read-only. The article should explain that Level D is for internal model backing, does not set nap count or wake windows, does not replace Level A official guidance, and is not medical advice. Add the article id to any `InfoArticleId` guard so the deep link opens directly.
+
+On `/sleep-plan`, Level D should usually be only a compact text link such as "Научная база модели: Уровень D" or "Почему ориентиры разные?" pointing to `/info?article=scientific-evidence`. Do not add a fourth full card next to A/B/C, an apply button, or extra settings unless a separate product task explicitly asks for that added surface area.
+
+Before considering scientific evidence guidance done, verify:
+- `src/core/scientificSleepEvidence.ts` imports no React, Expo, SQLite, or device APIs;
+- `/info?article=scientific-evidence` opens directly and shows the table from `SCIENTIFIC_SLEEP_EVIDENCE_SOURCES`;
+- `/sleep-plan` is not overloaded with a large Level D card;
+- the main "Сон сегодня" screen receives no new Level D card or recommendation scenario;
+- wording does not call Level D a medical norm or direct scheduling rule;
+- SQLite schema, `DATABASE_NAME`, `DATABASE_VERSION`, and `android.package` are unchanged;
+- TypeScript checks pass and core tests pass.
+
+When documenting Level A/B/C/D changes in Confluence, update both the conceptual and screen-level pages. The conceptual page is `Уровни доверия сна: A и B` or its successor if Level C/D has been added there. The screen pages that usually need updates are `Экран: План дня` for the cards/actions, `Экран: Справка` for help articles and deep links, and `Экран: Сон сегодня` when a guideline status appears on the main/past-day screen. This prevents Confluence from describing only the core principle while missing visible UI behavior.
 
 ## Implementation lessons from Android keyboard/input modal work
 

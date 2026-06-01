@@ -13,6 +13,11 @@ import {
   formatNapCountText,
 } from '@/core/practicalSleepPresets';
 import {
+  SCIENTIFIC_SLEEP_EVIDENCE_SOURCES,
+  formatScientificEvidenceShortUse,
+  formatScientificEvidenceSourceLabel,
+} from '@/core/scientificSleepEvidence';
+import {
   WAKE_WINDOW_GUIDELINES,
   formatWakeWindowRangeShort,
 } from '@/core/wakeWindowGuidelines';
@@ -22,7 +27,8 @@ type InfoArticleId =
   | 'night-forecast'
   | 'official-sleep-guidelines'
   | 'practical-sleep-guidelines'
-  | 'wake-window-guidelines';
+  | 'wake-window-guidelines'
+  | 'scientific-evidence';
 
 interface InfoArticleTable {
   columns: string[];
@@ -148,6 +154,29 @@ const INFO_ARTICLES: InfoArticle[] = [
     },
     title: 'Окна бодрствования',
   },
+  {
+    id: 'scientific-evidence',
+    paragraphs: [
+      'Уровень D — это научная база для внутренней модели приложения, а не пользовательская норма.',
+      'Он помогает проверять диапазоны уровней A/B/C и объяснять, почему сон ребёнка может заметно отличаться от среднего ориентира.',
+      'Уровень D не задаёт точный режим, количество дневных снов или wake windows.',
+      'Он не заменяет официальные рекомендации уровня A и не является медицинским советом.',
+      'Дети и семейные режимы различаются, поэтому приложение использует диапазоны, активный план и фактическую историю сна, а не один универсальный режим.',
+    ],
+    subtitle: 'Уровень D · исследования для проверки логики',
+    table: {
+      columns: ['Источник', 'Что поддерживает в приложении', 'Ограничение'],
+      rows: SCIENTIFIC_SLEEP_EVIDENCE_SOURCES.map((source) => ({
+        cells: [
+          formatScientificEvidenceSourceLabel(source),
+          formatScientificEvidenceShortUse(source),
+          source.limitations[0] ?? '',
+        ],
+        id: source.id,
+      })),
+    },
+    title: 'Научная база модели',
+  },
 ];
 
 interface ArticleItemProps {
@@ -162,7 +191,8 @@ function isInfoArticleId(value: unknown): value is InfoArticleId {
     value === 'night-forecast' ||
     value === 'official-sleep-guidelines' ||
     value === 'practical-sleep-guidelines' ||
-    value === 'wake-window-guidelines'
+    value === 'wake-window-guidelines' ||
+    value === 'scientific-evidence'
   );
 }
 
