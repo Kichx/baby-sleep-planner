@@ -508,6 +508,8 @@ Before considering practical daytime sleep guidance done, verify:
 - source text is short and does not claim that WHO, CDC, or AASM define nap counts;
 - TypeScript checks pass and core tests pass.
 
+When documenting Level A/B changes in Confluence, update both the conceptual and screen-level pages. The conceptual page is `Уровни доверия сна: A и B`. The screen pages that usually need updates are `Экран: План дня` for the cards/actions, `Экран: Справка` for help articles and deep links, and `Экран: Сон сегодня` when a guideline status appears on the main/past-day screen. This prevents Confluence from describing only the core principle while missing visible UI behavior.
+
 ## Implementation lessons from Android keyboard/input modal work
 
 APK keyboard behavior can differ from Expo Go, especially for `Modal` bottom sheets and compact dialogs. When a user reports the Android keyboard covering an input, inspect all `TextInput` usages and all `Modal` windows in the project, not only the field from the screenshot.
@@ -643,6 +645,7 @@ The project Confluence site is `https://kichxdota.atlassian.net/wiki`.
 
 Project space:
 - key: `BSP`;
+- numeric spaceId: `131075`;
 - name: `Baby Sleep Planner`;
 - URL: `https://kichxdota.atlassian.net/wiki/spaces/BSP`.
 
@@ -685,7 +688,7 @@ Useful tested REST endpoints:
 - Check current user: `GET /wiki/rest/api/user/current`.
 - List spaces: `GET /wiki/rest/api/space?limit=10`.
 - Read the project space: `GET /wiki/rest/api/space/BSP?expand=homepage,description.plain`.
-- Resolve the project space id for REST API v2: `GET /wiki/api/v2/spaces?keys=BSP&limit=1`.
+- Resolve the project space id for REST API v2: `GET /wiki/api/v2/spaces?keys=BSP&limit=1`. Current BSP numeric id is `131075`.
 - Create a space: `POST /wiki/rest/api/space` with JSON containing `key`, `name`, and optional `description.plain`.
 - Search content with CQL: `GET /wiki/rest/api/content/search?cql=space=BSP`.
 - For page operations, prefer Confluence REST API v2:
@@ -702,6 +705,12 @@ When creating or updating pages:
 - Use official Atlassian Confluence Cloud REST API docs when adding an untested endpoint:
   `https://developer.atlassian.com/cloud/confluence/rest/v2/` and
   `https://developer.atlassian.com/cloud/confluence/rest/v1/`.
+
+When using the Atlassian Rovo MCP tools for Confluence:
+- Always search first with Rovo Search and update an existing page when one matches the requested topic.
+- `_createconfluencepage.spaceId` expects the numeric Confluence space id, not the space key. For this project pass `spaceId: "131075"`; passing `BSP` fails with `Provided value {BSP} for 'spaceId' is not the correct type. Expected type is Long`.
+- The page key/URL segment remains `BSP`, but the create/update API field is numeric. Keep `cloudId` as `aa03fc2f-4fb7-4d70-ac83-74792e1a5f8c`.
+- After creating or updating a page, read it back with `_getconfluencepage` in markdown format and confirm the key headings/tables are present.
 
 ## Language
 
