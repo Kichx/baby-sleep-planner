@@ -109,8 +109,12 @@ async function ensureBottleFeedingReminderNotificationsReady(): Promise<Notifica
 }
 
 async function cancelBottleFeedingReminder(Notifications: NotificationsModule): Promise<void> {
-  await Notifications.cancelScheduledNotificationAsync(BOTTLE_FEEDING_REMINDER_NOTIFICATION_ID);
-  await Notifications.dismissNotificationAsync(BOTTLE_FEEDING_REMINDER_NOTIFICATION_ID);
+  await Notifications.cancelScheduledNotificationAsync(
+    BOTTLE_FEEDING_REMINDER_NOTIFICATION_ID,
+  ).catch(() => undefined);
+  await Notifications.dismissNotificationAsync(BOTTLE_FEEDING_REMINDER_NOTIFICATION_ID).catch(
+    () => undefined,
+  );
 }
 
 async function scheduleBottleFeedingReminder(

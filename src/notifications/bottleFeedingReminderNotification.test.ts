@@ -208,6 +208,31 @@ describe('bottle feeding reminder notification sync', () => {
     });
   });
 
+  it('still schedules when clearing a previously displayed reminder fails', async () => {
+    notificationMocks.Notifications.dismissNotificationAsync.mockRejectedValueOnce(
+      new Error('not presented'),
+    );
+    const { syncBottleFeedingReminderNotificationFromDatabase } = await loadSubject();
+
+    await syncBottleFeedingReminderNotificationFromDatabase(
+      db,
+      new Date('2026-06-01T08:00:00.000Z'),
+    );
+
+    expect(
+      notificationMocks.Notifications.cancelScheduledNotificationAsync,
+    ).toHaveBeenCalledWith('bottle-feeding-reminder');
+    expect(notificationMocks.Notifications.scheduleNotificationAsync).toHaveBeenCalledTimes(1);
+    expect(scheduledPayloadAt(0)).toMatchObject({
+      identifier: 'bottle-feeding-reminder',
+      trigger: {
+        channelId: 'bottle-feeding-reminders',
+        seconds: 3600,
+        type: 'TIME_INTERVAL',
+      },
+    });
+  });
+
   it('cancels without scheduling when reminders are turned off', async () => {
     dbMocks.getChildProfile.mockResolvedValue(
       profile({
