@@ -425,6 +425,8 @@ On the main screen, if the feeding card is enabled, keep it compact and place it
 
 During feeding UI polish, keep the home card visually secondary to sleep: it should stay smaller than the current sleep status block, use tighter typography and spacing than sleep action areas, and never push the main sleep start/stop flow out of immediate reach. If the latest-feeding copy can be long, constrain it with `numberOfLines` / `adjustsFontSizeToFit` instead of making the card taller.
 
+When showing bottle feedings inside the mixed sleep/feed day list, keep feeding rows visually secondary to sleep rows. Sleep rows are the main timeline: they may use stronger titles, larger row height, and clearer icon badges. Feeding rows should stay compact, use muted copy/icon treatment, avoid strong green highlighting, and never make the sleep timeline harder to scan. If adding event icons, prefer a small local presentational component built with React Native views over adding an icon dependency for one list.
+
 For bottle-feeding quick entry, reuse one bottom sheet for create/edit instead of adding a separate form flow. In v1 keep the sheet limited to date, time, and volume in ml. For the create flow, put volume first because date and time already default to now; the fastest path should be open sheet, choose or type volume, save. Keep date and time controls below volume for correction only. Defaults should minimize effort: today, current time, and saved `bottleFeedingDefaultVolumeMl` from the child profile, defaulting to 180 ml. Do not use the latest feeding volume as the create default unless explicitly requested; the settings preset owns that default. Keep quick volume buttons compact, validate volume as 1-999 ml, reject future feeding times, and keep edit/delete copy specific to the selected record. After create, edit, or delete, reload the global latest feeding, today stats, last-24-hours stats, selected-period lists, and resync notifications.
 
 For the bottle-feeding editor, keep the date display unambiguous with the year visible, for example `2 июня 2026 г.`. Time entry should use the same numeric `SelectAllTextInput` pattern as manual sleep editing: accept compact digits such as `1234`, normalize to `12:34`, keep partial input as text, parse on save, and reject invalid or future feeding times. Do not replace this with the Android clock picker unless the task explicitly asks for picker-only input.
@@ -793,6 +795,8 @@ When using the in-app browser, verify the changed UI with a DOM snapshot first, 
 - `/info` for static help articles.
 
 For React Native Web verification, remember that `react-native-web` `Alert.alert` is effectively a no-op. If a new delete/edit flow must be verified in the browser, implement a visible confirmation UI or a narrow `Platform.OS === 'web'` confirmation path instead of relying only on `Alert.alert`.
+
+When visual QA needs sample local data, prefer existing records, unit fixtures, or a disposable local database/profile. Do not create persistent test records in the user's active browser/app data unless the cleanup path has already been verified. If a temporary record is unavoidable, delete it before finishing and mention any cleanup failure explicitly.
 
 If a temporary Expo web server is truly needed because `8081` is unavailable, start only one alternate server, record the port in the progress update, and stop only the process you started after verification. Do not kill the user's long-running `8081` Metro process. Remove temporary logs such as `expo-web.log` before finishing.
 

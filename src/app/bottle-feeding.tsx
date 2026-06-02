@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-nat
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottleFeedingEditorModal } from '@/components/BottleFeedingEditorModal';
+import { EventTypeBadge } from '@/components/EventTypeBadge';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { SelectAllTextInput } from '@/components/SelectAllTextInput';
 import {
@@ -657,7 +658,8 @@ export default function BottleFeedingScreen() {
                     styles.feedRow,
                     pressed ? styles.feedRowPressed : null,
                   ]}>
-                  <Text style={styles.feedRowText}>
+                  <EventTypeBadge kind="bottleFeeding" quiet />
+                  <Text numberOfLines={1} style={styles.feedRowText}>
                     {formatBottleFeedingRecordLine(feeding)}
                   </Text>
                 </Pressable>
@@ -897,8 +899,10 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   feedRow: {
-    minHeight: 58,
-    justifyContent: 'center',
+    minHeight: 54,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
@@ -909,9 +913,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primarySoft,
   },
   feedRowText: {
+    flex: 1,
+    minWidth: 0,
     color: colors.text,
-    fontSize: 17,
-    fontWeight: '900',
+    fontSize: 16,
+    fontWeight: '800',
   },
   emptyList: {
     borderRadius: radius.sm,

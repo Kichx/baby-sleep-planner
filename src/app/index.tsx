@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { BottleFeedingEditorModal } from '@/components/BottleFeedingEditorModal';
+import { EventTypeBadge } from '@/components/EventTypeBadge';
 import { ProfileAvatar } from '@/components/ProfileAvatar';
 import { SleepPlanIcon } from '@/components/SleepPlanIcon';
 import { SleepDayTimeline } from '@/components/SleepDayTimeline';
@@ -1861,9 +1862,12 @@ export default function TodaySleepScreen() {
                               styles.sessionRow,
                               styles.bottleFeedingRow,
                               group.key === 'previous' ? styles.previousSessionRow : null,
-                              pressed ? styles.sessionRowPressed : null,
+                              pressed ? styles.bottleFeedingRowPressed : null,
                             ]}>
-                            <Text style={[styles.sessionTitle, styles.bottleFeedingLine]}>
+                            <EventTypeBadge kind="bottleFeeding" quiet />
+                            <Text
+                              numberOfLines={1}
+                              style={[styles.sessionTitle, styles.bottleFeedingLine]}>
                               {formatBottleFeedingRecordLine(item.feeding)}
                             </Text>
                           </Pressable>
@@ -1889,18 +1893,23 @@ export default function TodaySleepScreen() {
                             group.key === 'previous' ? styles.previousSessionRow : null,
                             pressed ? styles.sessionRowPressed : null,
                           ]}>
+                          <EventTypeBadge
+                            kind={effectiveKind === 'night' ? 'nightSleep' : 'napSleep'}
+                          />
                           <View style={styles.sessionInfo}>
-                            <Text style={styles.sessionTitle}>
+                            <Text numberOfLines={1} style={styles.sessionTitle}>
                               {effectiveKind === 'night' ? 'Ночной сон' : 'Сон'}
                             </Text>
-                            <Text style={styles.sessionTime}>
+                            <Text numberOfLines={1} style={styles.sessionTime}>
                               {formatSessionTimeRange(startedAt, endedAt, now)}
                             </Text>
                           </View>
-                          <Text style={styles.sessionDuration}>
-                            {formatDuration(getSessionDurationMinutes(session, now))}
-                          </Text>
-                          <Text style={styles.sessionAction}>Изменить</Text>
+                          <View style={styles.sessionMeta}>
+                            <Text numberOfLines={1} style={styles.sessionDuration}>
+                              {formatDuration(getSessionDurationMinutes(session, now))}
+                            </Text>
+                            <Text style={styles.sessionAction}>Изменить</Text>
+                          </View>
                         </Pressable>
                       );
                     })
@@ -2517,14 +2526,30 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceMuted,
   },
   bottleFeedingRow: {
-    borderColor: colors.primarySoft,
+    minHeight: 50,
+    gap: spacing.sm,
+    borderColor: colors.border,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.surface,
+  },
+  bottleFeedingRowPressed: {
+    backgroundColor: colors.surfaceMuted,
   },
   bottleFeedingLine: {
     flex: 1,
     minWidth: 0,
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '800',
   },
   sessionInfo: {
     flex: 1,
+    minWidth: 0,
+    gap: spacing.xs,
+  },
+  sessionMeta: {
+    flexShrink: 0,
+    alignItems: 'flex-end',
     gap: spacing.xs,
   },
   sessionTitle: {
@@ -2540,6 +2565,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 15,
     fontWeight: '800',
+    textAlign: 'right',
   },
   sessionAction: {
     color: colors.primary,
