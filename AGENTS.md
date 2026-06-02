@@ -417,6 +417,29 @@ For feeding time calculations, use the same local-time helpers and day-boundary 
 
 On the main screen, if the feeding card is enabled, keep it compact and place it directly under the current sleep status before the sleep action buttons. Do not rewrite or simplify the existing sleep status block when adding optional tracker UI. Reload feeding state after create, edit, delete, selected-day changes, and setting toggles.
 
+For bottle-feeding quick entry, reuse one bottom sheet for create/edit instead of adding a separate form flow. In v1 keep the sheet limited to date, time, and volume in ml. Defaults should minimize effort: today, current time, last used volume if available, otherwise 90 ml. Keep quick volume buttons compact, validate volume as 1-999 ml, reject future feeding times, and keep edit/delete copy specific to the selected record. After create, edit, or delete, reload the global latest feeding, today stats, last-24-hours stats, selected-period lists, and resync notifications.
+
+When showing bottle feedings in day feeds, treat them as display-only events. It is fine to mix `BottleFeeding` rows with sleep rows in chronological order, but do not pass feedings into sleep timelines, day summaries, recommendations, active sleep state, or start/stop logic. A feeding inside a sleep interval must not split the sleep session, change sleep duration, end active sleep, start a new sleep, or affect sleep recommendations.
+
+The dedicated feeding screen is named "Кормление" and should stay a simple operational screen, not an analytics page. Gate the route and all entry points behind `bottleFeedingEnabled`. Show latest feeding, "Сегодня" and "24 часа" stats, and the selected-period record list. Reuse the shared bottom sheet for add/edit/delete. Do not add feeding filters, charts, age norms, recommendations, milk type, duration, notes, or export unless explicitly requested.
+
+For bottle-feeding reminders, persist settings on the child profile: `bottleFeedingRemindersEnabled` default `false`, `bottleFeedingReminderIntervalMinutes` default `180`, and `bottleFeedingNotifyDuringSleep` default `true`. Store these in SQLite with fresh-schema columns, idempotent migrations, TypeScript types, repository update helpers, and backup/restore defaults for old exports. Keep constants such as default interval, max volume, and interval presets in `src/constants/bottleFeeding.ts`.
+
+Keep feeding reminder decisions in `src/core` as pure TypeScript and scheduling in `src/notifications`. Derive notification state from global local data such as `getChildProfile`, `getLatestBottleFeeding`, and `getActiveSleepSession`, never from screen lists or selected-day display arrays. Use one stable scheduled-notification identifier, lazy-load `expo-notifications` through the shared guard, treat permission/scheduling failures as non-blocking, and never request push tokens, FCM, backend services, accounts, or cloud sync.
+
+When feeding reminders are disabled, when bottle feeding is disabled, or when imported/restored data disables them, cancel the scheduled feeding reminder and clear any suppressed reminder state. If `bottleFeedingNotifyDuringSleep` is false and the baby is sleeping, suppress the reminder while sleep is active and resync after sleep ends so the reminder can appear after wake. Resync feeding reminders after feeding create/edit/delete, reminder setting changes, bottle-feeding feature toggles, sleep start/stop, and data restore/import.
+
+Before considering bottle-feeding UI or reminders done, verify:
+- quick add for today and yesterday;
+- edit date, time, and volume;
+- delete with confirmation;
+- feeding rows appear chronologically with sleep but do not alter sleep durations or recommendations;
+- the "Кормление" screen switches correctly between today and last 24 hours;
+- reminder defaults are off, interval is 3 hours, notify-during-sleep is on;
+- disabling reminders cancels scheduled notification state;
+- disabling bottle feeding hides UI and prevents reminder scheduling without deleting rows;
+- TypeScript checks pass, unit tests pass, and Android APK/dev build verifies actual notification delivery/channel behavior if notification behavior changed.
+
 ## Implementation lessons from APK builds and local data preservation
 
 APK builds are standalone Android apps, not Expo Go sessions. Data entered through Expo Go is not expected to appear after the first APK install. After the first APK install, local sleep data must be treated as user data that should survive normal app updates.

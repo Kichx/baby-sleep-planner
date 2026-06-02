@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { syncActiveSleepNotificationFromDatabase } from '@/notifications/activeSleepNotification';
+import { syncBottleFeedingReminderNotificationFromDatabase } from '@/notifications/bottleFeedingReminderNotification';
 import { syncSleepReminderNotificationFromDatabase } from '@/notifications/sleepReminderNotification';
 
 export async function syncSleepNotificationsFromDatabase(
@@ -9,5 +10,5 @@ export async function syncSleepNotificationsFromDatabase(
 ) {
   await syncActiveSleepNotificationFromDatabase(db, now);
   await syncSleepReminderNotificationFromDatabase(db, now);
+  await syncBottleFeedingReminderNotificationFromDatabase(db, now);
 }
-

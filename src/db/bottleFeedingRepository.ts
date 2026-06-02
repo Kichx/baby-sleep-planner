@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import { MAX_BOTTLE_FEEDING_VOLUME_ML } from '@/constants/bottleFeeding';
 import { DEFAULT_CHILD_ID } from '@/constants/sleep';
 import {
   calculateBottleFeedingStats,
@@ -34,7 +35,11 @@ function assertValidBottleFeedingInput(input: SaveBottleFeedingInput): void {
     throw new Error('Bottle feeding start time must be a valid date');
   }
 
-  if (!Number.isInteger(input.volumeMl) || input.volumeMl <= 0) {
+  if (
+    !Number.isInteger(input.volumeMl) ||
+    input.volumeMl <= 0 ||
+    input.volumeMl > MAX_BOTTLE_FEEDING_VOLUME_ML
+  ) {
     throw new Error('Bottle feeding volume must be a positive integer');
   }
 }

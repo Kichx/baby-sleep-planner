@@ -49,14 +49,15 @@ export async function ensureExpoNotificationHandlerConfigured(): Promise<Notific
       handleNotification: async (notification) => {
         const notificationType = notification.request.content.data?.type;
         const isSleepReminder = notificationType === 'sleepReminder';
+        const isBottleFeedingReminder = notificationType === 'bottleFeedingReminder';
 
         return {
-          priority: isSleepReminder
+          priority: isSleepReminder || isBottleFeedingReminder
             ? Notifications.AndroidNotificationPriority.DEFAULT
             : Notifications.AndroidNotificationPriority.LOW,
           shouldPlaySound: false,
           shouldSetBadge: false,
-          shouldShowBanner: isSleepReminder,
+          shouldShowBanner: isSleepReminder || isBottleFeedingReminder,
           shouldShowList: true,
         };
       },
@@ -92,4 +93,3 @@ export async function hasNotificationPermission(
     requestedPermissions.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL
   );
 }
-

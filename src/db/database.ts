@@ -1,5 +1,9 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import {
+  DEFAULT_BOTTLE_FEEDING_NOTIFY_DURING_SLEEP,
+  DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
+} from '@/constants/bottleFeeding';
 import { DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import { getSleepDayDateKeysForInterval } from '@/core/sleepDay';
 import { buildSleepPlanPreset, deriveEveningSleepRulesForPlan } from '@/core/sleepPlan';
@@ -75,6 +79,20 @@ const CHILD_PROFILE_COLUMNS = [
   {
     definition: 'bottle_feeding_prompt_dismissed INTEGER NOT NULL DEFAULT 0',
     name: 'bottle_feeding_prompt_dismissed',
+  },
+  {
+    definition: 'bottle_feeding_reminders_enabled INTEGER NOT NULL DEFAULT 0',
+    name: 'bottle_feeding_reminders_enabled',
+  },
+  {
+    definition: `bottle_feeding_reminder_interval_minutes INTEGER NOT NULL DEFAULT ${DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES}`,
+    name: 'bottle_feeding_reminder_interval_minutes',
+  },
+  {
+    definition: `bottle_feeding_notify_during_sleep INTEGER NOT NULL DEFAULT ${
+      DEFAULT_BOTTLE_FEEDING_NOTIFY_DURING_SLEEP ? 1 : 0
+    }`,
+    name: 'bottle_feeding_notify_during_sleep',
   },
 ] as const;
 

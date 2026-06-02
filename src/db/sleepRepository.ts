@@ -1,5 +1,9 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import {
+  DEFAULT_BOTTLE_FEEDING_NOTIFY_DURING_SLEEP,
+  DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
+} from '@/constants/bottleFeeding';
 import { DEFAULT_CHILD_ID, DEFAULT_CHILD_NAME, DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import {
   formatSleepDayDateKey,
@@ -39,6 +43,9 @@ interface ChildProfileRow {
   photo_uri: string | null;
   bottle_feeding_enabled: number | null;
   bottle_feeding_prompt_dismissed: number | null;
+  bottle_feeding_reminders_enabled: number | null;
+  bottle_feeding_reminder_interval_minutes: number | null;
+  bottle_feeding_notify_during_sleep: number | null;
   created_at: string;
 }
 
@@ -96,6 +103,12 @@ interface CountRow {
 interface SaveChildProfileInput {
   name: string;
   birthDate: string | null;
+}
+
+interface SaveBottleFeedingReminderSettingsInput {
+  remindersEnabled: boolean;
+  reminderIntervalMinutes: number;
+  notifyDuringSleep: boolean;
 }
 
 interface SaveTargetDayPlanInput {
@@ -174,6 +187,20 @@ const CHILD_PROFILE_COLUMNS = [
     definition: 'bottle_feeding_prompt_dismissed INTEGER NOT NULL DEFAULT 0',
     name: 'bottle_feeding_prompt_dismissed',
   },
+  {
+    definition: 'bottle_feeding_reminders_enabled INTEGER NOT NULL DEFAULT 0',
+    name: 'bottle_feeding_reminders_enabled',
+  },
+  {
+    definition: `bottle_feeding_reminder_interval_minutes INTEGER NOT NULL DEFAULT ${DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES}`,
+    name: 'bottle_feeding_reminder_interval_minutes',
+  },
+  {
+    definition: `bottle_feeding_notify_during_sleep INTEGER NOT NULL DEFAULT ${
+      DEFAULT_BOTTLE_FEEDING_NOTIFY_DURING_SLEEP ? 1 : 0
+    }`,
+    name: 'bottle_feeding_notify_during_sleep',
+  },
 ] as const;
 
 function createLocalId(prefix: string, date: Date): string {
@@ -195,7 +222,16 @@ function mapSleepSessionRow(row: SleepSessionRow): SleepSession {
 function mapChildProfileRow(row: ChildProfileRow): ChildProfile {
   return {
     bottleFeedingEnabled: row.bottle_feeding_enabled === 1,
+    bottleFeedingNotifyDuringSleep:
+      row.bottle_feeding_notify_during_sleep === null
+        ? DEFAULT_BOTTLE_FEEDING_NOTIFY_DURING_SLEEP
+        : row.bottle_feeding_notify_during_sleep === 1,
     bottleFeedingPromptDismissed: row.bottle_feeding_prompt_dismissed === 1,
+    bottleFeedingReminderIntervalMinutes: coalesceNumber(
+      row.bottle_feeding_reminder_interval_minutes,
+      DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
+    ),
+    bottleFeedingRemindersEnabled: row.bottle_feeding_reminders_enabled === 1,
     id: row.id,
     name: row.name,
     birthDate: row.birth_date,
@@ -1185,6 +1221,9 @@ export async function getChildProfile(
       photo_uri,
       bottle_feeding_enabled,
       bottle_feeding_prompt_dismissed,
+      bottle_feeding_reminders_enabled,
+      bottle_feeding_reminder_interval_minutes,
+      bottle_feeding_notify_during_sleep,
       created_at
     FROM child_profile
     WHERE id = ?
@@ -1199,13 +1238,45 @@ export async function getChildProfile(
 
   return {
     bottleFeedingEnabled: false,
+    bottleFeedingNotifyDuringSleep: DEFAULT_BOTTLE_FEEDING_NOTIFY_DURING_SLEEP,
     bottleFeedingPromptDismissed: false,
+    bottleFeedingReminderIntervalMinutes: DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
+    bottleFeedingRemindersEnabled: false,
     id: childId,
     name: DEFAULT_CHILD_NAME,
     birthDate: null,
     photoUri: null,
     createdAt: new Date().toISOString(),
   };
+}
+
+export async function updateBottleFeedingReminderSettings(
+  db: SQLiteDatabase,
+  input: SaveBottleFeedingReminderSettingsInput,
+  childId = DEFAULT_CHILD_ID,
+): Promise<void> {
+  await ensureDefaultChildProfile(db);
+
+  if (!Number.isInteger(input.reminderIntervalMinutes) || input.reminderIntervalMinutes <= 0) {
+    throw new Error('Bottle feeding reminder interval must be a positive integer');
+  }
+
+  await db.runAsync(
+    `
+    UPDATE child_profile
+    SET
+      bottle_feeding_reminders_enabled = ?,
+      bottle_feeding_reminder_interval_minutes = ?,
+      bottle_feeding_notify_during_sleep = ?
+    WHERE id = ?
+    `,
+    [
+      input.remindersEnabled ? 1 : 0,
+      input.reminderIntervalMinutes,
+      input.notifyDuringSleep ? 1 : 0,
+      childId,
+    ],
+  );
 }
 
 export async function applyBottleFeedingPromptDecision(

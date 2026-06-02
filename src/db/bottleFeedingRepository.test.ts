@@ -131,6 +131,11 @@ describe('bottle feeding repository', () => {
 
     await deleteBottleFeeding(db, second.id);
 
+    expect(await getLatestBottleFeeding(db)).toMatchObject({
+      id: first.id,
+      volumeMl: 100,
+    });
+
     expect(
       await listBottleFeedingsInRange(
         db,
@@ -138,6 +143,20 @@ describe('bottle feeding repository', () => {
         new Date('2026-06-01T00:00:00.000Z'),
       ),
     ).toHaveLength(1);
+  });
+
+  it('rejects empty and oversized bottle feeding volumes', async () => {
+    const db = createFakeDatabase();
+    const startedAt = new Date('2026-05-31T06:00:00.000Z');
+
+    await expect(createBottleFeeding(db, { startedAt, volumeMl: 0 })).rejects.toThrow(
+      'Bottle feeding volume must be a positive integer',
+    );
+    await expect(createBottleFeeding(db, { startedAt, volumeMl: 1000 })).rejects.toThrow(
+      'Bottle feeding volume must be a positive integer',
+    );
+
+    expect(db.rows).toHaveLength(0);
   });
 
   it('calculates today and last 24 hours stats through repository ranges', async () => {

@@ -26,6 +26,9 @@ const validBackup: AppDataBackup = {
         birth_date: '2025-12-10',
         bottle_feeding_enabled: 1,
         bottle_feeding_prompt_dismissed: 1,
+        bottle_feeding_reminder_interval_minutes: 180,
+        bottle_feeding_reminders_enabled: 1,
+        bottle_feeding_notify_during_sleep: 1,
         created_at: '2026-05-20T08:00:00.000Z',
         id: 'default-child',
         name: 'Малыш',
@@ -103,6 +106,9 @@ describe('data transfer backup parsing', () => {
     expect(parsedBackup.data.childProfiles[0].name).toBe('Малыш');
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_enabled).toBe(1);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_prompt_dismissed).toBe(1);
+    expect(parsedBackup.data.childProfiles[0].bottle_feeding_reminders_enabled).toBe(1);
+    expect(parsedBackup.data.childProfiles[0].bottle_feeding_reminder_interval_minutes).toBe(180);
+    expect(parsedBackup.data.childProfiles[0].bottle_feeding_notify_during_sleep).toBe(1);
     expect(parsedBackup.data.bottleFeedings[0].volume_ml).toBe(120);
     expect(parsedBackup.data.sleepSessions).toHaveLength(1);
     expect(parsedBackup.data.sleepDayPlanSnapshots[0].sleep_day_date).toBe('2026-05-26');
@@ -112,7 +118,10 @@ describe('data transfer backup parsing', () => {
   it('parses an old backup without sleep day plan snapshots', () => {
     const {
       bottle_feeding_enabled,
+      bottle_feeding_notify_during_sleep,
       bottle_feeding_prompt_dismissed,
+      bottle_feeding_reminder_interval_minutes,
+      bottle_feeding_reminders_enabled,
       ...oldProfile
     } = validBackup.data.childProfiles[0];
     const oldBackup = {
@@ -130,6 +139,9 @@ describe('data transfer backup parsing', () => {
     expect(parsedBackup.data.bottleFeedings).toEqual([]);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_enabled).toBe(0);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_prompt_dismissed).toBe(0);
+    expect(parsedBackup.data.childProfiles[0].bottle_feeding_reminders_enabled).toBe(0);
+    expect(parsedBackup.data.childProfiles[0].bottle_feeding_reminder_interval_minutes).toBe(180);
+    expect(parsedBackup.data.childProfiles[0].bottle_feeding_notify_during_sleep).toBe(1);
   });
 
   it('uses default evening settings for an old target day plan backup', () => {

@@ -418,6 +418,7 @@ export default function ProfileScreen() {
 
     try {
       await updateChildBottleFeedingEnabled(db, enabled);
+      await syncSleepNotificationsFromDatabase(db);
       setMessage('Настройка сохранена');
     } catch {
       setBottleFeedingEnabled(previousValue);
@@ -439,6 +440,7 @@ export default function ProfileScreen() {
 
     try {
       await applyBottleFeedingPromptDecision(db, enabled);
+      await syncSleepNotificationsFromDatabase(db);
       setMessage(enabled ? 'Кормление бутылочкой включено' : 'Настройка сохранена');
     } catch {
       setBottleFeedingEnabled(previousEnabled);

@@ -41,6 +41,7 @@ export {
   saveTargetDayPlan,
   startSleepSession,
   stopActiveSleepSession,
+  updateBottleFeedingReminderSettings,
   updateChildBottleFeedingEnabled,
   updateChildProfile,
   updateChildProfileName,

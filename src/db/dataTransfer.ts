@@ -1,5 +1,9 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
+import {
+  DEFAULT_BOTTLE_FEEDING_NOTIFY_DURING_SLEEP,
+  DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
+} from '@/constants/bottleFeeding';
 import { DEFAULT_CHILD_ID, DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import { BOTTLE_FEEDINGS_STORAGE_SQL, DATABASE_VERSION } from '@/db/schema';
 import {
@@ -11,7 +15,7 @@ import {
 import type { EveningSleepRulesMode, SleepKind } from '@/types/sleep';
 
 export const APP_DATA_BACKUP_FORMAT = 'baby-sleep-planner-backup';
-export const APP_DATA_BACKUP_FORMAT_VERSION = 7;
+export const APP_DATA_BACKUP_FORMAT_VERSION = 8;
 export const APP_DATA_BACKUP_MIME_TYPE = 'application/json';
 const SUPPORTED_BACKUP_FORMAT_VERSIONS = new Set([
   1,
@@ -31,6 +35,9 @@ interface ChildProfileBackupRow {
   birth_date: string | null;
   bottle_feeding_enabled: number;
   bottle_feeding_prompt_dismissed: number;
+  bottle_feeding_reminders_enabled: number;
+  bottle_feeding_reminder_interval_minutes: number;
+  bottle_feeding_notify_during_sleep: number;
   created_at: string;
 }
 
@@ -267,11 +274,15 @@ function readActiveFlag(row: Record<string, unknown>): number {
   return value;
 }
 
-function readOptionalEnabledFlag(row: Record<string, unknown>, fieldName: string): number {
+function readOptionalEnabledFlag(
+  row: Record<string, unknown>,
+  fieldName: string,
+  fallback = 0,
+): number {
   const value = row[fieldName];
 
   if (value === undefined) {
-    return 0;
+    return fallback;
   }
 
   if (value !== 0 && value !== 1) {
@@ -340,17 +351,39 @@ function assertUniqueSleepDayPlanSnapshots(
 }
 
 function parseChildProfiles(value: unknown): ChildProfileBackupRow[] {
-  const rows = assertRecordArray(value, 'childProfiles').map((row) => ({
-    birth_date: readNullableString(row, 'birth_date'),
-    bottle_feeding_enabled: readOptionalEnabledFlag(row, 'bottle_feeding_enabled'),
-    bottle_feeding_prompt_dismissed: readOptionalEnabledFlag(
+  const rows = assertRecordArray(value, 'childProfiles').map((row) => {
+    const reminderIntervalMinutes = readOptionalInteger(
       row,
-      'bottle_feeding_prompt_dismissed',
-    ),
-    created_at: readIsoDateString(row, 'created_at'),
-    id: readString(row, 'id'),
-    name: readString(row, 'name'),
-  }));
+      'bottle_feeding_reminder_interval_minutes',
+      DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
+    );
+
+    if (reminderIntervalMinutes <= 0) {
+      failInvalidData('Bottle feeding reminder interval must be positive');
+    }
+
+    return {
+      birth_date: readNullableString(row, 'birth_date'),
+      bottle_feeding_enabled: readOptionalEnabledFlag(row, 'bottle_feeding_enabled'),
+      bottle_feeding_prompt_dismissed: readOptionalEnabledFlag(
+        row,
+        'bottle_feeding_prompt_dismissed',
+      ),
+      bottle_feeding_reminder_interval_minutes: reminderIntervalMinutes,
+      bottle_feeding_reminders_enabled: readOptionalEnabledFlag(
+        row,
+        'bottle_feeding_reminders_enabled',
+      ),
+      bottle_feeding_notify_during_sleep: readOptionalEnabledFlag(
+        row,
+        'bottle_feeding_notify_during_sleep',
+        DEFAULT_BOTTLE_FEEDING_NOTIFY_DURING_SLEEP ? 1 : 0,
+      ),
+      created_at: readIsoDateString(row, 'created_at'),
+      id: readString(row, 'id'),
+      name: readString(row, 'name'),
+    };
+  });
 
   if (rows.length === 0) {
     failInvalidData('Backup has no child profile');
@@ -635,6 +668,9 @@ export async function buildAppDataBackup(db: SQLiteDatabase): Promise<AppDataBac
       birth_date,
       bottle_feeding_enabled,
       bottle_feeding_prompt_dismissed,
+      bottle_feeding_reminders_enabled,
+      bottle_feeding_reminder_interval_minutes,
+      bottle_feeding_notify_during_sleep,
       created_at
     FROM child_profile
     ORDER BY created_at ASC, id ASC
@@ -768,9 +804,12 @@ export async function restoreAppDataBackup(
           birth_date,
           bottle_feeding_enabled,
           bottle_feeding_prompt_dismissed,
+          bottle_feeding_reminders_enabled,
+          bottle_feeding_reminder_interval_minutes,
+          bottle_feeding_notify_during_sleep,
           created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
           profile.id,
@@ -778,6 +817,9 @@ export async function restoreAppDataBackup(
           profile.birth_date,
           profile.bottle_feeding_enabled,
           profile.bottle_feeding_prompt_dismissed,
+          profile.bottle_feeding_reminders_enabled,
+          profile.bottle_feeding_reminder_interval_minutes,
+          profile.bottle_feeding_notify_during_sleep,
           profile.created_at,
         ],
       );

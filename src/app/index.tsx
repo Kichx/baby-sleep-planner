@@ -60,6 +60,7 @@ import {
   deleteBottleFeeding,
   deleteSleepSession,
   ensureDefaultChildProfile,
+  getLast24HoursBottleFeedingStats,
   getLatestBottleFeeding,
   getChildProfile,
   getTodayBottleFeedingStats,
@@ -116,6 +117,7 @@ interface LoadedSessionsForDate {
 }
 
 interface LoadedBottleFeedingsForDate {
+  last24HoursStats: BottleFeedingStats;
   latestBottleFeeding: BottleFeeding | null;
   selectedFeedings: BottleFeeding[];
   nearbyFeedings: BottleFeeding[];
@@ -150,6 +152,7 @@ const ACTIVE_SLEEP_DETAIL_REFRESH_MS = 1_000;
 const MAX_PAST_DAY_FEEDBACK_LINES = 3;
 const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
 const SLEEP_RETROSPECTIVE_ROUTE = '/sleep-retrospective' as Href;
+const BOTTLE_FEEDING_ROUTE = '/bottle-feeding' as Href;
 const OFFICIAL_SLEEP_SOURCE_SUMMARY =
   'Источники: ВОЗ, CDC, AASM, Australian/Canadian 24-Hour';
 const EMPTY_BOTTLE_FEEDING_STATS: BottleFeedingStats = {
@@ -582,11 +585,27 @@ function bottleFeedingStartsInRange(
   return startedAt.getTime() >= rangeStart.getTime() && startedAt.getTime() < rangeEnd.getTime();
 }
 
-function sortDayFeedItemsNewestFirst(items: DayFeedItem[]): DayFeedItem[] {
+function sortDayFeedItemsChronologically(items: DayFeedItem[]): DayFeedItem[] {
   return [...items].sort(
-    (first, second) =>
-      new Date(second.startedAt).getTime() - new Date(first.startedAt).getTime(),
+    (first, second) => {
+      const timeDelta =
+        new Date(first.startedAt).getTime() - new Date(second.startedAt).getTime();
+
+      if (timeDelta !== 0) {
+        return timeDelta;
+      }
+
+      if (first.type === second.type) {
+        return 0;
+      }
+
+      return first.type === 'sleep' ? -1 : 1;
+    },
   );
+}
+
+function formatBottleFeedingFeedLine(feeding: BottleFeeding): string {
+  return `🍼 ${formatClock(new Date(feeding.startedAt))} · ${feeding.volumeMl} мл`;
 }
 
 function formatBottleFeedingMainLine(feeding: BottleFeeding | null, now: Date): string {
@@ -630,6 +649,8 @@ export default function TodaySleepScreen() {
   const [nearbyBottleFeedings, setNearbyBottleFeedings] = useState<BottleFeeding[]>([]);
   const [latestBottleFeeding, setLatestBottleFeeding] = useState<BottleFeeding | null>(null);
   const [todayBottleFeedingStats, setTodayBottleFeedingStats] =
+    useState<BottleFeedingStats>(EMPTY_BOTTLE_FEEDING_STATS);
+  const [, setLast24HoursBottleFeedingStats] =
     useState<BottleFeedingStats>(EMPTY_BOTTLE_FEEDING_STATS);
   const [latestSleepSessionId, setLatestSleepSessionId] = useState<string | null>(null);
   const [childName, setChildName] = useState(DEFAULT_CHILD_NAME);
@@ -688,6 +709,7 @@ export default function TodaySleepScreen() {
     ): Promise<LoadedBottleFeedingsForDate> => {
       if (!enabled) {
         return {
+          last24HoursStats: EMPTY_BOTTLE_FEEDING_STATS,
           latestBottleFeeding: null,
           nearbyFeedings: [],
           selectedFeedings: [],
@@ -701,8 +723,10 @@ export default function TodaySleepScreen() {
       const loadedFeedings = await listBottleFeedingsInRange(db, previousDayStart, dayEnd);
       const latestFeeding = await getLatestBottleFeeding(db);
       const todayStats = await getTodayBottleFeedingStats(db, currentNow);
+      const last24HoursStats = await getLast24HoursBottleFeedingStats(db, currentNow);
 
       return {
+        last24HoursStats,
         latestBottleFeeding: latestFeeding,
         nearbyFeedings: loadedFeedings,
         selectedFeedings: loadedFeedings.filter((feeding) =>
@@ -810,6 +834,7 @@ export default function TodaySleepScreen() {
           setNearbyBottleFeedings(loadedData.bottleFeedings.nearbyFeedings);
           setLatestBottleFeeding(loadedData.bottleFeedings.latestBottleFeeding);
           setTodayBottleFeedingStats(loadedData.bottleFeedings.todayStats);
+          setLast24HoursBottleFeedingStats(loadedData.bottleFeedings.last24HoursStats);
           setLatestSleepSessionId(loadedData.sessions.latestSleepSessionId);
           setErrorMessage(null);
         }
@@ -870,7 +895,7 @@ export default function TodaySleepScreen() {
 
     return [
       {
-        items: sortDayFeedItemsNewestFirst([
+        items: sortDayFeedItemsChronologically([
           ...selectedGroupSessions.map((session) => ({
             id: session.id,
             session,
@@ -889,7 +914,7 @@ export default function TodaySleepScreen() {
         title: formatSessionGroupTitle(selectedDate, now),
       },
       {
-        items: sortDayFeedItemsNewestFirst([
+        items: sortDayFeedItemsChronologically([
           ...previousGroupSessions.map((session) => ({
             id: session.id,
             session,
@@ -1130,6 +1155,7 @@ export default function TodaySleepScreen() {
     setNearbyBottleFeedings(loadedData.bottleFeedings.nearbyFeedings);
     setLatestBottleFeeding(loadedData.bottleFeedings.latestBottleFeeding);
     setTodayBottleFeedingStats(loadedData.bottleFeedings.todayStats);
+    setLast24HoursBottleFeedingStats(loadedData.bottleFeedings.last24HoursStats);
     setLatestSleepSessionId(loadedData.sessions.latestSleepSessionId);
   }
 
@@ -1145,6 +1171,10 @@ export default function TodaySleepScreen() {
     router.push(SLEEP_RETROSPECTIVE_ROUTE);
   }
 
+  function openBottleFeeding() {
+    router.push(BOTTLE_FEEDING_ROUTE);
+  }
+
   function openCreateEditor() {
     setEditorState({
       mode: 'create',
@@ -1157,7 +1187,7 @@ export default function TodaySleepScreen() {
     setBottleFeedingEditorState({
       feeding: null,
       mode: 'create',
-      referenceDate: isToday ? new Date() : dateAtNoon(selectedDate),
+      referenceDate: new Date(),
     });
   }
 
@@ -1291,6 +1321,7 @@ export default function TodaySleepScreen() {
         await createBottleFeeding(db, input);
       }
 
+      await syncSleepNotificationsFromDatabase(db, actionAt);
       await reloadSelectedDay(selectedDate, actionAt);
       setBottleFeedingEditorState(null);
     } catch {
@@ -1313,6 +1344,7 @@ export default function TodaySleepScreen() {
 
     try {
       await deleteBottleFeeding(db, bottleFeedingEditorState.feeding.id);
+      await syncSleepNotificationsFromDatabase(db, actionAt);
       await reloadSelectedDay(selectedDate, actionAt);
       setBottleFeedingEditorState(null);
     } catch {
@@ -1556,7 +1588,13 @@ export default function TodaySleepScreen() {
 
               {bottleFeedingEnabled ? (
                 <View style={styles.bottleFeedingCard}>
-                  <View style={styles.bottleFeedingTextBlock}>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={openBottleFeeding}
+                    style={({ pressed }) => [
+                      styles.bottleFeedingTextBlock,
+                      pressed ? styles.bottleFeedingTextBlockPressed : null,
+                    ]}>
                     <Text style={styles.bottleFeedingTitle}>Кормление</Text>
                     <Text style={styles.bottleFeedingValue}>
                       {formatBottleFeedingMainLine(latestBottleFeeding, now)}
@@ -1566,7 +1604,7 @@ export default function TodaySleepScreen() {
                         {formatBottleFeedingStatsLine(todayBottleFeedingStats)}
                       </Text>
                     ) : null}
-                  </View>
+                  </Pressable>
                   <PrimaryButton
                     compact
                     disabled={isLoading || isSaving}
@@ -1784,7 +1822,24 @@ export default function TodaySleepScreen() {
               <Text style={[styles.sectionTitle, styles.sectionHeaderTitle]}>
                 Записи за два дня
               </Text>
-              <Text style={styles.sectionMeta}>{displayedSessionCountLabel}</Text>
+              <View style={styles.sectionHeaderActions}>
+                {bottleFeedingEnabled ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={isLoading || isSaving}
+                    onPress={openCreateBottleFeedingEditor}
+                    style={({ pressed }) => [
+                      styles.sectionAddFeedingButton,
+                      pressed && !isLoading && !isSaving
+                        ? styles.sectionAddFeedingButtonPressed
+                        : null,
+                      isLoading || isSaving ? styles.sectionAddFeedingButtonDisabled : null,
+                    ]}>
+                    <Text style={styles.sectionAddFeedingText}>+ Кормление</Text>
+                  </Pressable>
+                ) : null}
+                <Text style={styles.sectionMeta}>{displayedSessionCountLabel}</Text>
+              </View>
             </View>
             <View style={styles.sessionList}>
               {sessionDayGroups.map((group) => (
@@ -1816,11 +1871,12 @@ export default function TodaySleepScreen() {
                   ) : (
                     group.items.map((item) => {
                       if (item.type === 'bottleFeeding') {
-                        const startedAt = new Date(item.feeding.startedAt);
-
                         return (
                           <Pressable
                             accessibilityRole="button"
+                            accessibilityLabel={`Редактировать кормление ${formatClock(
+                              new Date(item.feeding.startedAt),
+                            )}, ${item.feeding.volumeMl} мл`}
                             key={item.id}
                             onPress={() => openEditBottleFeedingEditor(item.feeding)}
                             style={({ pressed }) => [
@@ -1829,12 +1885,9 @@ export default function TodaySleepScreen() {
                               group.key === 'previous' ? styles.previousSessionRow : null,
                               pressed ? styles.sessionRowPressed : null,
                             ]}>
-                            <View style={styles.sessionInfo}>
-                              <Text style={styles.sessionTitle}>Кормление бутылочкой</Text>
-                              <Text style={styles.sessionTime}>{formatClock(startedAt)}</Text>
-                            </View>
-                            <Text style={styles.sessionDuration}>{item.feeding.volumeMl} мл</Text>
-                            <Text style={styles.sessionAction}>Изменить</Text>
+                            <Text style={[styles.sessionTitle, styles.bottleFeedingLine]}>
+                              {formatBottleFeedingFeedLine(item.feeding)}
+                            </Text>
                           </Pressable>
                         );
                       }
@@ -1898,6 +1951,7 @@ export default function TodaySleepScreen() {
         <BottleFeedingEditorModal
           feeding={bottleFeedingEditorState?.feeding ?? null}
           isSaving={isSaving}
+          lastUsedVolumeMl={latestBottleFeeding?.volumeMl ?? null}
           mode={bottleFeedingEditorState?.mode ?? 'create'}
           onClose={() => setBottleFeedingEditorState(null)}
           onDelete={handleBottleFeedingDelete}
@@ -2221,6 +2275,12 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     gap: spacing.xs,
+    borderRadius: radius.sm,
+    padding: spacing.xs,
+    margin: -spacing.xs,
+  },
+  bottleFeedingTextBlockPressed: {
+    backgroundColor: colors.primarySoft,
   },
   bottleFeedingTitle: {
     color: colors.textMuted,
@@ -2304,6 +2364,33 @@ const styles = StyleSheet.create({
   },
   sectionHeaderTitle: {
     flex: 1,
+  },
+  sectionHeaderActions: {
+    flexShrink: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: spacing.sm,
+  },
+  sectionAddFeedingButton: {
+    minHeight: 32,
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: spacing.sm,
+    backgroundColor: colors.surface,
+  },
+  sectionAddFeedingButtonPressed: {
+    backgroundColor: colors.primarySoft,
+  },
+  sectionAddFeedingButtonDisabled: {
+    opacity: 0.55,
+  },
+  sectionAddFeedingText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '900',
   },
   sectionMeta: {
     color: colors.textMuted,
@@ -2452,6 +2539,10 @@ const styles = StyleSheet.create({
   },
   bottleFeedingRow: {
     borderColor: colors.primarySoft,
+  },
+  bottleFeedingLine: {
+    flex: 1,
+    minWidth: 0,
   },
   sessionInfo: {
     flex: 1,

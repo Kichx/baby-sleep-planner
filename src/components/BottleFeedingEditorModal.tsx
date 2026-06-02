@@ -13,16 +13,24 @@ import {
 
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { SelectAllTextInput } from '@/components/SelectAllTextInput';
+import {
+  DEFAULT_BOTTLE_FEEDING_VOLUME_ML,
+  MAX_BOTTLE_FEEDING_VOLUME_ML,
+  QUICK_BOTTLE_FEEDING_VOLUME_ROWS,
+} from '@/constants/bottleFeeding';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
+  addLocalCalendarDays,
   dateWithLocalDateAndTime,
   formatLocalClock,
   formatLocalDateInput,
+  getLocalCalendarDayDiff,
   getLocalDateTimeParts,
 } from '@/core/localDateTime';
 import type { BottleFeeding } from '@/types/bottleFeeding';
 
 type BottleFeedingEditorMode = 'create' | 'edit';
+type DateShortcutOffset = -1 | 0;
 
 interface BottleFeedingEditorModalProps {
   visible: boolean;
@@ -30,6 +38,7 @@ interface BottleFeedingEditorModalProps {
   feeding: BottleFeeding | null;
   referenceDate: Date;
   isSaving: boolean;
+  lastUsedVolumeMl?: number | null;
   onClose: () => void;
   onDelete: () => Promise<void>;
   onSave: (input: { startedAt: Date; volumeMl: number }) => Promise<void>;
@@ -47,12 +56,32 @@ function formatTime(date: Date): string {
   return formatLocalClock(date);
 }
 
+function getDefaultVolumeText(lastUsedVolumeMl?: number | null): string {
+  if (
+    typeof lastUsedVolumeMl === 'number' &&
+    Number.isInteger(lastUsedVolumeMl) &&
+    lastUsedVolumeMl > 0 &&
+    lastUsedVolumeMl <= MAX_BOTTLE_FEEDING_VOLUME_ML
+  ) {
+    return String(lastUsedVolumeMl);
+  }
+
+  return String(DEFAULT_BOTTLE_FEEDING_VOLUME_ML);
+}
+
+function getDateShortcutBaseDate(dayOffset: DateShortcutOffset): Date {
+  const today = new Date();
+
+  return dayOffset === 0 ? today : addLocalCalendarDays(today, dayOffset);
+}
+
 export function BottleFeedingEditorModal({
   visible,
   mode,
   feeding,
   referenceDate,
   isSaving,
+  lastUsedVolumeMl,
   onClose,
   onDelete,
   onSave,
@@ -61,9 +90,16 @@ export function BottleFeedingEditorModal({
     () => (feeding ? new Date(feeding.startedAt) : referenceDate),
     [feeding, referenceDate],
   );
+  const initialVolumeText = useMemo(
+    () => (feeding ? String(feeding.volumeMl) : getDefaultVolumeText(lastUsedVolumeMl)),
+    [feeding, lastUsedVolumeMl],
+  );
   const [startedAt, setStartedAt] = useState(initialStartedAt);
-  const [volumeText, setVolumeText] = useState(feeding ? String(feeding.volumeMl) : '');
+  const [volumeText, setVolumeText] = useState(initialVolumeText);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const activeDateShortcut = getLocalCalendarDayDiff(startedAt, new Date());
+  const title = mode === 'edit' ? 'Редактировать кормление' : 'Кормление бутылочкой';
+  const saveLabel = mode === 'edit' ? 'Сохранить изменения' : 'Сохранить';
 
   useEffect(() => {
     if (!visible) {
@@ -71,9 +107,9 @@ export function BottleFeedingEditorModal({
     }
 
     setStartedAt(initialStartedAt);
-    setVolumeText(feeding ? String(feeding.volumeMl) : '');
+    setVolumeText(initialVolumeText);
     setErrorMessage(null);
-  }, [feeding, initialStartedAt, visible]);
+  }, [initialStartedAt, initialVolumeText, visible]);
 
   function openDatePicker() {
     if (Platform.OS !== 'android') {
@@ -82,6 +118,7 @@ export function BottleFeedingEditorModal({
 
     DateTimePickerAndroid.open({
       display: 'calendar',
+      maximumDate: new Date(),
       mode: 'date',
       onChange: (_event, selectedDate) => {
         if (!selectedDate) {
@@ -129,11 +166,38 @@ export function BottleFeedingEditorModal({
     });
   }
 
+  function selectDateShortcut(dayOffset: DateShortcutOffset) {
+    const timeParts = getLocalDateTimeParts(startedAt);
+
+    setStartedAt(
+      dateWithLocalDateAndTime(getDateShortcutBaseDate(dayOffset), {
+        hours: timeParts.hours,
+        minutes: timeParts.minutes,
+      }),
+    );
+    setErrorMessage(null);
+  }
+
+  function selectVolume(volumeMl: number) {
+    setVolumeText(String(volumeMl));
+    setErrorMessage(null);
+  }
+
   async function handleSave() {
     const volumeMl = Number(volumeText);
 
-    if (!Number.isInteger(volumeMl) || volumeMl <= 0) {
-      setErrorMessage('Укажите объём в мл');
+    if (
+      !/^\d+$/.test(volumeText) ||
+      !Number.isInteger(volumeMl) ||
+      volumeMl <= 0 ||
+      volumeMl > MAX_BOTTLE_FEEDING_VOLUME_ML
+    ) {
+      setErrorMessage('Введите объём в мл');
+      return;
+    }
+
+    if (startedAt.getTime() > new Date().getTime()) {
+      setErrorMessage('Время кормления не может быть в будущем');
       return;
     }
 
@@ -142,27 +206,83 @@ export function BottleFeedingEditorModal({
   }
 
   function confirmDelete() {
+    if (!feeding) {
+      return;
+    }
+
+    const deleteMessage = `Запись ${formatTime(new Date(feeding.startedAt))} · ${feeding.volumeMl} мл будет удалена.`;
+
     if (Platform.OS === 'web') {
-      if (globalThis.confirm('Удалить кормление?\nЗапись исчезнет из дневной ленты.')) {
+      if (globalThis.confirm(`Удалить кормление?\n${deleteMessage}`)) {
         void onDelete();
       }
 
       return;
     }
 
-    Alert.alert('Удалить кормление?', 'Запись исчезнет из дневной ленты.', [
+    Alert.alert('Удалить кормление?', deleteMessage, [
       {
-        style: 'cancel',
-        text: 'Отмена',
-      },
-      {
+        text: 'Удалить',
         onPress: () => {
           void onDelete();
         },
         style: 'destructive',
-        text: 'Удалить',
+      },
+      {
+        style: 'cancel',
+        text: 'Отмена',
       },
     ]);
+  }
+
+  function renderDateShortcut(label: string, dayOffset: DateShortcutOffset) {
+    const isSelected = activeDateShortcut === dayOffset;
+
+    return (
+      <Pressable
+        accessibilityRole="button"
+        disabled={isSaving}
+        key={label}
+        onPress={() => selectDateShortcut(dayOffset)}
+        style={({ pressed }) => [
+          styles.dateShortcut,
+          isSelected ? styles.dateShortcutSelected : null,
+          pressed && !isSaving ? styles.shortcutPressed : null,
+        ]}>
+        <Text
+          style={[
+            styles.dateShortcutText,
+            isSelected ? styles.dateShortcutTextSelected : null,
+          ]}>
+          {label}
+        </Text>
+      </Pressable>
+    );
+  }
+
+  function renderVolumeButton(volumeMl: number) {
+    const isSelected = Number(volumeText) === volumeMl;
+
+    return (
+      <Pressable
+        accessibilityRole="button"
+        disabled={isSaving}
+        key={volumeMl}
+        onPress={() => selectVolume(volumeMl)}
+        style={({ pressed }) => [
+          styles.volumeShortcut,
+          isSelected ? styles.volumeShortcutSelected : null,
+          pressed && !isSaving ? styles.shortcutPressed : null,
+        ]}>
+        <Text
+          style={[
+            styles.volumeShortcutText,
+            isSelected ? styles.volumeShortcutTextSelected : null,
+          ]}>
+          {volumeMl}
+        </Text>
+      </Pressable>
+    );
   }
 
   return (
@@ -171,13 +291,10 @@ export function BottleFeedingEditorModal({
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.backdrop}>
         <View style={styles.sheet}>
+          <View style={styles.handle} />
+
           <View style={styles.header}>
-            <View style={styles.titleBlock}>
-              <Text style={styles.title}>
-                {mode === 'edit' ? 'Кормление бутылочкой' : 'Добавить кормление'}
-              </Text>
-              <Text style={styles.subtitle}>Время и объём</Text>
-            </View>
+            <Text style={styles.title}>{title}</Text>
             <Pressable accessibilityRole="button" onPress={onClose} style={styles.closeButton}>
               <Text style={styles.closeButtonText}>×</Text>
             </Pressable>
@@ -185,25 +302,39 @@ export function BottleFeedingEditorModal({
 
           {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
-          <View style={styles.fieldRow}>
-            <Pressable
-              accessibilityLabel="Дата кормления"
-              accessibilityRole="button"
-              disabled={isSaving}
-              onPress={openDatePicker}
-              style={({ pressed }) => [styles.pickerField, pressed ? styles.pickerFieldPressed : null]}>
+          <View style={styles.fieldBlock}>
+            <View style={styles.fieldHeader}>
               <Text style={styles.fieldLabel}>Дата</Text>
-              <Text style={styles.fieldValue}>{formatDate(startedAt)}</Text>
-            </Pressable>
+              <Pressable
+                accessibilityLabel="Дата кормления"
+                accessibilityRole="button"
+                disabled={isSaving}
+                onPress={openDatePicker}
+                style={({ pressed }) => [
+                  styles.dateValueButton,
+                  pressed && !isSaving ? styles.shortcutPressed : null,
+                ]}>
+                <Text style={styles.dateValue}>{formatDate(startedAt)}</Text>
+              </Pressable>
+            </View>
+            <View style={styles.dateShortcutRow}>
+              {renderDateShortcut('Сегодня', 0)}
+              {renderDateShortcut('Вчера', -1)}
+            </View>
+          </View>
 
+          <View style={styles.fieldBlock}>
+            <Text style={styles.fieldLabel}>Время</Text>
             <Pressable
               accessibilityLabel="Время кормления"
               accessibilityRole="button"
               disabled={isSaving}
               onPress={openTimePicker}
-              style={({ pressed }) => [styles.pickerField, pressed ? styles.pickerFieldPressed : null]}>
-              <Text style={styles.fieldLabel}>Время</Text>
-              <Text style={styles.fieldValue}>{formatTime(startedAt)}</Text>
+              style={({ pressed }) => [
+                styles.timeField,
+                pressed && !isSaving ? styles.shortcutPressed : null,
+              ]}>
+              <Text style={styles.timeValue}>{formatTime(startedAt)}</Text>
             </Pressable>
           </View>
 
@@ -220,18 +351,26 @@ export function BottleFeedingEditorModal({
                 setVolumeText(value);
                 setErrorMessage(null);
               }}
-              placeholder="120"
+              placeholder={String(DEFAULT_BOTTLE_FEEDING_VOLUME_ML)}
               placeholderTextColor={colors.textMuted}
+              returnKeyType="done"
               style={styles.volumeInput}
               value={volumeText}
             />
+            <View style={styles.volumeShortcutRows}>
+              {QUICK_BOTTLE_FEEDING_VOLUME_ROWS.map((row) => (
+                <View key={row.join('-')} style={styles.volumeShortcutRow}>
+                  {row.map(renderVolumeButton)}
+                </View>
+              ))}
+            </View>
           </View>
 
           <View style={styles.actions}>
             <PrimaryButton
               compact
               disabled={isSaving}
-              label={isSaving ? 'Сохраняем...' : 'Сохранить'}
+              label={isSaving ? 'Сохраняем...' : saveLabel}
               onPress={handleSave}
               style={styles.actionButton}
             />
@@ -266,6 +405,13 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xl,
     backgroundColor: colors.background,
   },
+  handle: {
+    width: 44,
+    height: 5,
+    alignSelf: 'center',
+    borderRadius: 3,
+    backgroundColor: colors.border,
+  },
   header: {
     minHeight: 44,
     flexDirection: 'row',
@@ -273,19 +419,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: spacing.md,
   },
-  titleBlock: {
-    flex: 1,
-    gap: spacing.xs,
-  },
   title: {
+    flex: 1,
+    minWidth: 0,
     color: colors.text,
     fontSize: 22,
     fontWeight: '900',
-  },
-  subtitle: {
-    color: colors.textMuted,
-    fontSize: 14,
-    fontWeight: '700',
   },
   closeButton: {
     width: 40,
@@ -301,50 +440,121 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     lineHeight: 32,
   },
-  fieldRow: {
-    flexDirection: 'row',
+  fieldBlock: {
     gap: spacing.sm,
   },
-  pickerField: {
-    flex: 1,
-    minHeight: 68,
-    justifyContent: 'center',
-    gap: spacing.xs,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.md,
-    backgroundColor: colors.surface,
-  },
-  pickerFieldPressed: {
-    backgroundColor: colors.primarySoft,
+  fieldHeader: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
   },
   fieldLabel: {
     color: colors.textMuted,
     fontSize: 13,
     fontWeight: '800',
   },
-  fieldValue: {
+  dateValueButton: {
+    minHeight: 34,
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+    backgroundColor: colors.surface,
+  },
+  dateValue: {
     color: colors.text,
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: '900',
   },
-  volumeField: {
-    minHeight: 86,
+  dateShortcutRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  dateShortcut: {
+    flex: 1,
+    minHeight: 46,
+    alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xs,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
     backgroundColor: colors.surface,
   },
-  volumeInput: {
-    minHeight: 44,
+  dateShortcutSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  dateShortcutText: {
+    color: colors.textMuted,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  dateShortcutTextSelected: {
+    color: colors.primary,
+  },
+  timeField: {
+    minHeight: 58,
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  timeValue: {
     color: colors.text,
     fontSize: 24,
     fontWeight: '900',
+  },
+  volumeField: {
+    gap: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  volumeInput: {
+    minHeight: 46,
+    color: colors.text,
+    fontSize: 26,
+    fontWeight: '900',
+  },
+  volumeShortcutRows: {
+    gap: spacing.xs,
+  },
+  volumeShortcutRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  volumeShortcut: {
+    flex: 1,
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.xs,
+    backgroundColor: colors.background,
+  },
+  volumeShortcutSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  volumeShortcutText: {
+    color: colors.textMuted,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  volumeShortcutTextSelected: {
+    color: colors.primary,
+  },
+  shortcutPressed: {
+    backgroundColor: colors.primarySoft,
   },
   actions: {
     gap: spacing.sm,
