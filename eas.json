@@ -1,11 +1,16 @@
 {
   "cli": {
+    "version": ">= 20.0.0",
     "appVersionSource": "remote"
   },
   "build": {
     "preview": {
+      "environment": "preview",
       "distribution": "internal",
       "autoIncrement": true,
+      "env": {
+        "EAS_USE_CACHE": "1"
+      },
       "android": {
         "buildType": "apk"
       }

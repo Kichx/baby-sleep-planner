@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import * as Application from 'expo-application';
+import Constants, { AppOwnership } from 'expo-constants';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -215,6 +217,21 @@ function isInfoArticleId(value: unknown): value is InfoArticleId {
   );
 }
 
+function buildApplicationVersionLine(): string {
+  const configVersion = Constants.expoConfig?.version ?? 'dev';
+  const isExpoGo = Constants.appOwnership === AppOwnership.Expo;
+  const appVersion = isExpoGo
+    ? configVersion
+    : Application.nativeApplicationVersion ?? configVersion;
+  const buildVersion = isExpoGo ? null : Application.nativeBuildVersion;
+
+  if (buildVersion) {
+    return `Версия ${appVersion} (${buildVersion})`;
+  }
+
+  return `Версия ${appVersion}`;
+}
+
 function ArticleItem({ article, isOpen, onToggle }: ArticleItemProps) {
   return (
     <View style={[styles.articleItem, isOpen ? styles.articleItemOpen : null]}>
@@ -269,6 +286,7 @@ function ArticleItem({ article, isOpen, onToggle }: ArticleItemProps) {
 export default function InfoScreen() {
   const params = useLocalSearchParams<{ article?: string }>();
   const [openArticleId, setOpenArticleId] = useState<InfoArticleId | null>(null);
+  const versionLine = buildApplicationVersionLine();
 
   useEffect(() => {
     if (isInfoArticleId(params.article)) {
@@ -303,6 +321,13 @@ export default function InfoScreen() {
                 onToggle={() => toggleArticle(article.id)}
               />
             ))}
+          </View>
+
+          <View style={styles.versionBlock}>
+            <Text style={styles.versionText}>{versionLine}</Text>
+            <Text style={styles.versionHint}>
+              Для проверки APK и сообщений об ошибках.
+            </Text>
           </View>
         </SafeAreaView>
       </ScrollView>
@@ -341,6 +366,23 @@ const styles = StyleSheet.create({
   },
   articleList: {
     gap: spacing.sm,
+  },
+  versionBlock: {
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingTop: spacing.sm,
+  },
+  versionText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  versionHint: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
+    textAlign: 'center',
   },
   articleItem: {
     borderRadius: radius.sm,

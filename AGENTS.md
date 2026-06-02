@@ -834,6 +834,58 @@ After coding:
 3. Summarize changed files.
 4. Mention any limitations or follow-up tasks.
 
+## Implementation lessons from Android EAS build work
+
+Before changing build configuration or starting a new Android build, read the Expo SDK 56 docs at `https://docs.expo.dev/versions/v56.0.0/` and the EAS build docs for the specific command/profile being used.
+
+For the normal internal Android APK build, use the `preview` profile. It is configured for `distribution: "internal"` and `android.buildType: "apk"`. Do not add production/AAB/iOS profiles unless the user explicitly asks for release work.
+
+Use the pinned package scripts instead of ad hoc CLI commands:
+- `cmd /c npm run verify` before builds;
+- `cmd /c npm run eas:build:android:preview -- --message "1.0.1: short release note"` for a blocking preview APK build;
+- `cmd /c npm run eas:build:android:preview:no-wait -- --message "1.0.1: short release note"` when the user only needs the build queued;
+- `cmd /c npm run eas:build:view -- <build-id> --json` to monitor an existing build.
+
+`npm run verify` intentionally runs TypeScript, unit tests, and `expo-doctor`. If `expo-doctor` reports SDK patch mismatches, fix them with Expo's installer path such as `cmd /c npx expo install --check` and `cmd /c npx expo install --fix`, then rerun verification. Do not use `npm audit fix --force` as part of routine build preparation because it can introduce broad dependency churn.
+
+Do not run `expo lint` for build preflight unless the project already has an ESLint config and dependencies installed. This project currently relies on TypeScript, tests, and `expo-doctor` for build preflight.
+
+If an EAS build stays in `IN_QUEUE`, do not start another build just to retry. A second build can consume another `versionCode` because `autoIncrement` is enabled. Keep the original build id and monitor it with `npm run eas:build:view -- <build-id> --json`.
+
+Before starting a build, run `git status --short --branch` and report any dirty files. EAS can upload uncommitted local changes; do not assume the finished APK exactly matches the latest Git commit if the working tree was dirty or changed while the build was running.
+
+Keep local workspace artifacts out of the EAS archive. `.easignore` and `.gitignore` should continue to exclude `.codex-remote-attachments/`, local logs, generated native folders, local credentials, and editor/cache folders.
+
+For important APKs, keep release information human-readable:
+- update `CHANGELOG.md` before the build;
+- bump `expo.version` only for meaningful user-facing releases, not for every technical rebuild;
+- rely on EAS remote `autoIncrement` for Android `versionCode` on every build;
+- use a concise EAS `--message` so the build dashboard explains what changed;
+- after a successful build, create a release record from `docs/releases/_template.md` with the EAS build URL, APK URL, commit, version, `versionCode`, checks, and Android smoke-check results.
+
+The app should expose the installed version in a low-noise place such as the "Справка" screen. Use `expo-application` for native APK version/build values and keep the copy short, for example `Версия 1.0.1 (11)`.
+
+When the user asks to "собери новый билд", "собери APK", or otherwise requests a new Android build, follow this full release-build workflow unless they explicitly ask for a narrower action:
+
+1. Read `AGENTS.md`, `CHANGELOG.md`, `RELEASE_CHECKLIST.md`, `eas.json`, `package.json`, and run `git status --short --branch`.
+2. Identify dirty files before the build. Treat them as intended input unless they are clearly unrelated generated logs ignored by `.gitignore`/`.easignore`. Never revert, stash, or discard them.
+3. Decide whether this is a user-facing release or a technical rebuild:
+   - for a user-facing release, bump `expo.version` in `app.json` by the smallest sensible semver step and keep `package.json` version unchanged unless the user explicitly asks to publish the package;
+   - for a technical rebuild, do not bump `expo.version`; EAS remote `autoIncrement` will still create a new Android `versionCode`.
+4. Make sure `CHANGELOG.md` has a useful `## Следующий релиз` section. If it is empty or stale and the current diff clearly explains the release, fill "Что изменилось", "Что проверить", and "Известные ограничения" concisely. Do not invent product claims or medical claims.
+5. Build a concise EAS message from the app version and changelog summary, for example `1.0.1: release notes and version display`. Prefer ASCII in the command-line message on Windows unless the shell encoding has explicitly been set to UTF-8.
+6. Run `cmd /c npm run verify`. If it fails, stop before EAS Build, report the failing check, and do not consume a `versionCode`.
+7. Start exactly one build with `cmd /c npm run eas:build:android:preview -- --message "<message>"` unless the user asked for queue-only, in which case use `cmd /c npm run eas:build:android:preview:no-wait -- --message "<message>"`.
+8. Capture the build id from EAS output. Monitor only that build with `cmd /c npm run eas:build:view -- <build-id> --json`. If it stays in `IN_QUEUE`, keep waiting or report the queue status; do not start a duplicate build.
+9. After the build reaches a terminal status, use the JSON from `build:view` as the source of truth for release metadata: `id`, `status`, `artifacts.buildUrl` / `artifacts.applicationArchiveUrl`, `appVersion`, `appBuildVersion`, `gitCommitHash`, `createdAt`, and `completedAt`.
+10. Create a release record from `docs/releases/_template.md` at `docs/releases/YYYY-MM-DD-v<appVersion>-build-<appBuildVersion>.md`. Fill every known field. Use the EAS build page URL `https://expo.dev/accounts/kichx/projects/baby-sleep-planner/builds/<build-id>` even if the direct APK URL exists, because direct artifact URLs can expire.
+11. Fill "Что нового" and "Что проверить" in the release record from `CHANGELOG.md` and the build message. Mark preflight checks as passed if `npm run verify` passed. Mark Android smoke-check items as `not checked` unless the APK was actually installed and tested on Android during this turn.
+12. If the build failed or was canceled, still create a short release record with `Статус: failed` or `canceled`, no APK URL, the failed build URL, preflight status, and the known failure summary. Do not move `CHANGELOG.md` out of `Следующий релиз` for failed builds.
+13. If the build finished and it represents a real release, move the current `## Следующий релиз` content in `CHANGELOG.md` into a dated section named `## <appVersion> (<appBuildVersion>) — <YYYY-MM-DD>`, then recreate an empty `## Следующий релиз` section at the top with placeholders. For a technical rebuild, leave `CHANGELOG.md` as-is unless the user asked to record it there.
+14. Final response must include: EAS build URL, APK URL if available, `appVersion`, Android `versionCode`, release record path, checks run, smoke-check status, and whether any Git actions were performed.
+
+After an Android APK build that affects native modules, notification behavior, permissions, app config, or build plugins, the build is not fully verified until it has been installed on Android and smoke-tested. At minimum, verify the main sleep start/stop flow, active sleep notification behavior, manual ongoing sleep sync, denied notification permission behavior, and app relaunch with existing local data.
+
 ## Git workflow
 
 The default workflow is optimized for fast local testing in Expo Go.
