@@ -1,11 +1,23 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  BOTTLE_FEEDING_EMPTY_TEXT,
   calculateBottleFeedingStats,
   calculateBottleFeedingStatsInRange,
+  formatBottleFeedingCount,
+  formatBottleFeedingElapsed,
+  formatBottleFeedingRecordLine,
+  formatBottleFeedingReminderBody,
+  formatBottleFeedingStatsLine,
+  formatLatestBottleFeedingLine,
+  formatTodayBottleFeedingStatsLine,
   getLast24HoursBottleFeedingRange,
   getTodayBottleFeedingRange,
 } from '@/core/bottleFeeding';
+import {
+  formatLocalClock,
+  formatLocalDateLabel,
+} from '@/core/localDateTime';
 import type { BottleFeeding } from '@/types/bottleFeeding';
 
 function feeding(id: string, startedAt: string, volumeMl: number): BottleFeeding {
@@ -66,5 +78,83 @@ describe('bottle feeding calculations', () => {
       count: 2,
       totalVolumeMl: 190,
     });
+  });
+
+  it('formats feeding elapsed time clearly', () => {
+    expect(
+      formatBottleFeedingElapsed(
+        new Date('2026-05-31T09:00:30.000Z'),
+        new Date('2026-05-31T09:00:45.000Z'),
+      ),
+    ).toBe('только что');
+    expect(
+      formatBottleFeedingElapsed(
+        new Date('2026-05-31T09:00:00.000Z'),
+        new Date('2026-05-31T09:15:00.000Z'),
+      ),
+    ).toBe('15 мин назад');
+    expect(
+      formatBottleFeedingElapsed(
+        new Date('2026-05-31T09:00:00.000Z'),
+        new Date('2026-05-31T10:00:00.000Z'),
+      ),
+    ).toBe('1 ч назад');
+    expect(
+      formatBottleFeedingElapsed(
+        new Date('2026-05-31T09:00:00.000Z'),
+        new Date('2026-05-31T11:15:00.000Z'),
+      ),
+    ).toBe('2 ч 15 мин назад');
+  });
+
+  it('formats Russian feeding count forms', () => {
+    expect(formatBottleFeedingCount(1)).toBe('1 кормление');
+    expect(formatBottleFeedingCount(2)).toBe('2 кормления');
+    expect(formatBottleFeedingCount(5)).toBe('5 кормлений');
+    expect(formatBottleFeedingCount(21)).toBe('21 кормление');
+  });
+
+  it('formats the latest feeding for today, yesterday, older days, and empty state', () => {
+    const now = new Date('2026-05-31T12:15:00.000Z');
+    const todayFeeding = feeding('today', '2026-05-31T10:00:00.000Z', 120);
+    const yesterdayFeeding = feeding('yesterday', '2026-05-30T10:00:00.000Z', 90);
+    const olderFeeding = feeding('older', '2026-05-28T10:00:00.000Z', 150);
+    const yesterdayClock = formatLocalClock(new Date(yesterdayFeeding.startedAt));
+    const olderDate = formatLocalDateLabel(new Date(olderFeeding.startedAt), {
+      day: 'numeric',
+      month: 'long',
+    });
+    const olderClock = formatLocalClock(new Date(olderFeeding.startedAt));
+
+    expect(formatLatestBottleFeedingLine(todayFeeding, now)).toBe(
+      '2 ч 15 мин назад · 120 мл',
+    );
+    expect(formatLatestBottleFeedingLine(yesterdayFeeding, now)).toBe(
+      `Последнее: вчера в ${yesterdayClock} · 90 мл`,
+    );
+    expect(formatLatestBottleFeedingLine(olderFeeding, now)).toBe(
+      `Последнее: ${olderDate} в ${olderClock} · 150 мл`,
+    );
+    expect(formatLatestBottleFeedingLine(null, now)).toBe(BOTTLE_FEEDING_EMPTY_TEXT);
+  });
+
+  it('formats today stats, generic stats, and feeding rows', () => {
+    const item = feeding('feeding-1', '2026-05-31T09:00:00.000Z', 120);
+
+    expect(formatTodayBottleFeedingStatsLine({ count: 0, totalVolumeMl: 0 })).toBe(
+      'Сегодня: пока нет записей',
+    );
+    expect(formatTodayBottleFeedingStatsLine({ count: 2, totalVolumeMl: 210 })).toBe(
+      'Сегодня: 210 мл · 2 кормления',
+    );
+    expect(formatBottleFeedingStatsLine({ count: 5, totalVolumeMl: 450 })).toBe(
+      '450 мл · 5 кормлений',
+    );
+    expect(formatBottleFeedingRecordLine(item)).toBe(
+      `${formatLocalClock(new Date(item.startedAt))} · 120 мл`,
+    );
+    expect(formatBottleFeedingReminderBody(item)).toBe(
+      `Последнее: 120 мл в ${formatLocalClock(new Date(item.startedAt))}`,
+    );
   });
 });

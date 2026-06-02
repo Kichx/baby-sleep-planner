@@ -3,12 +3,18 @@ import type * as ExpoNotifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
 type NotificationsModule = typeof ExpoNotifications;
+type NotificationPresentationSuppressionHandler = (
+  notification: ExpoNotifications.Notification,
+) => boolean | Promise<boolean>;
 
 export type { NotificationsModule };
 
 let notificationsModulePromise: Promise<NotificationsModule | null> | null = null;
 let isNotificationHandlerConfigured = false;
 let didRequestPermissions = false;
+let bottleFeedingReminderSuppressionHandler:
+  | NotificationPresentationSuppressionHandler
+  | null = null;
 
 function isExpoGo(): boolean {
   return Constants.appOwnership === AppOwnership.Expo;
@@ -37,6 +43,12 @@ export function loadExpoNotificationsModule(): Promise<NotificationsModule | nul
   return notificationsModulePromise;
 }
 
+export function setBottleFeedingReminderPresentationSuppressionHandler(
+  handler: NotificationPresentationSuppressionHandler | null,
+): void {
+  bottleFeedingReminderSuppressionHandler = handler;
+}
+
 export async function ensureExpoNotificationHandlerConfigured(): Promise<NotificationsModule | null> {
   const Notifications = await loadExpoNotificationsModule();
 
@@ -50,6 +62,14 @@ export async function ensureExpoNotificationHandlerConfigured(): Promise<Notific
         const notificationType = notification.request.content.data?.type;
         const isSleepReminder = notificationType === 'sleepReminder';
         const isBottleFeedingReminder = notificationType === 'bottleFeedingReminder';
+        const shouldSuppressBottleFeedingReminder =
+          isBottleFeedingReminder && bottleFeedingReminderSuppressionHandler
+            ? await Promise.resolve(
+                bottleFeedingReminderSuppressionHandler(notification),
+              ).catch(() => false)
+            : false;
+        const shouldShowReminder =
+          isSleepReminder || (isBottleFeedingReminder && !shouldSuppressBottleFeedingReminder);
 
         return {
           priority: isSleepReminder || isBottleFeedingReminder
@@ -57,8 +77,8 @@ export async function ensureExpoNotificationHandlerConfigured(): Promise<Notific
             : Notifications.AndroidNotificationPriority.LOW,
           shouldPlaySound: false,
           shouldSetBadge: false,
-          shouldShowBanner: isSleepReminder || isBottleFeedingReminder,
-          shouldShowList: true,
+          shouldShowBanner: shouldShowReminder,
+          shouldShowList: !shouldSuppressBottleFeedingReminder,
         };
       },
     });

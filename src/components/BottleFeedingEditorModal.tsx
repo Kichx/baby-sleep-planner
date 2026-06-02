@@ -19,6 +19,7 @@ import {
   QUICK_BOTTLE_FEEDING_VOLUME_ROWS,
 } from '@/constants/bottleFeeding';
 import { colors, radius, spacing } from '@/constants/theme';
+import { formatBottleFeedingRecordLine } from '@/core/bottleFeeding';
 import {
   addLocalCalendarDays,
   dateWithLocalDateAndTime,
@@ -210,7 +211,7 @@ export function BottleFeedingEditorModal({
       return;
     }
 
-    const deleteMessage = `Запись ${formatTime(new Date(feeding.startedAt))} · ${feeding.volumeMl} мл будет удалена.`;
+    const deleteMessage = `Запись ${formatBottleFeedingRecordLine(feeding)} будет удалена.`;
 
     if (Platform.OS === 'web') {
       if (globalThis.confirm(`Удалить кормление?\n${deleteMessage}`)) {

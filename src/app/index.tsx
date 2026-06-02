@@ -54,6 +54,11 @@ import {
 } from '@/core/officialSleepGuidelines';
 import { buildTodayPlanShareText } from '@/core/shareTodayPlan';
 import {
+  formatBottleFeedingRecordLine,
+  formatLatestBottleFeedingLine,
+  formatTodayBottleFeedingStatsLine,
+} from '@/core/bottleFeeding';
+import {
   assignSleepDayPlanSnapshot,
   createBottleFeeding,
   createSleepSession,
@@ -602,41 +607,6 @@ function sortDayFeedItemsChronologically(items: DayFeedItem[]): DayFeedItem[] {
       return first.type === 'sleep' ? -1 : 1;
     },
   );
-}
-
-function formatBottleFeedingFeedLine(feeding: BottleFeeding): string {
-  return `🍼 ${formatClock(new Date(feeding.startedAt))} · ${feeding.volumeMl} мл`;
-}
-
-function formatBottleFeedingMainLine(feeding: BottleFeeding | null, now: Date): string {
-  if (!feeding) {
-    return 'Записей пока нет';
-  }
-
-  const startedAt = new Date(feeding.startedAt);
-
-  if (!isSameCalendarDay(startedAt, now)) {
-    return `Последнее: ${formatRangeDateLabel(startedAt, now)} в ${formatClock(startedAt)} · ${
-      feeding.volumeMl
-    } мл`;
-  }
-
-  return `${formatDuration(Math.max(0, minutesBetween(startedAt, now)))} назад · ${
-    feeding.volumeMl
-  } мл`;
-}
-
-function formatBottleFeedingStatsLine(stats: BottleFeedingStats): string {
-  if (stats.count === 0) {
-    return 'Сегодня: пока нет записей';
-  }
-
-  return `Сегодня: ${stats.totalVolumeMl} мл · ${formatCount(
-    stats.count,
-    'кормление',
-    'кормления',
-    'кормлений',
-  )}`;
 }
 
 export default function TodaySleepScreen() {
@@ -1597,13 +1567,11 @@ export default function TodaySleepScreen() {
                     ]}>
                     <Text style={styles.bottleFeedingTitle}>Кормление</Text>
                     <Text style={styles.bottleFeedingValue}>
-                      {formatBottleFeedingMainLine(latestBottleFeeding, now)}
+                      {formatLatestBottleFeedingLine(latestBottleFeeding, now)}
                     </Text>
-                    {latestBottleFeeding ? (
-                      <Text style={styles.bottleFeedingCaption}>
-                        {formatBottleFeedingStatsLine(todayBottleFeedingStats)}
-                      </Text>
-                    ) : null}
+                    <Text style={styles.bottleFeedingCaption}>
+                      {formatTodayBottleFeedingStatsLine(todayBottleFeedingStats)}
+                    </Text>
                   </Pressable>
                   <PrimaryButton
                     compact
@@ -1874,9 +1842,9 @@ export default function TodaySleepScreen() {
                         return (
                           <Pressable
                             accessibilityRole="button"
-                            accessibilityLabel={`Редактировать кормление ${formatClock(
-                              new Date(item.feeding.startedAt),
-                            )}, ${item.feeding.volumeMl} мл`}
+                            accessibilityLabel={`Редактировать кормление ${formatBottleFeedingRecordLine(
+                              item.feeding,
+                            )}`}
                             key={item.id}
                             onPress={() => openEditBottleFeedingEditor(item.feeding)}
                             style={({ pressed }) => [
@@ -1886,7 +1854,7 @@ export default function TodaySleepScreen() {
                               pressed ? styles.sessionRowPressed : null,
                             ]}>
                             <Text style={[styles.sessionTitle, styles.bottleFeedingLine]}>
-                              {formatBottleFeedingFeedLine(item.feeding)}
+                              {formatBottleFeedingRecordLine(item.feeding)}
                             </Text>
                           </Pressable>
                         );

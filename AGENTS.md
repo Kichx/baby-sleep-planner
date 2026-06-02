@@ -415,6 +415,8 @@ When adding or changing feeding persistence, update the full local-data chain to
 
 For feeding time calculations, use the same local-time helpers and day-boundary approach as sleep. "Today" feeding stats mean the user's current calendar day from local day start to the next local day start; "last 24 hours" is a separate rolling window from `now - 24h` to `now`. The latest feeding must come from a global `startedAt DESC` query, not from a selected-day display list.
 
+Keep bottle-feeding display copy and formatting centralized in `src/core/bottleFeeding.ts`. Reuse shared formatters for elapsed time, latest-feeding lines, feeding row text, today stats, empty states, notification body text, and Russian count forms such as `1 кормление`, `2 кормления`, and `5 кормлений`. Do not rebuild these strings separately in the home card, "Кормление" screen, editor modal, day feed, or notification code; update focused core tests whenever the copy changes.
+
 On the main screen, if the feeding card is enabled, keep it compact and place it directly under the current sleep status before the sleep action buttons. Do not rewrite or simplify the existing sleep status block when adding optional tracker UI. Reload feeding state after create, edit, delete, selected-day changes, and setting toggles.
 
 For bottle-feeding quick entry, reuse one bottom sheet for create/edit instead of adding a separate form flow. In v1 keep the sheet limited to date, time, and volume in ml. Defaults should minimize effort: today, current time, last used volume if available, otherwise 90 ml. Keep quick volume buttons compact, validate volume as 1-999 ml, reject future feeding times, and keep edit/delete copy specific to the selected record. After create, edit, or delete, reload the global latest feeding, today stats, last-24-hours stats, selected-period lists, and resync notifications.
@@ -427,7 +429,7 @@ For bottle-feeding reminders, persist settings on the child profile: `bottleFeed
 
 Keep feeding reminder decisions in `src/core` as pure TypeScript and scheduling in `src/notifications`. Derive notification state from global local data such as `getChildProfile`, `getLatestBottleFeeding`, and `getActiveSleepSession`, never from screen lists or selected-day display arrays. Use one stable scheduled-notification identifier, lazy-load `expo-notifications` through the shared guard, treat permission/scheduling failures as non-blocking, and never request push tokens, FCM, backend services, accounts, or cloud sync.
 
-When feeding reminders are disabled, when bottle feeding is disabled, or when imported/restored data disables them, cancel the scheduled feeding reminder and clear any suppressed reminder state. If `bottleFeedingNotifyDuringSleep` is false and the baby is sleeping, suppress the reminder while sleep is active and resync after sleep ends so the reminder can appear after wake. Resync feeding reminders after feeding create/edit/delete, reminder setting changes, bottle-feeding feature toggles, sleep start/stop, and data restore/import.
+When feeding reminders are disabled, when bottle feeding is disabled, or when imported/restored data disables them, cancel the scheduled feeding reminder and clear any suppressed reminder state. If `bottleFeedingNotifyDuringSleep` is false and the baby is sleeping, do not cancel a still-future reminder just because sleep is active; let the notification handler suppress presentation at due time, store planner state such as `suppressedDueToSleep` and `suppressedReminderAt`, and resync after sleep ends. After wake, show the suppressed reminder immediately only if there was no newer feeding after `suppressedReminderAt`; otherwise clear suppression and schedule from the new latest feeding. Resync feeding reminders after feeding create/edit/delete, reminder setting changes, bottle-feeding feature toggles, sleep start/stop, and data restore/import.
 
 Before considering bottle-feeding UI or reminders done, verify:
 - quick add for today and yesterday;
@@ -438,6 +440,8 @@ Before considering bottle-feeding UI or reminders done, verify:
 - reminder defaults are off, interval is 3 hours, notify-during-sleep is on;
 - disabling reminders cancels scheduled notification state;
 - disabling bottle feeding hides UI and prevents reminder scheduling without deleting rows;
+- turning off "Уведомлять во время сна" suppresses only due reminders during active sleep, then either shows the suppressed reminder after wake or discards it when a newer feeding happened;
+- the home card, "Кормление" screen, day feed rows, editor delete copy, and feeding notification text use the same shared formatting helpers;
 - TypeScript checks pass, unit tests pass, and Android APK/dev build verifies actual notification delivery/channel behavior if notification behavior changed.
 
 ## Implementation lessons from APK builds and local data preservation

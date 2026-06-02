@@ -14,15 +14,15 @@ import {
 } from '@/constants/bottleFeeding';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
+  BOTTLE_FEEDING_EMPTY_TEXT,
   calculateBottleFeedingStats,
+  formatBottleFeedingRecordLine,
+  formatBottleFeedingStatsLine,
+  formatLatestBottleFeedingLine,
+  formatTodayBottleFeedingStatsLine,
   getLast24HoursBottleFeedingRange,
   getTodayBottleFeedingRange,
 } from '@/core/bottleFeeding';
-import {
-  formatLocalClock,
-  formatLocalDateLabel,
-  getLocalCalendarDayDiff,
-} from '@/core/localDateTime';
 import {
   createBottleFeeding,
   deleteBottleFeeding,
@@ -59,80 +59,6 @@ const EMPTY_BOTTLE_FEEDING_STATS: BottleFeedingStats = {
   count: 0,
   totalVolumeMl: 0,
 };
-
-function formatClock(date: Date): string {
-  return formatLocalClock(date);
-}
-
-function formatDuration(minutes: number): string {
-  const safeMinutes = Math.max(0, Math.floor(minutes));
-  const hours = Math.floor(safeMinutes / 60);
-  const restMinutes = safeMinutes % 60;
-
-  if (hours === 0) {
-    return `${restMinutes} мин`;
-  }
-
-  if (hours < 24) {
-    return restMinutes === 0 ? `${hours} ч` : `${hours} ч ${restMinutes} мин`;
-  }
-
-  const days = Math.floor(hours / 24);
-  const restHours = hours % 24;
-
-  return restHours === 0 ? `${days} д` : `${days} д ${restHours} ч`;
-}
-
-function formatElapsed(startedAt: Date, now: Date): string {
-  return `${formatDuration(Math.floor((now.getTime() - startedAt.getTime()) / 60_000))} назад`;
-}
-
-function formatCount(value: number, one: string, few: string, many: string): string {
-  const mod10 = value % 10;
-  const mod100 = value % 100;
-  const suffix =
-    mod10 === 1 && mod100 !== 11
-      ? one
-      : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
-        ? few
-        : many;
-
-  return `${value} ${suffix}`;
-}
-
-function formatStatsLine(stats: BottleFeedingStats): string {
-  return `${stats.totalVolumeMl} мл · ${formatCount(
-    stats.count,
-    'кормление',
-    'кормления',
-    'кормлений',
-  )}`;
-}
-
-function formatRelativeDateLabel(date: Date, now: Date): string {
-  const dayDiff = getLocalCalendarDayDiff(date, now);
-
-  if (dayDiff === 0) {
-    return 'сегодня';
-  }
-
-  if (dayDiff === -1) {
-    return 'вчера';
-  }
-
-  return formatLocalDateLabel(date, {
-    day: 'numeric',
-    month: 'long',
-  });
-}
-
-function formatLatestFeedingDetail(feeding: BottleFeeding, now: Date): string {
-  const startedAt = new Date(feeding.startedAt);
-
-  return `${feeding.volumeMl} мл · ${formatRelativeDateLabel(startedAt, now)} в ${formatClock(
-    startedAt,
-  )}`;
-}
 
 function getPeriodTitle(period: FeedingPeriod): string {
   return period === 'today' ? 'Сегодня' : 'За последние 24 часа';
@@ -417,6 +343,10 @@ export default function BottleFeedingScreen() {
   }
 
   const selectedStats = period === 'today' ? todayStats : last24HoursStats;
+  const selectedStatsLine =
+    period === 'today'
+      ? formatTodayBottleFeedingStatsLine(selectedStats)
+      : formatBottleFeedingStatsLine(selectedStats);
   const isSettingsDisabled = isLoading || isSaving || isSettingsSaving;
   const areReminderOptionsDisabled = isSettingsDisabled || !remindersEnabled;
 
@@ -430,16 +360,11 @@ export default function BottleFeedingScreen() {
           <View style={styles.latestBlock}>
             <Text style={styles.blockTitle}>Последнее кормление</Text>
             {latestFeeding ? (
-              <>
-                <Text style={styles.latestElapsed}>
-                  {formatElapsed(new Date(latestFeeding.startedAt), now)}
-                </Text>
-                <Text style={styles.latestDetail}>
-                  {formatLatestFeedingDetail(latestFeeding, now)}
-                </Text>
-              </>
+              <Text style={styles.latestElapsed}>
+                {formatLatestBottleFeedingLine(latestFeeding, now)}
+              </Text>
             ) : (
-              <Text style={styles.emptyLatest}>Записей пока нет</Text>
+              <Text style={styles.emptyLatest}>{BOTTLE_FEEDING_EMPTY_TEXT}</Text>
             )}
             <PrimaryButton
               compact
@@ -481,7 +406,7 @@ export default function BottleFeedingScreen() {
 
           <View style={styles.statsBlock}>
             <Text style={styles.statsTitle}>{getPeriodTitle(period)}</Text>
-            <Text style={styles.statsValue}>{formatStatsLine(selectedStats)}</Text>
+            <Text style={styles.statsValue}>{selectedStatsLine}</Text>
           </View>
 
           <View style={styles.reminderBlock}>
@@ -621,26 +546,25 @@ export default function BottleFeedingScreen() {
 
           <View style={styles.feedList}>
             {periodFeedings.length === 0 ? (
-              <Text style={styles.emptyList}>Записей за выбранный период нет</Text>
+              <Text style={styles.emptyList}>{BOTTLE_FEEDING_EMPTY_TEXT}</Text>
             ) : (
-              periodFeedings.map((feeding) => {
-                const startedAt = new Date(feeding.startedAt);
-
-                return (
-                  <Pressable
-                    accessibilityRole="button"
-                    key={feeding.id}
-                    onPress={() => openEditEditor(feeding)}
-                    style={({ pressed }) => [
-                      styles.feedRow,
-                      pressed ? styles.feedRowPressed : null,
-                    ]}>
-                    <Text style={styles.feedRowText}>
-                      {formatClock(startedAt)} · {feeding.volumeMl} мл
-                    </Text>
-                  </Pressable>
-                );
-              })
+              periodFeedings.map((feeding) => (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Редактировать кормление ${formatBottleFeedingRecordLine(
+                    feeding,
+                  )}`}
+                  key={feeding.id}
+                  onPress={() => openEditEditor(feeding)}
+                  style={({ pressed }) => [
+                    styles.feedRow,
+                    pressed ? styles.feedRowPressed : null,
+                  ]}>
+                  <Text style={styles.feedRowText}>
+                    {formatBottleFeedingRecordLine(feeding)}
+                  </Text>
+                </Pressable>
+              ))
             )}
           </View>
         </SafeAreaView>
@@ -693,14 +617,9 @@ const styles = StyleSheet.create({
   },
   latestElapsed: {
     color: colors.text,
-    fontSize: 34,
+    fontSize: 24,
     fontWeight: '900',
-    lineHeight: 39,
-  },
-  latestDetail: {
-    color: colors.textMuted,
-    fontSize: 16,
-    fontWeight: '800',
+    lineHeight: 30,
   },
   emptyLatest: {
     color: colors.text,
