@@ -148,6 +148,7 @@ const DAY_MINUTES = 24 * 60;
 const ACTIVE_SLEEP_DETAIL_SECONDS = 5 * 60;
 const DEFAULT_TIMER_REFRESH_MS = 30_000;
 const ACTIVE_SLEEP_DETAIL_REFRESH_MS = 1_000;
+const TIMELINE_ROW_HEIGHT = 62;
 const MAX_PAST_DAY_FEEDBACK_LINES = 3;
 const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
 const SLEEP_RETROSPECTIVE_ROUTE = '/sleep-retrospective' as Href;
@@ -1846,6 +1847,7 @@ export default function TodaySleepScreen() {
                           ]}>
                           <EventTypeBadge
                             kind={effectiveKind === 'night' ? 'nightSleep' : 'napSleep'}
+                            quiet
                           />
                           <View style={styles.sessionInfo}>
                             <Text numberOfLines={1} style={styles.sessionTitle}>
@@ -2459,11 +2461,12 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   sessionRow: {
-    minHeight: 72,
+    height: TIMELINE_ROW_HEIGHT,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     backgroundColor: colors.surface,
     flexDirection: 'row',
     alignItems: 'center',
@@ -2477,10 +2480,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceMuted,
   },
   bottleFeedingRow: {
-    minHeight: 50,
     gap: spacing.sm,
     borderColor: colors.border,
-    paddingVertical: spacing.sm,
     backgroundColor: colors.surface,
   },
   bottleFeedingRowPressed: {

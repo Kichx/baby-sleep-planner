@@ -1,8 +1,13 @@
-import { StyleSheet, View } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
 
 import { colors, radius } from '@/constants/theme';
 
 export type EventTypeBadgeKind = 'bottleFeeding' | 'napSleep' | 'nightSleep';
+
+const BADGE_SIZE = 30;
+const ICON_SIZE = 18;
+const daySleepCrescentIconSource = require('../../assets/images/day-sleep-crescent.png');
+const nightSleepCrescentIconSource = require('../../assets/images/night-sleep-crescent.png');
 
 interface EventTypeBadgeProps {
   kind: EventTypeBadgeKind;
@@ -13,7 +18,7 @@ export function EventTypeBadge({ kind, quiet = false }: EventTypeBadgeProps) {
   const isBottleFeeding = kind === 'bottleFeeding';
   const isNightSleep = kind === 'nightSleep';
   const backgroundColor = quiet
-    ? colors.background
+    ? colors.surface
     : isNightSleep
       ? colors.warningSoft
       : colors.primarySoft;
@@ -26,18 +31,20 @@ export function EventTypeBadge({ kind, quiet = false }: EventTypeBadgeProps) {
       style={[styles.badge, quiet ? styles.quietBadge : null, { backgroundColor }]}>
       {isBottleFeeding ? <BottleIcon color={iconColor} /> : null}
       {kind === 'napSleep' ? <NapIcon color={iconColor} /> : null}
-      {isNightSleep ? <MoonIcon backgroundColor={backgroundColor} color={iconColor} /> : null}
+      {isNightSleep ? <MoonIcon color={iconColor} /> : null}
     </View>
   );
 }
 
 function BottleIcon({ color }: { color: string }) {
   return (
-    <View style={styles.bottleIcon}>
-      <View style={[styles.bottleCap, { backgroundColor: color }]} />
-      <View style={[styles.bottleNeck, { borderColor: color }]} />
-      <View style={[styles.bottleBody, { borderColor: color }]}>
-        <View style={[styles.bottleLine, { backgroundColor: color }]} />
+    <View style={styles.iconCanvas}>
+      <View style={styles.bottleIcon}>
+        <View style={[styles.bottleCap, { backgroundColor: color }]} />
+        <View style={[styles.bottleNeck, { borderColor: color }]} />
+        <View style={[styles.bottleBody, { borderColor: color }]}>
+          <View style={[styles.bottleLine, { backgroundColor: color }]} />
+        </View>
       </View>
     </View>
   );
@@ -45,57 +52,70 @@ function BottleIcon({ color }: { color: string }) {
 
 function NapIcon({ color }: { color: string }) {
   return (
-    <View style={[styles.napIcon, { borderColor: color }]}>
-      <View style={[styles.napPillowFold, { backgroundColor: color }]} />
+    <View style={styles.iconCanvas}>
+      <Image
+        accessibilityIgnoresInvertColors
+        resizeMode="contain"
+        source={daySleepCrescentIconSource}
+        style={[styles.imageIcon, { tintColor: color }]}
+      />
     </View>
   );
 }
 
-function MoonIcon({ backgroundColor, color }: { backgroundColor: string; color: string }) {
+function MoonIcon({ color }: { color: string }) {
   return (
-    <View style={[styles.moonIcon, { backgroundColor: color }]}>
-      <View style={[styles.moonCutout, { backgroundColor }]} />
+    <View style={styles.iconCanvas}>
+      <Image
+        accessibilityIgnoresInvertColors
+        resizeMode="contain"
+        source={nightSleepCrescentIconSource}
+        style={[styles.imageIcon, { tintColor: color }]}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   badge: {
-    width: 32,
-    height: 32,
+    width: BADGE_SIZE,
+    height: BADGE_SIZE,
     flexShrink: 0,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.sm,
   },
   quietBadge: {
-    width: 28,
-    height: 28,
     borderWidth: 1,
     borderColor: colors.border,
   },
+  iconCanvas: {
+    width: ICON_SIZE,
+    height: ICON_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   bottleIcon: {
-    width: 14,
-    height: 22,
+    height: ICON_SIZE,
     alignItems: 'center',
   },
   bottleCap: {
-    width: 7,
-    height: 3,
+    width: 6,
+    height: 2,
     borderRadius: 2,
   },
   bottleNeck: {
-    width: 9,
-    height: 4,
-    borderLeftWidth: 2,
-    borderRightWidth: 2,
+    width: 8,
+    height: 3,
+    borderLeftWidth: 1.5,
+    borderRightWidth: 1.5,
   },
   bottleBody: {
-    width: 13,
-    height: 15,
+    width: 12,
+    height: 13,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderRadius: 5,
   },
   bottleLine: {
@@ -103,30 +123,8 @@ const styles = StyleSheet.create({
     height: 2,
     borderRadius: 1,
   },
-  napIcon: {
-    width: 17,
-    height: 13,
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderRadius: 5,
-  },
-  napPillowFold: {
-    width: 2,
-    height: 7,
-    marginLeft: 5,
-    borderRadius: 1,
-  },
-  moonIcon: {
-    width: 17,
-    height: 17,
-    borderRadius: 9,
-  },
-  moonCutout: {
-    position: 'absolute',
-    top: -1,
-    right: -4,
-    width: 15,
-    height: 17,
-    borderRadius: 9,
+  imageIcon: {
+    width: ICON_SIZE,
+    height: ICON_SIZE,
   },
 });
