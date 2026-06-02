@@ -61,6 +61,12 @@ import {
   formatTodayBottleFeedingStatsLine,
 } from '@/core/bottleFeeding';
 import {
+  buildBottleFeedingDayFeedItem,
+  buildSleepDayFeedItem,
+  sortDayFeedItemsNewestFirst,
+  type DayFeedItem,
+} from '@/core/dayFeed';
+import {
   assignSleepDayPlanSnapshot,
   createBottleFeeding,
   createSleepSession,
@@ -130,20 +136,6 @@ interface LoadedBottleFeedingsForDate {
   nearbyFeedings: BottleFeeding[];
   todayStats: BottleFeedingStats;
 }
-
-type DayFeedItem =
-  | {
-      id: string;
-      startedAt: string;
-      type: 'sleep';
-      session: SleepSession;
-    }
-  | {
-      id: string;
-      startedAt: string;
-      type: 'bottleFeeding';
-      feeding: BottleFeeding;
-    };
 
 interface SessionDayGroup {
   key: 'selected' | 'previous';
@@ -576,12 +568,6 @@ function sortSessionsNewestFirst(sessions: SleepSession[]): SleepSession[] {
   );
 }
 
-function sessionStartsInRange(session: SleepSession, rangeStart: Date, rangeEnd: Date): boolean {
-  const startedAt = new Date(session.startedAt);
-
-  return startedAt.getTime() >= rangeStart.getTime() && startedAt.getTime() < rangeEnd.getTime();
-}
-
 function bottleFeedingStartsInRange(
   feeding: BottleFeeding,
   rangeStart: Date,
@@ -590,25 +576,6 @@ function bottleFeedingStartsInRange(
   const startedAt = new Date(feeding.startedAt);
 
   return startedAt.getTime() >= rangeStart.getTime() && startedAt.getTime() < rangeEnd.getTime();
-}
-
-function sortDayFeedItemsChronologically(items: DayFeedItem[]): DayFeedItem[] {
-  return [...items].sort(
-    (first, second) => {
-      const timeDelta =
-        new Date(first.startedAt).getTime() - new Date(second.startedAt).getTime();
-
-      if (timeDelta !== 0) {
-        return timeDelta;
-      }
-
-      if (first.type === second.type) {
-        return 0;
-      }
-
-      return first.type === 'sleep' ? -1 : 1;
-    },
-  );
 }
 
 export default function TodaySleepScreen() {
@@ -850,7 +817,7 @@ export default function TodaySleepScreen() {
     const previousDayStart = addMinutes(selectedDayStart, -DAY_MINUTES);
     const previousDate = addCalendarDays(selectedDate, -1);
     const selectedGroupSessions = nearbySessions.filter((session) =>
-      sessionStartsInRange(session, selectedDayStart, selectedDayEnd),
+      sleepSessionOverlapsDay(session, selectedDayStart, selectedDayEnd, now),
     );
     const selectedGroupFeedings = bottleFeedingEnabled
       ? nearbyBottleFeedings.filter((feeding) =>
@@ -858,7 +825,7 @@ export default function TodaySleepScreen() {
         )
       : [];
     const previousGroupSessions = nearbySessions.filter((session) => {
-      if (sessionStartsInRange(session, selectedDayStart, selectedDayEnd)) {
+      if (sleepSessionOverlapsDay(session, selectedDayStart, selectedDayEnd, now)) {
         return false;
       }
 
@@ -872,38 +839,22 @@ export default function TodaySleepScreen() {
 
     return [
       {
-        items: sortDayFeedItemsChronologically([
-          ...selectedGroupSessions.map((session) => ({
-            id: session.id,
-            session,
-            startedAt: session.startedAt,
-            type: 'sleep' as const,
-          })),
-          ...selectedGroupFeedings.map((feeding) => ({
-            feeding,
-            id: feeding.id,
-            startedAt: feeding.startedAt,
-            type: 'bottleFeeding' as const,
-          })),
+        items: sortDayFeedItemsNewestFirst([
+          ...selectedGroupSessions.map((session) =>
+            buildSleepDayFeedItem(session, selectedDayStart),
+          ),
+          ...selectedGroupFeedings.map(buildBottleFeedingDayFeedItem),
         ]),
         key: 'selected',
         subtitle: formatDateLabel(selectedDate),
         title: formatSessionGroupTitle(selectedDate, now),
       },
       {
-        items: sortDayFeedItemsChronologically([
-          ...previousGroupSessions.map((session) => ({
-            id: session.id,
-            session,
-            startedAt: session.startedAt,
-            type: 'sleep' as const,
-          })),
-          ...previousGroupFeedings.map((feeding) => ({
-            feeding,
-            id: feeding.id,
-            startedAt: feeding.startedAt,
-            type: 'bottleFeeding' as const,
-          })),
+        items: sortDayFeedItemsNewestFirst([
+          ...previousGroupSessions.map((session) =>
+            buildSleepDayFeedItem(session, previousDayStart),
+          ),
+          ...previousGroupFeedings.map(buildBottleFeedingDayFeedItem),
         ]),
         key: 'previous',
         subtitle: formatDateLabel(previousDate),
@@ -1799,7 +1750,7 @@ export default function TodaySleepScreen() {
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={[styles.sectionTitle, styles.sectionHeaderTitle]}>
-                Записи за два дня
+                Таймлайн
               </Text>
               <View style={styles.sectionHeaderActions}>
                 {bottleFeedingEnabled ? (

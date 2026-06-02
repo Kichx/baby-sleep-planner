@@ -347,7 +347,11 @@ For a "selected day plus previous day" sleep log, load the database range from `
 
 Use the same open-session guard as the day filter: an active session should end at `min(now, rangeEnd)` before deciding whether it overlaps a displayed range. This prevents active sleep from appearing in tomorrow or later future-day views.
 
-Group cross-day log rows by the sleep-day window they start in, not by the raw query result order. For sleep that crosses midnight, show enough date context in the time range, for example `22:10 вчера - 06:40 сегодня`, so parents can understand the overnight transition without opening the editor.
+On the main screen, the mixed sleep/feed record section is named "Таймлайн". Keep it as an operational feed, not an analytics table.
+
+For the main two-day mixed timeline, group sleep rows by displayed overlap with the selected sleep-day window, not only by raw `startedAt`. A night sleep that started yesterday and ends in the selected day should appear in the selected day's group because that is where the parent sees the wake-up context. For sleep that crosses midnight, show enough date context in the time range, for example `22:10 вчера - 06:40 сегодня`, so parents can understand the overnight transition without opening the editor.
+
+When mixing sleep and bottle-feeding rows on the main screen, use one explicit display item model, such as `src/core/dayFeed.ts`, instead of separate ad hoc sort/group logic in React. Keep a display `sortAt` separate from the persisted `startedAt`: bottle feedings sort by their `startedAt`; sleep rows sort by `max(session.startedAt, groupStart)` so clipped overnight sleep is ordered by its visible place in that day. Sort rows newest-first inside each day group, with the records closest to "now" at the top. If two records have the same visible time, keep sleep before feeding. Cover this with focused core tests such as `src/core/dayFeed.test.ts`.
 
 If a record list can edit sessions from both the selected day and the previous day, pass that expanded set to the editor overlap checks. Keep the editor reference date tied to the actual session being edited, such as the session end time or `now` for an active session.
 
@@ -453,7 +457,7 @@ Before considering bottle-feeding UI or reminders done, verify:
 - the feeding editor shows a full date with year and accepts numeric time input such as `1234 -> 12:34`;
 - default volume is 180 ml on fresh/old data, selecting a preset persists it, and new quick-add sheets use the saved default instead of the latest feeding volume;
 - delete with confirmation;
-- feeding rows appear chronologically with sleep in mixed day feeds but do not alter sleep durations or recommendations;
+- feeding rows appear in the same newest-first mixed timeline as sleep on the main screen but do not alter sleep durations or recommendations;
 - the "Кормление" screen shows "Сегодня" and "Вчера" timeline groups, sorted newest-first within each group, while "Сегодня" and "24 часа" stats remain separate summary cards;
 - the home card remains below the current sleep status and above sleep action buttons, and is visibly smaller than the sleep status block;
 - the quick-add sheet opens with volume first and has no milk type, duration, notes, recommendations, norms, or charts;
