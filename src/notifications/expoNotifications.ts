@@ -29,9 +29,9 @@ function canUseExpoNotifications(): boolean {
     return false;
   }
 
-  // Keep this as a lazy import: SDK 56 local notifications are available in Expo Go,
-  // while static imports can still break Android startup.
-  return true;
+  // In SDK 56, importing expo-notifications in Android Expo Go can still execute
+  // push-token setup code and crash before local notification calls run.
+  return !(Platform.OS === 'android' && isExpoGo());
 }
 
 export function loadExpoNotificationsModule(): Promise<NotificationsModule | null> {
