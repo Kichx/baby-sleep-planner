@@ -6,6 +6,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -332,9 +333,15 @@ export function BottleFeedingEditorModal({
   }
 
   return (
-    <Modal animationType="slide" onRequestClose={onClose} transparent visible={visible}>
+    <Modal
+      animationType="slide"
+      navigationBarTranslucent
+      onRequestClose={onClose}
+      statusBarTranslucent
+      transparent
+      visible={visible}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.backdrop}>
         <View style={styles.sheet}>
           <View style={styles.handle} />
@@ -346,7 +353,13 @@ export function BottleFeedingEditorModal({
             </Pressable>
           </View>
 
-          {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+          <ScrollView
+            keyboardDismissMode="on-drag"
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            style={styles.formScroll}
+            contentContainerStyle={styles.formContent}>
+            {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
           <View style={styles.volumeField}>
             <Text style={styles.fieldLabel}>Объём, мл</Text>
@@ -427,6 +440,8 @@ export function BottleFeedingEditorModal({
             </View>
           </View>
 
+          </ScrollView>
+
           <View style={styles.actions}>
             <PrimaryButton
               compact
@@ -459,6 +474,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(32, 32, 29, 0.28)',
   },
   sheet: {
+    maxHeight: '92%',
     gap: spacing.sm,
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
@@ -466,6 +482,13 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     paddingBottom: spacing.xl,
     backgroundColor: colors.background,
+  },
+  formScroll: {
+    flexShrink: 1,
+  },
+  formContent: {
+    gap: spacing.sm,
+    paddingBottom: spacing.xs,
   },
   handle: {
     width: 44,
@@ -509,7 +532,7 @@ const styles = StyleSheet.create({
     minHeight: 36,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     gap: spacing.sm,
   },
   fieldLabel: {
@@ -518,9 +541,8 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   dateValueButton: {
-    flex: 1,
     minHeight: 34,
-    alignItems: 'flex-end',
+    alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.sm,
     paddingHorizontal: spacing.sm,

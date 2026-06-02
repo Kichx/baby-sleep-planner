@@ -728,7 +728,9 @@ export function SleepSessionEditorModal({
   return (
     <Modal
       animationType="slide"
+      navigationBarTranslucent
       onRequestClose={onClose}
+      statusBarTranslucent
       transparent
       visible={visible}>
       <KeyboardAvoidingView

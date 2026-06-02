@@ -738,13 +738,18 @@ For modal forms with inputs, prefer the built-in React Native approach first:
 - put form fields in an inner `ScrollView` with `keyboardShouldPersistTaps="handled"` and `keyboardDismissMode="on-drag"`;
 - cap large bottom sheets with a max height and let the form content shrink/scroll instead of extending under the keyboard.
 
+For transparent React Native `Modal` windows on Android, especially bottom sheets, set `navigationBarTranslucent` together with `statusBarTranslucent` so the modal backdrop and sheet cover the system navigation area. Without both props, a strip of the underlying screen can remain visible below the sheet on some devices.
+
 Keep primary actions usable when the keyboard is open. For bottom sheets, keep Save/Delete actions outside the scrolling form when practical, and make only the field area scroll. For centered short dialogs with a `TextInput`, wrap the dialog in `KeyboardAvoidingView` even if the dialog looks small on a tall device.
 
 Do not put `selectTextOnFocus` directly on controlled `TextInput` fields that users are expected to replace quickly, especially Android numeric time fields. It can leave the old selection active after the first typed character, so the second character replaces the first one. Use the shared `SelectAllTextInput` component for "select all on focus" behavior; pass `normalizeText` for forgiving time inputs, and let the component collapse the selection after the first edit.
 
 Do not add `react-native-keyboard-controller`, change `android.softwareKeyboardLayoutMode`, or add another keyboard dependency for simple one-screen/modal input fixes unless the built-in approach fails. If changing Android app config is truly required, remember it only affects a new APK build and re-check `android.package`, the APK-producing `preview` profile, and `DATABASE_NAME`.
 
+When fixing a keyboard or bottom-sheet bug reported from one window, compare the reported component against the other local modal patterns before editing. Reuse the working pattern from existing modals when possible, and then run `rg -n "<Modal|KeyboardAvoidingView|ScrollView|TextInput|SelectAllTextInput" -S src` to confirm no similar window was missed. React Native Web cannot verify Android IME or system navigation-bar behavior; confirm these on Android/Expo Go or clearly report that only code-level checks were run.
+
 Before considering keyboard/input UI done, verify:
+- bottle-feeding quick entry with the time field focused;
 - manual sleep entry with the start time focused;
 - manual sleep entry with the end time focused;
 - editing an existing sleep record with the end time focused;
@@ -752,6 +757,7 @@ Before considering keyboard/input UI done, verify:
 - replacing a selected existing time by typing several digits in a row, for example `1314`, without the first digit being eaten;
 - plan name create/edit dialog with the keyboard open;
 - profile name input on a narrow Android screen;
+- transparent bottom sheets cover the Android system navigation area with no underlying screen visible below them;
 - TypeScript checks pass, and tests pass if the touched area can affect app behavior.
 
 ## Implementation lessons from navigation/settings work

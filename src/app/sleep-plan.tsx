@@ -2192,7 +2192,9 @@ export default function SleepPlanScreen() {
 
       <Modal
         animationType="slide"
+        navigationBarTranslucent
         onRequestClose={handleEditorRequestClose}
+        statusBarTranslucent
         transparent
         visible={isEditorModalVisible}>
         <KeyboardAvoidingView
@@ -2236,7 +2238,9 @@ export default function SleepPlanScreen() {
 
       <Modal
         animationType="fade"
+        navigationBarTranslucent
         onRequestClose={closeEditorWithoutSaving}
+        statusBarTranslucent
         transparent
         visible={nameEditorMode !== null}>
         <KeyboardAvoidingView
@@ -2285,7 +2289,9 @@ export default function SleepPlanScreen() {
 
       <Modal
         animationType="fade"
+        navigationBarTranslucent
         onRequestClose={() => setIsDeleteConfirmVisible(false)}
+        statusBarTranslucent
         transparent
         visible={isDeleteConfirmVisible}>
         <View style={styles.confirmOverlay}>
