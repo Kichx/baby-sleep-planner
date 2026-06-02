@@ -434,7 +434,15 @@ When the user asks to create/copy a new APK, treat it as a build task, not a cod
 - if EAS is not logged in, run `cmd /c npx eas-cli@latest login` once and wait for the user to complete auth instead of changing credentials or project config;
 - after the build finishes, report the EAS build URL, whether `versionCode` was auto-incremented, and which checks passed.
 
+If `npx eas-cli@latest` or `npm view eas-cli version` hangs because the npm registry is slow or unreachable, do not keep retrying the same network fetch. Check for an already unpacked EAS CLI under `%LOCALAPPDATA%\npm-cache\_npx\...\node_modules\.bin\eas.cmd`, verify it with `eas.cmd --version` and `eas.cmd whoami`, and use that cached CLI for the build if it works. `eas build:view` in EAS CLI 20 does not accept `--non-interactive`; use that flag for `eas build`, not for `build:view`.
+
+For long EAS builds, distinguish the local CLI wait process from the remote build. Once a build ID appears, record the build ID, logs URL, commit hash, profile, and `versionCode`, then poll with `eas build:view <build-id>` or `eas build:list --platform android --limit 5`. If the local command times out or loses output, do not start a duplicate build until checking existing `eas-cli` processes and the latest EAS build list. It is safe to stop only the local waiting `cmd`/`node` process after confirming the remote build exists; do not cancel the remote build unless the user asks.
+
+When running EAS from automation on Windows, avoid fragile `Start-Process` command strings around `.cmd` files unless stdout/stderr log files are verified immediately. A direct `cmd /c "<path-to-eas.cmd> build ..."` is easier to reason about. If a background launch is needed, write stdout, stderr, and exit code to known files and inspect them before assuming the build started.
+
 Do not bump `expo.version`, change `android.package`, change `DATABASE_NAME`, reset Android credentials, or edit signing settings for a routine APK test build. With `cli.appVersionSource: "remote"` and preview `autoIncrement: true`, EAS may increment the remote Android `versionCode` without modifying local files. After any EAS build, run `git status --short --branch` and clearly report whether local files changed.
+
+If the working tree becomes dirty after an EAS build has already started, report that separately from the APK result. The EAS build record's commit hash is the source of truth for what was packaged; do not imply later uncommitted local changes were included in that APK.
 
 When installing a new APK over an existing APK, the expected path is an update over the installed app. Do not ask the user to uninstall, clear app storage, or delete app data unless they explicitly accept losing local sleep history. If using adb, use an update install such as `adb install -r path\to\app.apk`.
 
