@@ -303,6 +303,34 @@ export function BottleFeedingEditorModal({
 
           {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
+          <View style={styles.volumeField}>
+            <Text style={styles.fieldLabel}>Объём, мл</Text>
+            <SelectAllTextInput
+              accessibilityLabel="Объём кормления в миллилитрах"
+              editable={!isSaving}
+              inputMode="numeric"
+              keyboardType="number-pad"
+              maxLength={4}
+              normalizeText={normalizeVolumeInput}
+              onChangeText={(value) => {
+                setVolumeText(value);
+                setErrorMessage(null);
+              }}
+              placeholder={String(DEFAULT_BOTTLE_FEEDING_VOLUME_ML)}
+              placeholderTextColor={colors.textMuted}
+              returnKeyType="done"
+              style={styles.volumeInput}
+              value={volumeText}
+            />
+            <View style={styles.volumeShortcutRows}>
+              {QUICK_BOTTLE_FEEDING_VOLUME_ROWS.map((row) => (
+                <View key={row.join('-')} style={styles.volumeShortcutRow}>
+                  {row.map(renderVolumeButton)}
+                </View>
+              ))}
+            </View>
+          </View>
+
           <View style={styles.fieldBlock}>
             <View style={styles.fieldHeader}>
               <Text style={styles.fieldLabel}>Дата</Text>
@@ -339,34 +367,6 @@ export function BottleFeedingEditorModal({
             </Pressable>
           </View>
 
-          <View style={styles.volumeField}>
-            <Text style={styles.fieldLabel}>Объём, мл</Text>
-            <SelectAllTextInput
-              accessibilityLabel="Объём кормления в миллилитрах"
-              editable={!isSaving}
-              inputMode="numeric"
-              keyboardType="number-pad"
-              maxLength={4}
-              normalizeText={normalizeVolumeInput}
-              onChangeText={(value) => {
-                setVolumeText(value);
-                setErrorMessage(null);
-              }}
-              placeholder={String(DEFAULT_BOTTLE_FEEDING_VOLUME_ML)}
-              placeholderTextColor={colors.textMuted}
-              returnKeyType="done"
-              style={styles.volumeInput}
-              value={volumeText}
-            />
-            <View style={styles.volumeShortcutRows}>
-              {QUICK_BOTTLE_FEEDING_VOLUME_ROWS.map((row) => (
-                <View key={row.join('-')} style={styles.volumeShortcutRow}>
-                  {row.map(renderVolumeButton)}
-                </View>
-              ))}
-            </View>
-          </View>
-
           <View style={styles.actions}>
             <PrimaryButton
               compact
@@ -399,10 +399,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(32, 32, 29, 0.28)',
   },
   sheet: {
-    gap: spacing.md,
+    gap: spacing.sm,
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
     paddingBottom: spacing.xl,
     backgroundColor: colors.background,
   },
@@ -442,7 +443,7 @@ const styles = StyleSheet.create({
     lineHeight: 32,
   },
   fieldBlock: {
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
   fieldHeader: {
     minHeight: 36,
@@ -474,7 +475,7 @@ const styles = StyleSheet.create({
   },
   dateShortcut: {
     flex: 1,
-    minHeight: 46,
+    minHeight: 40,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.sm,
@@ -496,7 +497,7 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   timeField: {
-    minHeight: 58,
+    minHeight: 50,
     justifyContent: 'center',
     borderRadius: radius.sm,
     borderWidth: 1,
@@ -506,11 +507,11 @@ const styles = StyleSheet.create({
   },
   timeValue: {
     color: colors.text,
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '900',
   },
   volumeField: {
-    gap: spacing.sm,
+    gap: spacing.xs,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
@@ -519,9 +520,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   volumeInput: {
-    minHeight: 46,
+    minHeight: 42,
     color: colors.text,
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: '900',
   },
   volumeShortcutRows: {
@@ -533,7 +534,7 @@ const styles = StyleSheet.create({
   },
   volumeShortcut: {
     flex: 1,
-    minHeight: 40,
+    minHeight: 38,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.sm,

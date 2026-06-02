@@ -1,5 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createBottleFeeding,
@@ -102,6 +102,15 @@ function createFakeDatabase(): SQLiteDatabase & FakeBottleFeedingDatabase {
 }
 
 describe('bottle feeding repository', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-02T12:00:00.000Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('creates, reads latest, updates, and deletes bottle feedings', async () => {
     const db = createFakeDatabase();
     const first = await createBottleFeeding(db, {
@@ -152,11 +161,121 @@ describe('bottle feeding repository', () => {
     await expect(createBottleFeeding(db, { startedAt, volumeMl: 0 })).rejects.toThrow(
       'Bottle feeding volume must be a positive integer',
     );
+    await expect(createBottleFeeding(db, { startedAt, volumeMl: -1 })).rejects.toThrow(
+      'Bottle feeding volume must be a positive integer',
+    );
+    await expect(createBottleFeeding(db, { startedAt, volumeMl: 90.5 })).rejects.toThrow(
+      'Bottle feeding volume must be a positive integer',
+    );
     await expect(createBottleFeeding(db, { startedAt, volumeMl: 1000 })).rejects.toThrow(
       'Bottle feeding volume must be a positive integer',
     );
 
     expect(db.rows).toHaveLength(0);
+  });
+
+  it('rejects bottle feedings that start in the future', async () => {
+    const db = createFakeDatabase();
+
+    vi.setSystemTime(new Date('2026-05-31T10:00:00.000Z'));
+
+    const saved = await createBottleFeeding(db, {
+      startedAt: new Date('2026-05-31T09:00:00.000Z'),
+      volumeMl: 90,
+    });
+
+    await expect(
+      createBottleFeeding(db, {
+        startedAt: new Date('2026-05-31T10:01:00.000Z'),
+        volumeMl: 120,
+      }),
+    ).rejects.toThrow('Bottle feeding start time cannot be in the future');
+    await expect(
+      updateBottleFeeding(db, saved.id, {
+        startedAt: new Date('2026-05-31T10:01:00.000Z'),
+        volumeMl: 120,
+      }),
+    ).rejects.toThrow('Bottle feeding start time cannot be in the future');
+
+    expect(db.rows).toHaveLength(1);
+    expect(db.rows[0]).toMatchObject({
+      id: saved.id,
+      started_at: '2026-05-31T09:00:00.000Z',
+      volume_ml: 90,
+    });
+  });
+
+  it('recomputes the latest feeding and stats after editing a record', async () => {
+    const db = createFakeDatabase();
+    const first = await createBottleFeeding(db, {
+      startedAt: new Date('2026-05-31T06:00:00.000Z'),
+      volumeMl: 90,
+    });
+    const second = await createBottleFeeding(db, {
+      startedAt: new Date('2026-05-31T09:00:00.000Z'),
+      volumeMl: 120,
+    });
+
+    await updateBottleFeeding(db, first.id, {
+      startedAt: new Date('2026-05-31T10:00:00.000Z'),
+      volumeMl: 150,
+    });
+
+    await expect(getLatestBottleFeeding(db)).resolves.toMatchObject({
+      id: first.id,
+      volumeMl: 150,
+    });
+    await expect(
+      listBottleFeedingsInRange(
+        db,
+        new Date('2026-05-31T00:00:00.000Z'),
+        new Date('2026-06-01T00:00:00.000Z'),
+      ),
+    ).resolves.toMatchObject([
+      { id: second.id, volumeMl: 120 },
+      { id: first.id, volumeMl: 150 },
+    ]);
+    await expect(
+      getTodayBottleFeedingStats(
+        db,
+        new Date('2026-05-31T12:00:00.000Z'),
+        'default-child',
+        'UTC',
+      ),
+    ).resolves.toEqual({
+      count: 2,
+      totalVolumeMl: 270,
+    });
+  });
+
+  it('finds the next latest feeding after deleting the latest record', async () => {
+    const db = createFakeDatabase();
+    const first = await createBottleFeeding(db, {
+      startedAt: new Date('2026-05-31T06:00:00.000Z'),
+      volumeMl: 90,
+    });
+    const second = await createBottleFeeding(db, {
+      startedAt: new Date('2026-05-31T09:00:00.000Z'),
+      volumeMl: 120,
+    });
+
+    await deleteBottleFeeding(db, second.id);
+
+    await expect(getLatestBottleFeeding(db)).resolves.toMatchObject({
+      id: first.id,
+      volumeMl: 90,
+    });
+
+    await deleteBottleFeeding(db, first.id);
+
+    await expect(getLatestBottleFeeding(db)).resolves.toBeNull();
+    await expect(
+      listBottleFeedingsInRange(
+        db,
+        new Date('2026-05-31T00:00:00.000Z'),
+        new Date('2026-06-01T00:00:00.000Z'),
+      ),
+    ).resolves.toEqual([]);
   });
 
   it('calculates today and last 24 hours stats through repository ranges', async () => {
@@ -200,5 +319,37 @@ describe('bottle feeding repository', () => {
       count: 2,
       totalVolumeMl: 210,
     });
+  });
+
+  it('stores yesterday feedings without including them in today stats', async () => {
+    const db = createFakeDatabase();
+    const yesterday = await createBottleFeeding(db, {
+      startedAt: new Date('2026-05-31T17:00:00.000Z'),
+      volumeMl: 90,
+    });
+    const today = await createBottleFeeding(db, {
+      startedAt: new Date('2026-06-01T06:30:00.000Z'),
+      volumeMl: 120,
+    });
+    const now = new Date('2026-06-01T07:00:00.000Z');
+
+    await expect(
+      getTodayBottleFeedingStats(db, now, 'default-child', 'Europe/Moscow'),
+    ).resolves.toEqual({
+      count: 1,
+      totalVolumeMl: 120,
+    });
+    await expect(getLast24HoursBottleFeedingStats(db, now)).resolves.toEqual({
+      count: 2,
+      totalVolumeMl: 210,
+    });
+    await expect(
+      listBottleFeedingsInRange(
+        db,
+        new Date('2026-05-31T21:00:00.000Z'),
+        new Date('2026-06-01T21:00:00.000Z'),
+      ),
+    ).resolves.toMatchObject([{ id: today.id }]);
+    expect(yesterday.startedAt).toBe('2026-05-31T17:00:00.000Z');
   });
 });

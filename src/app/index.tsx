@@ -1566,10 +1566,14 @@ export default function TodaySleepScreen() {
                       pressed ? styles.bottleFeedingTextBlockPressed : null,
                     ]}>
                     <Text style={styles.bottleFeedingTitle}>Кормление</Text>
-                    <Text style={styles.bottleFeedingValue}>
+                    <Text
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.86}
+                      numberOfLines={2}
+                      style={styles.bottleFeedingValue}>
                       {formatLatestBottleFeedingLine(latestBottleFeeding, now)}
                     </Text>
-                    <Text style={styles.bottleFeedingCaption}>
+                    <Text numberOfLines={1} style={styles.bottleFeedingCaption}>
                       {formatTodayBottleFeedingStatsLine(todayBottleFeedingStats)}
                     </Text>
                   </Pressable>
@@ -2229,14 +2233,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   bottleFeedingCard: {
-    minHeight: 92,
+    minHeight: 76,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    gap: spacing.sm,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     backgroundColor: colors.surface,
   },
   bottleFeedingTextBlock: {
@@ -2252,28 +2257,28 @@ const styles = StyleSheet.create({
   },
   bottleFeedingTitle: {
     color: colors.textMuted,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '800',
   },
   bottleFeedingValue: {
     color: colors.text,
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '900',
   },
   bottleFeedingCaption: {
     color: colors.textMuted,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
-    lineHeight: 18,
+    lineHeight: 17,
   },
   bottleFeedingButton: {
-    minWidth: 112,
-    minHeight: 40,
+    minWidth: 96,
+    minHeight: 36,
     borderRadius: radius.sm,
     paddingHorizontal: spacing.sm,
   },
   bottleFeedingButtonText: {
-    fontSize: 14,
+    fontSize: 13,
   },
   grid: {
     flexDirection: 'row',

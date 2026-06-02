@@ -17,6 +17,7 @@ import {
   BOTTLE_FEEDING_EMPTY_TEXT,
   calculateBottleFeedingStats,
   formatBottleFeedingRecordLine,
+  formatBottleFeedingReminderStatusLine,
   formatBottleFeedingStatsLine,
   formatLatestBottleFeedingLine,
   formatTodayBottleFeedingStatsLine,
@@ -104,6 +105,9 @@ export default function BottleFeedingScreen() {
   const [notifyDuringSleep, setNotifyDuringSleep] = useState(
     DEFAULT_BOTTLE_FEEDING_NOTIFY_DURING_SLEEP,
   );
+  const [isBottleFeedingAvailable, setIsBottleFeedingAvailable] = useState<boolean | null>(
+    null,
+  );
   const [customReminderIntervalText, setCustomReminderIntervalText] = useState(
     String(DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES),
   );
@@ -124,10 +128,19 @@ export default function BottleFeedingScreen() {
 
         if (!profile.bottleFeedingEnabled) {
           if (shouldApply()) {
+            setIsBottleFeedingAvailable(false);
+            setLatestFeeding(null);
+            setTodayStats(EMPTY_BOTTLE_FEEDING_STATS);
+            setLast24HoursStats(EMPTY_BOTTLE_FEEDING_STATS);
+            setPeriodFeedings([]);
             router.replace(HOME_ROUTE);
           }
 
           return;
+        }
+
+        if (shouldApply()) {
+          setIsBottleFeedingAvailable(true);
         }
 
         const todayRange = getTodayBottleFeedingRange(loadedAt);
@@ -347,8 +360,17 @@ export default function BottleFeedingScreen() {
     period === 'today'
       ? formatTodayBottleFeedingStatsLine(selectedStats)
       : formatBottleFeedingStatsLine(selectedStats);
+  const reminderStatusLine = formatBottleFeedingReminderStatusLine({
+    notifyDuringSleep,
+    reminderIntervalMinutes,
+    remindersEnabled,
+  });
   const isSettingsDisabled = isLoading || isSaving || isSettingsSaving;
   const areReminderOptionsDisabled = isSettingsDisabled || !remindersEnabled;
+
+  if (isBottleFeedingAvailable !== true) {
+    return <Stack.Screen options={{ title: 'Кормление' }} />;
+  }
 
   return (
     <>
@@ -414,7 +436,7 @@ export default function BottleFeedingScreen() {
               <View style={styles.reminderTextBlock}>
                 <Text style={styles.reminderTitle}>Напоминания о кормлении</Text>
                 <Text style={styles.reminderDescription}>
-                  Напоминать, если прошло больше выбранного времени с последнего кормления.
+                  {reminderStatusLine}
                 </Text>
               </View>
             </View>
@@ -434,26 +456,50 @@ export default function BottleFeedingScreen() {
               />
             </View>
 
-            <View
-              style={[
-                styles.intervalOptions,
-                areReminderOptionsDisabled ? styles.settingOptionsDisabled : null,
-              ]}>
-              {BOTTLE_FEEDING_REMINDER_INTERVAL_OPTIONS.map((option) => {
-                const isSelected =
-                  !isCustomReminderIntervalOpen &&
-                  reminderIntervalMinutes === option.value;
+            {remindersEnabled ? (
+              <>
+                <View
+                  style={[
+                    styles.intervalOptions,
+                    areReminderOptionsDisabled ? styles.settingOptionsDisabled : null,
+                  ]}>
+                  {BOTTLE_FEEDING_REMINDER_INTERVAL_OPTIONS.map((option) => {
+                    const isSelected =
+                      !isCustomReminderIntervalOpen &&
+                      reminderIntervalMinutes === option.value;
 
-                return (
+                    return (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: isSelected }}
+                        disabled={areReminderOptionsDisabled}
+                        key={option.value}
+                        onPress={() => handleReminderIntervalSelect(option.value)}
+                        style={({ pressed }) => [
+                          styles.intervalButton,
+                          isSelected ? styles.intervalButtonSelected : null,
+                          pressed && !areReminderOptionsDisabled
+                            ? styles.intervalButtonPressed
+                            : null,
+                        ]}>
+                        <Text
+                          style={[
+                            styles.intervalButtonText,
+                            isSelected ? styles.intervalButtonTextSelected : null,
+                          ]}>
+                          {option.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityState={{ selected: isSelected }}
+                    accessibilityState={{ selected: isCustomReminderIntervalOpen }}
                     disabled={areReminderOptionsDisabled}
-                    key={option.value}
-                    onPress={() => handleReminderIntervalSelect(option.value)}
+                    onPress={openCustomReminderInterval}
                     style={({ pressed }) => [
                       styles.intervalButton,
-                      isSelected ? styles.intervalButtonSelected : null,
+                      isCustomReminderIntervalOpen ? styles.intervalButtonSelected : null,
                       pressed && !areReminderOptionsDisabled
                         ? styles.intervalButtonPressed
                         : null,
@@ -461,87 +507,71 @@ export default function BottleFeedingScreen() {
                     <Text
                       style={[
                         styles.intervalButtonText,
-                        isSelected ? styles.intervalButtonTextSelected : null,
+                        isCustomReminderIntervalOpen
+                          ? styles.intervalButtonTextSelected
+                          : null,
                       ]}>
-                      {option.label}
+                      Свой
                     </Text>
                   </Pressable>
-                );
-              })}
-              <Pressable
-                accessibilityRole="button"
-                accessibilityState={{ selected: isCustomReminderIntervalOpen }}
-                disabled={areReminderOptionsDisabled}
-                onPress={openCustomReminderInterval}
-                style={({ pressed }) => [
-                  styles.intervalButton,
-                  isCustomReminderIntervalOpen ? styles.intervalButtonSelected : null,
-                  pressed && !areReminderOptionsDisabled ? styles.intervalButtonPressed : null,
-                ]}>
-                <Text
+                </View>
+
+                {isCustomReminderIntervalOpen ? (
+                  <View style={styles.customIntervalRow}>
+                    <SelectAllTextInput
+                      accessibilityLabel="Свой интервал напоминания в минутах"
+                      editable={!areReminderOptionsDisabled}
+                      inputMode="numeric"
+                      keyboardType="number-pad"
+                      maxLength={4}
+                      normalizeText={normalizeReminderIntervalInput}
+                      onChangeText={(value) => {
+                        setCustomReminderIntervalText(value);
+                        setErrorMessage(null);
+                      }}
+                      placeholder="180"
+                      placeholderTextColor={colors.textMuted}
+                      returnKeyType="done"
+                      style={styles.customIntervalInput}
+                      value={customReminderIntervalText}
+                    />
+                    <PrimaryButton
+                      compact
+                      disabled={areReminderOptionsDisabled}
+                      label="Сохранить"
+                      onPress={handleCustomReminderIntervalSave}
+                      style={styles.customIntervalButton}
+                      textStyle={styles.customIntervalButtonText}
+                      variant="secondary"
+                    />
+                  </View>
+                ) : null}
+
+                <View
                   style={[
-                    styles.intervalButtonText,
-                    isCustomReminderIntervalOpen ? styles.intervalButtonTextSelected : null,
+                    styles.settingRow,
+                    areReminderOptionsDisabled ? styles.settingOptionsDisabled : null,
                   ]}>
-                  Свой
-                </Text>
-              </Pressable>
-            </View>
-
-            {isCustomReminderIntervalOpen ? (
-              <View style={styles.customIntervalRow}>
-                <SelectAllTextInput
-                  accessibilityLabel="Свой интервал напоминания в минутах"
-                  editable={!areReminderOptionsDisabled}
-                  inputMode="numeric"
-                  keyboardType="number-pad"
-                  maxLength={4}
-                  normalizeText={normalizeReminderIntervalInput}
-                  onChangeText={(value) => {
-                    setCustomReminderIntervalText(value);
-                    setErrorMessage(null);
-                  }}
-                  placeholder="180"
-                  placeholderTextColor={colors.textMuted}
-                  returnKeyType="done"
-                  style={styles.customIntervalInput}
-                  value={customReminderIntervalText}
-                />
-                <PrimaryButton
-                  compact
-                  disabled={areReminderOptionsDisabled}
-                  label="Сохранить"
-                  onPress={handleCustomReminderIntervalSave}
-                  style={styles.customIntervalButton}
-                  textStyle={styles.customIntervalButtonText}
-                  variant="secondary"
-                />
-              </View>
+                  <View style={styles.settingTextBlock}>
+                    <Text style={styles.settingTitle}>Уведомлять во время сна</Text>
+                    <Text style={styles.settingDescription}>
+                      Если выключить, уведомление появится сразу после завершения сна.
+                    </Text>
+                  </View>
+                  <Switch
+                    accessibilityLabel="Уведомлять во время сна"
+                    disabled={areReminderOptionsDisabled}
+                    onValueChange={handleNotifyDuringSleepChange}
+                    thumbColor={notifyDuringSleep ? colors.primary : colors.surface}
+                    trackColor={{
+                      false: colors.surfaceMuted,
+                      true: colors.primarySoft,
+                    }}
+                    value={notifyDuringSleep}
+                  />
+                </View>
+              </>
             ) : null}
-
-            <View
-              style={[
-                styles.settingRow,
-                areReminderOptionsDisabled ? styles.settingOptionsDisabled : null,
-              ]}>
-              <View style={styles.settingTextBlock}>
-                <Text style={styles.settingTitle}>Уведомлять во время сна</Text>
-                <Text style={styles.settingDescription}>
-                  Если выключить, уведомление появится сразу после завершения сна.
-                </Text>
-              </View>
-              <Switch
-                accessibilityLabel="Уведомлять во время сна"
-                disabled={areReminderOptionsDisabled}
-                onValueChange={handleNotifyDuringSleepChange}
-                thumbColor={notifyDuringSleep ? colors.primary : colors.surface}
-                trackColor={{
-                  false: colors.surfaceMuted,
-                  true: colors.primarySoft,
-                }}
-                value={notifyDuringSleep}
-              />
-            </View>
           </View>
 
           <View style={styles.feedList}>
@@ -595,19 +625,19 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-    gap: spacing.lg,
+    gap: spacing.md,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     paddingBottom: spacing.xl,
   },
   latestBlock: {
-    minHeight: 190,
+    minHeight: 132,
     justifyContent: 'center',
     gap: spacing.sm,
-    borderRadius: radius.lg,
+    borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.lg,
+    padding: spacing.md,
     backgroundColor: colors.surface,
   },
   blockTitle: {
@@ -617,21 +647,20 @@ const styles = StyleSheet.create({
   },
   latestElapsed: {
     color: colors.text,
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '900',
-    lineHeight: 30,
+    lineHeight: 28,
   },
   emptyLatest: {
     color: colors.text,
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: '900',
   },
   addButton: {
-    marginTop: spacing.sm,
     borderRadius: radius.sm,
   },
   addButtonText: {
-    fontSize: 17,
+    fontSize: 15,
   },
   periodSelector: {
     minHeight: 44,
@@ -679,11 +708,11 @@ const styles = StyleSheet.create({
   },
   statsValue: {
     color: colors.text,
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '900',
   },
   reminderBlock: {
-    gap: spacing.md,
+    gap: spacing.sm,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
@@ -691,7 +720,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   reminderHeader: {
-    minHeight: 48,
+    minHeight: 42,
     justifyContent: 'center',
   },
   reminderTextBlock: {
@@ -699,7 +728,7 @@ const styles = StyleSheet.create({
   },
   reminderTitle: {
     color: colors.text,
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '900',
   },
   reminderDescription: {

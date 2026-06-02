@@ -8,6 +8,8 @@ import {
   formatBottleFeedingElapsed,
   formatBottleFeedingRecordLine,
   formatBottleFeedingReminderBody,
+  formatBottleFeedingReminderInterval,
+  formatBottleFeedingReminderStatusLine,
   formatBottleFeedingStatsLine,
   formatLatestBottleFeedingLine,
   formatTodayBottleFeedingStatsLine,
@@ -54,6 +56,36 @@ describe('bottle feeding calculations', () => {
         feeding('feeding-1', '2026-05-31T06:00:00.000Z', 90),
         feeding('feeding-2', '2026-05-31T09:00:00.000Z', 120),
       ]),
+    ).toEqual({
+      count: 2,
+      totalVolumeMl: 210,
+    });
+  });
+
+  it('keeps yesterday out of today while still counting it in the last 24 hours', () => {
+    const now = new Date('2026-06-01T07:00:00.000Z');
+    const yesterdayWithin24Hours = feeding(
+      'yesterday-within-24h',
+      '2026-05-31T17:00:00.000Z',
+      90,
+    );
+    const todayFeeding = feeding('today', '2026-06-01T06:30:00.000Z', 120);
+    const feedings = [yesterdayWithin24Hours, todayFeeding];
+    const todayRange = getTodayBottleFeedingRange(now, 'Europe/Moscow');
+    const last24HoursRange = getLast24HoursBottleFeedingRange(now);
+
+    expect(
+      calculateBottleFeedingStatsInRange(feedings, todayRange.start, todayRange.end),
+    ).toEqual({
+      count: 1,
+      totalVolumeMl: 120,
+    });
+    expect(
+      calculateBottleFeedingStatsInRange(
+        feedings,
+        last24HoursRange.start,
+        last24HoursRange.end,
+      ),
     ).toEqual({
       count: 2,
       totalVolumeMl: 210,
@@ -107,6 +139,17 @@ describe('bottle feeding calculations', () => {
     ).toBe('2 ч 15 мин назад');
   });
 
+  it('formats the first fresh feeding as just now with volume', () => {
+    const now = new Date('2026-05-31T09:00:45.000Z');
+
+    expect(
+      formatLatestBottleFeedingLine(
+        feeding('first-feeding', '2026-05-31T09:00:30.000Z', 90),
+        now,
+      ),
+    ).toBe('только что · 90 мл');
+  });
+
   it('formats Russian feeding count forms', () => {
     expect(formatBottleFeedingCount(1)).toBe('1 кормление');
     expect(formatBottleFeedingCount(2)).toBe('2 кормления');
@@ -156,5 +199,33 @@ describe('bottle feeding calculations', () => {
     expect(formatBottleFeedingReminderBody(item)).toBe(
       `Последнее: 120 мл в ${formatLocalClock(new Date(item.startedAt))}`,
     );
+  });
+
+  it('formats reminder status lines calmly', () => {
+    expect(formatBottleFeedingReminderInterval(45)).toBe('45 мин');
+    expect(formatBottleFeedingReminderInterval(180)).toBe('3 ч');
+    expect(formatBottleFeedingReminderInterval(150)).toBe('2 ч 30 мин');
+    expect(formatBottleFeedingReminderInterval(0)).toBe('выбранное время');
+    expect(
+      formatBottleFeedingReminderStatusLine({
+        notifyDuringSleep: true,
+        reminderIntervalMinutes: 180,
+        remindersEnabled: false,
+      }),
+    ).toBe('Напоминания выключены');
+    expect(
+      formatBottleFeedingReminderStatusLine({
+        notifyDuringSleep: true,
+        reminderIntervalMinutes: 180,
+        remindersEnabled: true,
+      }),
+    ).toBe('Через 3 ч после кормления');
+    expect(
+      formatBottleFeedingReminderStatusLine({
+        notifyDuringSleep: false,
+        reminderIntervalMinutes: 150,
+        remindersEnabled: true,
+      }),
+    ).toBe('Через 2 ч 30 мин после кормления, если ребёнок не спит');
   });
 });

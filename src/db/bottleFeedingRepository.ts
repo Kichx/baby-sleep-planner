@@ -35,6 +35,10 @@ function assertValidBottleFeedingInput(input: SaveBottleFeedingInput): void {
     throw new Error('Bottle feeding start time must be a valid date');
   }
 
+  if (input.startedAt.getTime() > Date.now()) {
+    throw new Error('Bottle feeding start time cannot be in the future');
+  }
+
   if (
     !Number.isInteger(input.volumeMl) ||
     input.volumeMl <= 0 ||
