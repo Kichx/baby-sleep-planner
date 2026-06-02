@@ -1753,24 +1753,7 @@ export default function TodaySleepScreen() {
               <Text style={[styles.sectionTitle, styles.sectionHeaderTitle]}>
                 Таймлайн
               </Text>
-              <View style={styles.sectionHeaderActions}>
-                {bottleFeedingEnabled ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={isLoading || isSaving}
-                    onPress={openCreateBottleFeedingEditor}
-                    style={({ pressed }) => [
-                      styles.sectionAddFeedingButton,
-                      pressed && !isLoading && !isSaving
-                        ? styles.sectionAddFeedingButtonPressed
-                        : null,
-                      isLoading || isSaving ? styles.sectionAddFeedingButtonDisabled : null,
-                    ]}>
-                    <Text style={styles.sectionAddFeedingText}>+ Кормление</Text>
-                  </Pressable>
-                ) : null}
-                <Text style={styles.sectionMeta}>{displayedSessionCountLabel}</Text>
-              </View>
+              <Text style={styles.sectionMeta}>{displayedSessionCountLabel}</Text>
             </View>
             <View style={styles.sessionList}>
               {sessionDayGroups.map((group) => (
@@ -2305,33 +2288,6 @@ const styles = StyleSheet.create({
   },
   sectionHeaderTitle: {
     flex: 1,
-  },
-  sectionHeaderActions: {
-    flexShrink: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: spacing.sm,
-  },
-  sectionAddFeedingButton: {
-    minHeight: 32,
-    justifyContent: 'center',
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    paddingHorizontal: spacing.sm,
-    backgroundColor: colors.surface,
-  },
-  sectionAddFeedingButtonPressed: {
-    backgroundColor: colors.primarySoft,
-  },
-  sectionAddFeedingButtonDisabled: {
-    opacity: 0.55,
-  },
-  sectionAddFeedingText: {
-    color: colors.primary,
-    fontSize: 13,
-    fontWeight: '900',
   },
   sectionMeta: {
     color: colors.textMuted,
