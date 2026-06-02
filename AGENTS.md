@@ -861,6 +861,20 @@ Use `curl.exe` for Confluence calls on Windows because PowerShell `Invoke-WebReq
 curl.exe -sS -u "$($email):$token" -H 'Accept: application/json' "$baseUrl/rest/api/user/current"
 ```
 
+Encoding safety for Russian Confluence pages:
+- Prefer the Atlassian Rovo MCP tools for page search, read, create, and update when they can do the job. They avoid most local shell encoding issues.
+- If a storage-body REST update is needed, do not trust `Invoke-RestMethod` / `Invoke-WebRequest` objects for Russian page bodies on Windows. They can return mojibake such as `Ð­ÐºÑÐ°Ð½...` and a follow-up PUT can permanently corrupt the page.
+- For REST updates with non-ASCII content, prefer a Node `fetch` script that reads and writes JSON as UTF-8. Pass the token through `process.env.CONFLU_TOKEN`; never print it.
+- If piping a Node script through PowerShell and the script contains Russian strings or Russian HTML anchors, set UTF-8 first:
+
+```powershell
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
+$OutputEncoding = [System.Text.UTF8Encoding]::new()
+```
+
+- If an anchor such as `<h2>Модальные окна</h2>` turns into `????` or fetched headings appear as mojibake, stop before writing and switch to a UTF-8-safe method.
+- After every Confluence write, read the page back with `_getconfluencepage` in markdown format and confirm the new Russian headings, key bullets, and tables are readable.
+
 Useful tested REST endpoints:
 - Check current user: `GET /wiki/rest/api/user/current`.
 - List spaces: `GET /wiki/rest/api/space?limit=10`.
