@@ -879,6 +879,10 @@ The agent must always answer the user and ask clarification questions in Russian
 
 User-facing text in the app should be in Russian.
 
+Always assume that project text can contain Russian letters and words: UI labels, notifications, help articles, backups, SQLite values, test fixtures, scripts, and external API payloads. Use UTF-8 explicitly when reading, writing, serializing, importing, exporting, piping, or uploading text. Do not rely on Windows default encodings, ASCII-only assumptions, or shell code pages for Russian content.
+
+When a workflow writes or round-trips Russian text, configure the toolchain for UTF-8 up front where relevant, for example PowerShell console/output encoding, Node/file encoding, JSON serialization, SQLite text handling, HTTP headers, and document generation. After the write, verify that Russian text is still readable and not mojibake or `????` before considering the task complete.
+
 Code, type names, and comments can be in English.
 
 Keep Russian UI labels short and clear.
