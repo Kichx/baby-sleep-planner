@@ -435,7 +435,7 @@ For default bottle-feeding volume settings, persist `bottleFeedingDefaultVolumeM
 
 When showing bottle feedings in day feeds, treat them as display-only events. It is fine to mix `BottleFeeding` rows with sleep rows in chronological order, but do not pass feedings into sleep timelines, day summaries, recommendations, active sleep state, or start/stop logic. A feeding inside a sleep interval must not split the sleep session, change sleep duration, end active sleep, start a new sleep, or affect sleep recommendations.
 
-The dedicated feeding screen is named "Кормление" and should stay a simple operational screen, not an analytics page. Gate the route and all entry points behind `bottleFeedingEnabled`. Show latest feeding, "Сегодня" and "24 часа" stats, and the selected-period record list. Reuse the shared bottom sheet for add/edit/delete. Do not add feeding filters, charts, age norms, recommendations, milk type, duration, notes, or export unless explicitly requested.
+The dedicated feeding screen is named "Кормление" and should stay a simple operational screen, not an analytics page. Gate the route and all entry points behind `bottleFeedingEnabled`. Show latest feeding, compact "Сегодня" and "24 часа" stats, then a two-day feeding timeline grouped by local calendar day: "Сегодня" and "Вчера". The timeline rows should be sorted newest-first inside each day group, and the timeline should appear before default-volume/reminder settings so the main operational information is visible first. Do not bring back a selected-period switch for the record list unless explicitly requested. Reuse the shared bottom sheet for add/edit/delete. Do not add feeding filters, charts, age norms, recommendations, milk type, duration, notes, or export unless explicitly requested.
 
 For disabled bottle feeding, gate more than visible entry points. A direct visit to `/bottle-feeding` must not render the feeding screen content while profile loading or redirect is in progress; keep route content empty or minimal until `bottleFeedingEnabled` is confirmed, reset stale feeding screen state to empty, then redirect home. This prevents hidden optional data from flashing after the feature is disabled.
 
@@ -453,8 +453,8 @@ Before considering bottle-feeding UI or reminders done, verify:
 - the feeding editor shows a full date with year and accepts numeric time input such as `1234 -> 12:34`;
 - default volume is 180 ml on fresh/old data, selecting a preset persists it, and new quick-add sheets use the saved default instead of the latest feeding volume;
 - delete with confirmation;
-- feeding rows appear chronologically with sleep but do not alter sleep durations or recommendations;
-- the "Кормление" screen switches correctly between today and last 24 hours;
+- feeding rows appear chronologically with sleep in mixed day feeds but do not alter sleep durations or recommendations;
+- the "Кормление" screen shows "Сегодня" and "Вчера" timeline groups, sorted newest-first within each group, while "Сегодня" and "24 часа" stats remain separate summary cards;
 - the home card remains below the current sleep status and above sleep action buttons, and is visibly smaller than the sleep status block;
 - the quick-add sheet opens with volume first and has no milk type, duration, notes, recommendations, norms, or charts;
 - reminder defaults are off, interval is 3 hours, notify-during-sleep is on;
@@ -799,6 +799,8 @@ When using the in-app browser, verify the changed UI with a DOM snapshot first, 
 - `/sleep-plan` for plan metrics, editors, and compact card layout;
 - `/profile` for profile/date input behavior;
 - `/info` for static help articles.
+
+If the in-app browser gets stuck on `about:blank`, stops attaching after a failed local navigation, or keeps showing stale local UI while HTTP probes and Metro logs show the server is alive, reset the browser-control session and close the stale tab once. Do not keep starting more Metro servers or repeatedly opening new same-origin tabs. If the webview still cannot attach, verify what you can with `cmd /c npm run typecheck`, tests, HTTP probes, Metro logs, or bundle markers, then report the browser limitation clearly.
 
 For React Native Web verification, remember that `react-native-web` `Alert.alert` is effectively a no-op. If a new delete/edit flow must be verified in the browser, implement a visible confirmation UI or a narrow `Platform.OS === 'web'` confirmation path instead of relying only on `Alert.alert`.
 

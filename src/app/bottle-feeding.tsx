@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Stack, type Href, useFocusEffect, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
@@ -19,14 +19,19 @@ import { colors, radius, spacing } from '@/constants/theme';
 import {
   BOTTLE_FEEDING_EMPTY_TEXT,
   calculateBottleFeedingStats,
+  formatBottleFeedingCount,
   formatBottleFeedingRecordLine,
   formatBottleFeedingReminderStatusLine,
   formatBottleFeedingStatsLine,
   formatLatestBottleFeedingLine,
-  formatTodayBottleFeedingStatsLine,
   getLast24HoursBottleFeedingRange,
   getTodayBottleFeedingRange,
 } from '@/core/bottleFeeding';
+import {
+  addLocalCalendarDays,
+  formatLocalDateLabel,
+  startOfLocalCalendarDay,
+} from '@/core/localDateTime';
 import {
   createBottleFeeding,
   deleteBottleFeeding,
@@ -40,8 +45,6 @@ import {
 import { syncSleepNotificationsFromDatabase } from '@/notifications/sleepNotifications';
 import type { BottleFeeding, BottleFeedingStats } from '@/types/bottleFeeding';
 
-type FeedingPeriod = 'today' | 'last24Hours';
-
 type BottleFeedingEditorState =
   | {
       mode: 'create';
@@ -54,26 +57,18 @@ type BottleFeedingEditorState =
       referenceDate: Date;
     };
 
+interface FeedingDayGroup {
+  feedings: BottleFeeding[];
+  key: 'today' | 'yesterday';
+  subtitle: string;
+  title: string;
+}
+
 const HOME_ROUTE = '/' as Href;
-const PERIOD_OPTIONS: Array<{ label: string; value: FeedingPeriod }> = [
-  { label: 'Сегодня', value: 'today' },
-  { label: '24 часа', value: 'last24Hours' },
-];
-const CUSTOM_REMINDER_INTERVAL_VALUE = 'custom';
 const EMPTY_BOTTLE_FEEDING_STATS: BottleFeedingStats = {
   count: 0,
   totalVolumeMl: 0,
 };
-
-function getPeriodTitle(period: FeedingPeriod): string {
-  return period === 'today' ? 'Сегодня' : 'За последние 24 часа';
-}
-
-function getPeriodRange(period: FeedingPeriod, now: Date) {
-  return period === 'today'
-    ? getTodayBottleFeedingRange(now)
-    : getLast24HoursBottleFeedingRange(now);
-}
 
 function sortFeedingsNewestFirst(feedings: BottleFeeding[]): BottleFeeding[] {
   return [...feedings].sort(
@@ -92,16 +87,34 @@ function isPresetReminderInterval(intervalMinutes: number): boolean {
   );
 }
 
+function bottleFeedingStartsInRange(
+  feeding: BottleFeeding,
+  rangeStart: Date,
+  rangeEnd: Date,
+): boolean {
+  const startedAt = new Date(feeding.startedAt);
+
+  return startedAt.getTime() >= rangeStart.getTime() && startedAt.getTime() < rangeEnd.getTime();
+}
+
+function formatDateLabel(date: Date): string {
+  return formatLocalDateLabel(date, {
+    day: 'numeric',
+    month: 'long',
+  });
+}
+
 export default function BottleFeedingScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
-  const [period, setPeriod] = useState<FeedingPeriod>('today');
   const [latestFeeding, setLatestFeeding] = useState<BottleFeeding | null>(null);
   const [todayStats, setTodayStats] =
     useState<BottleFeedingStats>(EMPTY_BOTTLE_FEEDING_STATS);
   const [last24HoursStats, setLast24HoursStats] =
     useState<BottleFeedingStats>(EMPTY_BOTTLE_FEEDING_STATS);
-  const [periodFeedings, setPeriodFeedings] = useState<BottleFeeding[]>([]);
+  const [todayFeedings, setTodayFeedings] = useState<BottleFeeding[]>([]);
+  const [yesterdayFeedings, setYesterdayFeedings] = useState<BottleFeeding[]>([]);
+  const [timelineReferenceDate, setTimelineReferenceDate] = useState(() => new Date());
   const [defaultVolumeMl, setDefaultVolumeMl] = useState(DEFAULT_BOTTLE_FEEDING_VOLUME_ML);
   const [remindersEnabled, setRemindersEnabled] = useState(false);
   const [reminderIntervalMinutes, setReminderIntervalMinutes] = useState(
@@ -125,7 +138,7 @@ export default function BottleFeedingScreen() {
   const [editorState, setEditorState] = useState<BottleFeedingEditorState | null>(null);
 
   const loadFeedings = useCallback(
-    async (currentPeriod: FeedingPeriod, loadedAt: Date, shouldApply: () => boolean) => {
+    async (loadedAt: Date, shouldApply: () => boolean) => {
       setIsLoading(true);
 
       try {
@@ -137,7 +150,8 @@ export default function BottleFeedingScreen() {
             setLatestFeeding(null);
             setTodayStats(EMPTY_BOTTLE_FEEDING_STATS);
             setLast24HoursStats(EMPTY_BOTTLE_FEEDING_STATS);
-            setPeriodFeedings([]);
+            setTodayFeedings([]);
+            setYesterdayFeedings([]);
             setDefaultVolumeMl(DEFAULT_BOTTLE_FEEDING_VOLUME_ML);
             router.replace(HOME_ROUTE);
           }
@@ -150,21 +164,28 @@ export default function BottleFeedingScreen() {
         }
 
         const todayRange = getTodayBottleFeedingRange(loadedAt);
+        const yesterdayStart = startOfLocalCalendarDay(addLocalCalendarDays(loadedAt, -1));
         const last24HoursRange = getLast24HoursBottleFeedingRange(loadedAt);
-        const selectedRange = getPeriodRange(currentPeriod, loadedAt);
-        const [loadedLatestFeeding, todayFeedings, last24HourFeedings, selectedFeedings] =
+        const [loadedLatestFeeding, twoDayFeedings, last24HourFeedings] =
           await Promise.all([
             getLatestBottleFeeding(db),
-            listBottleFeedingsInRange(db, todayRange.start, todayRange.end),
+            listBottleFeedingsInRange(db, yesterdayStart, todayRange.end),
             listBottleFeedingsInRange(db, last24HoursRange.start, last24HoursRange.end),
-            listBottleFeedingsInRange(db, selectedRange.start, selectedRange.end),
           ]);
+        const loadedTodayFeedings = twoDayFeedings.filter((feeding) =>
+          bottleFeedingStartsInRange(feeding, todayRange.start, todayRange.end),
+        );
+        const loadedYesterdayFeedings = twoDayFeedings.filter((feeding) =>
+          bottleFeedingStartsInRange(feeding, yesterdayStart, todayRange.start),
+        );
 
         if (shouldApply()) {
           setLatestFeeding(loadedLatestFeeding);
-          setTodayStats(calculateBottleFeedingStats(todayFeedings));
+          setTodayStats(calculateBottleFeedingStats(loadedTodayFeedings));
           setLast24HoursStats(calculateBottleFeedingStats(last24HourFeedings));
-          setPeriodFeedings(sortFeedingsNewestFirst(selectedFeedings));
+          setTodayFeedings(sortFeedingsNewestFirst(loadedTodayFeedings));
+          setYesterdayFeedings(sortFeedingsNewestFirst(loadedYesterdayFeedings));
+          setTimelineReferenceDate(loadedAt);
           setDefaultVolumeMl(profile.bottleFeedingDefaultVolumeMl);
           setRemindersEnabled(profile.bottleFeedingRemindersEnabled);
           setReminderIntervalMinutes(profile.bottleFeedingReminderIntervalMinutes);
@@ -193,12 +214,12 @@ export default function BottleFeedingScreen() {
     useCallback(() => {
       let isActive = true;
 
-      void loadFeedings(period, new Date(), () => isActive);
+      void loadFeedings(new Date(), () => isActive);
 
       return () => {
         isActive = false;
       };
-    }, [loadFeedings, period]),
+    }, [loadFeedings]),
   );
 
   useEffect(() => {
@@ -212,7 +233,7 @@ export default function BottleFeedingScreen() {
   }, []);
 
   async function reloadCurrentPeriod(currentNow = new Date()) {
-    await loadFeedings(period, currentNow, () => true);
+    await loadFeedings(currentNow, () => true);
   }
 
   async function handleDefaultVolumeSelect(volumeMl: number) {
@@ -383,11 +404,32 @@ export default function BottleFeedingScreen() {
     }
   }
 
-  const selectedStats = period === 'today' ? todayStats : last24HoursStats;
-  const selectedStatsLine =
-    period === 'today'
-      ? formatTodayBottleFeedingStatsLine(selectedStats)
-      : formatBottleFeedingStatsLine(selectedStats);
+  const feedingDayGroups = useMemo<FeedingDayGroup[]>(() => {
+    const yesterdayDate = addLocalCalendarDays(timelineReferenceDate, -1);
+
+    return [
+      {
+        feedings: todayFeedings,
+        key: 'today',
+        subtitle: formatDateLabel(timelineReferenceDate),
+        title: 'Сегодня',
+      },
+      {
+        feedings: yesterdayFeedings,
+        key: 'yesterday',
+        subtitle: formatDateLabel(yesterdayDate),
+        title: 'Вчера',
+      },
+    ];
+  }, [timelineReferenceDate, todayFeedings, yesterdayFeedings]);
+  const displayedFeedingCount = feedingDayGroups.reduce(
+    (total, group) => total + group.feedings.length,
+    0,
+  );
+  const displayedFeedingCountLabel =
+    displayedFeedingCount === 0
+      ? 'нет записей'
+      : `Всего ${formatBottleFeedingCount(displayedFeedingCount)}`;
   const reminderStatusLine = formatBottleFeedingReminderStatusLine({
     notifyDuringSleep,
     reminderIntervalMinutes,
@@ -426,37 +468,78 @@ export default function BottleFeedingScreen() {
             />
           </View>
 
-          <View style={styles.periodSelector}>
-            {PERIOD_OPTIONS.map((option) => {
-              const isSelected = option.value === period;
-
-              return (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: isSelected }}
-                  disabled={isSaving}
-                  key={option.value}
-                  onPress={() => setPeriod(option.value)}
-                  style={({ pressed }) => [
-                    styles.periodButton,
-                    isSelected ? styles.periodButtonSelected : null,
-                    pressed && !isSaving ? styles.periodButtonPressed : null,
-                  ]}>
-                  <Text
-                    style={[
-                      styles.periodButtonText,
-                      isSelected ? styles.periodButtonTextSelected : null,
-                    ]}>
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
+          <View style={styles.statsGrid}>
+            <View style={styles.statsBlock}>
+              <Text style={styles.statsTitle}>Сегодня</Text>
+              <Text adjustsFontSizeToFit numberOfLines={1} style={styles.statsValue}>
+                {formatBottleFeedingStatsLine(todayStats)}
+              </Text>
+            </View>
+            <View style={styles.statsBlock}>
+              <Text style={styles.statsTitle}>24 часа</Text>
+              <Text adjustsFontSizeToFit numberOfLines={1} style={styles.statsValue}>
+                {formatBottleFeedingStatsLine(last24HoursStats)}
+              </Text>
+            </View>
           </View>
 
-          <View style={styles.statsBlock}>
-            <Text style={styles.statsTitle}>{getPeriodTitle(period)}</Text>
-            <Text style={styles.statsValue}>{selectedStatsLine}</Text>
+          <View style={styles.timelineSection}>
+            <View style={styles.timelineHeader}>
+              <Text style={styles.timelineTitle}>Таймлайн</Text>
+              <Text style={styles.timelineMeta}>{displayedFeedingCountLabel}</Text>
+            </View>
+            <View style={styles.feedList}>
+              {feedingDayGroups.map((group) => (
+                <View key={group.key} style={styles.feedDayGroup}>
+                  <View style={styles.feedDayHeader}>
+                    <View style={styles.feedDayTitleRow}>
+                      <View
+                        style={[
+                          styles.feedDayMarker,
+                          group.key === 'today'
+                            ? styles.todayFeedDayMarker
+                            : styles.yesterdayFeedDayMarker,
+                        ]}
+                      />
+                      <View>
+                        <Text style={styles.feedDayTitle}>{group.title}</Text>
+                        <Text style={styles.feedDaySubtitle}>{group.subtitle}</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.feedDayCount}>
+                      {group.feedings.length === 0
+                        ? 'нет'
+                        : formatBottleFeedingCount(group.feedings.length)}
+                    </Text>
+                  </View>
+
+                  {group.feedings.length === 0 ? (
+                    <Text style={styles.emptyList}>{BOTTLE_FEEDING_EMPTY_TEXT}</Text>
+                  ) : (
+                    group.feedings.map((feeding) => (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Редактировать кормление ${formatBottleFeedingRecordLine(
+                          feeding,
+                        )}`}
+                        key={feeding.id}
+                        onPress={() => openEditEditor(feeding)}
+                        style={({ pressed }) => [
+                          styles.feedRow,
+                          group.key === 'yesterday' ? styles.yesterdayFeedRow : null,
+                          pressed ? styles.feedRowPressed : null,
+                        ]}>
+                        <EventTypeBadge kind="bottleFeeding" quiet />
+                        <Text numberOfLines={1} style={styles.feedRowText}>
+                          {formatBottleFeedingRecordLine(feeding)}
+                        </Text>
+                        <Text style={styles.feedRowAction}>Изменить</Text>
+                      </Pressable>
+                    ))
+                  )}
+                </View>
+              ))}
+            </View>
           </View>
 
           <View style={styles.defaultVolumeBlock}>
@@ -641,31 +724,6 @@ export default function BottleFeedingScreen() {
               </>
             ) : null}
           </View>
-
-          <View style={styles.feedList}>
-            {periodFeedings.length === 0 ? (
-              <Text style={styles.emptyList}>{BOTTLE_FEEDING_EMPTY_TEXT}</Text>
-            ) : (
-              periodFeedings.map((feeding) => (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={`Редактировать кормление ${formatBottleFeedingRecordLine(
-                    feeding,
-                  )}`}
-                  key={feeding.id}
-                  onPress={() => openEditEditor(feeding)}
-                  style={({ pressed }) => [
-                    styles.feedRow,
-                    pressed ? styles.feedRowPressed : null,
-                  ]}>
-                  <EventTypeBadge kind="bottleFeeding" quiet />
-                  <Text numberOfLines={1} style={styles.feedRowText}>
-                    {formatBottleFeedingRecordLine(feeding)}
-                  </Text>
-                </Pressable>
-              ))
-            )}
-          </View>
         </SafeAreaView>
       </ScrollView>
 
@@ -731,38 +789,13 @@ const styles = StyleSheet.create({
   addButtonText: {
     fontSize: 15,
   },
-  periodSelector: {
-    minHeight: 44,
+  statsGrid: {
     flexDirection: 'row',
     gap: spacing.sm,
   },
-  periodButton: {
-    flex: 1,
-    minHeight: 42,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.md,
-    backgroundColor: colors.surface,
-  },
-  periodButtonSelected: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primarySoft,
-  },
-  periodButtonPressed: {
-    backgroundColor: colors.surfaceMuted,
-  },
-  periodButtonText: {
-    color: colors.textMuted,
-    fontSize: 15,
-    fontWeight: '900',
-  },
-  periodButtonTextSelected: {
-    color: colors.primary,
-  },
   statsBlock: {
+    flex: 1,
+    minHeight: 74,
     gap: spacing.xs,
     borderRadius: radius.sm,
     borderWidth: 1,
@@ -777,8 +810,29 @@ const styles = StyleSheet.create({
   },
   statsValue: {
     color: colors.text,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  timelineSection: {
+    gap: spacing.sm,
+  },
+  timelineHeader: {
+    minHeight: 30,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  timelineTitle: {
+    color: colors.text,
     fontSize: 20,
     fontWeight: '900',
+  },
+  timelineMeta: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+    textAlign: 'right',
   },
   reminderBlock: {
     gap: spacing.sm,
@@ -896,10 +950,55 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   feedList: {
+    gap: spacing.lg,
+  },
+  feedDayGroup: {
     gap: spacing.sm,
   },
+  feedDayHeader: {
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    paddingHorizontal: spacing.xs,
+  },
+  feedDayTitleRow: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  feedDayMarker: {
+    width: 5,
+    height: 30,
+    borderRadius: 3,
+  },
+  todayFeedDayMarker: {
+    backgroundColor: colors.primary,
+  },
+  yesterdayFeedDayMarker: {
+    backgroundColor: colors.border,
+  },
+  feedDayTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  feedDaySubtitle: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  feedDayCount: {
+    flexShrink: 0,
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
   feedRow: {
-    minHeight: 54,
+    minHeight: 50,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
@@ -909,27 +1008,34 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     backgroundColor: colors.surface,
   },
+  yesterdayFeedRow: {
+    backgroundColor: colors.surfaceMuted,
+  },
   feedRowPressed: {
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.surfaceMuted,
   },
   feedRowText: {
     flex: 1,
     minWidth: 0,
-    color: colors.text,
-    fontSize: 16,
+    color: colors.textMuted,
+    fontSize: 14,
     fontWeight: '800',
+  },
+  feedRowAction: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '900',
   },
   emptyList: {
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.lg,
+    paddingVertical: spacing.sm,
     color: colors.textMuted,
     backgroundColor: colors.surface,
-    fontSize: 15,
-    fontWeight: '800',
-    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '700',
   },
   errorText: {
     borderRadius: radius.sm,
