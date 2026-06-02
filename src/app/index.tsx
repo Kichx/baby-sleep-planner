@@ -1506,13 +1506,27 @@ export default function TodaySleepScreen() {
           {isToday ? (
             <>
               <View style={styles.hero}>
-                <Text style={styles.status}>
-                  {isLoading ? 'Загрузка' : isSleeping ? 'Спит' : 'Бодрствует'}
-                </Text>
-                <Text style={styles.timer}>
+                <View style={styles.heroStatusRow}>
+                  <View
+                    style={[
+                      styles.heroStatusDot,
+                      isSleeping ? styles.heroStatusDotSleeping : styles.heroStatusDotAwake,
+                    ]}
+                  />
+                  <Text style={styles.currentStatus}>
+                    {isLoading ? 'Загрузка' : isSleeping ? 'Спит' : 'Бодрствует'}
+                  </Text>
+                </View>
+                <Text
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.86}
+                  numberOfLines={1}
+                  style={styles.currentTimer}>
                   {isLoading ? '--' : timerValue}
                 </Text>
-                <Text style={styles.helper}>с {formatClock(snapshot.statusStartedAt)}</Text>
+                <Text numberOfLines={1} style={styles.currentHelper}>
+                  с {formatClock(snapshot.statusStartedAt)}
+                </Text>
               </View>
 
               {bottleFeedingEnabled ? (
@@ -2086,13 +2100,51 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   hero: {
-    minHeight: 172,
-    borderRadius: radius.lg,
-    padding: spacing.xl,
+    minHeight: 122,
+    borderRadius: radius.sm,
+    borderLeftWidth: 5,
+    borderLeftColor: colors.primary,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
     justifyContent: 'center',
     backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.primarySoft,
+    gap: spacing.xs,
+  },
+  heroStatusRow: {
+    minHeight: 22,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  heroStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  heroStatusDotSleeping: {
+    backgroundColor: colors.primary,
+  },
+  heroStatusDotAwake: {
+    backgroundColor: colors.textMuted,
+  },
+  currentStatus: {
+    color: colors.textMuted,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  currentTimer: {
+    color: colors.text,
+    fontSize: 36,
+    fontWeight: '900',
+    lineHeight: 40,
+  },
+  currentHelper: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 18,
   },
   historyHero: {
     minHeight: 138,
