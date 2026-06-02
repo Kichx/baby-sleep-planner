@@ -22,6 +22,7 @@ export interface ChildProfile {
   photoUri: string | null;
   bottleFeedingEnabled: boolean;
   bottleFeedingPromptDismissed: boolean;
+  bottleFeedingDefaultVolumeMl: number;
   bottleFeedingRemindersEnabled: boolean;
   bottleFeedingReminderIntervalMinutes: number;
   bottleFeedingNotifyDuringSleep: boolean;

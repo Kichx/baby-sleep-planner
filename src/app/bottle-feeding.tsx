@@ -8,6 +8,8 @@ import { BottleFeedingEditorModal } from '@/components/BottleFeedingEditorModal'
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { SelectAllTextInput } from '@/components/SelectAllTextInput';
 import {
+  BOTTLE_FEEDING_DEFAULT_VOLUME_OPTIONS,
+  DEFAULT_BOTTLE_FEEDING_VOLUME_ML,
   BOTTLE_FEEDING_REMINDER_INTERVAL_OPTIONS,
   DEFAULT_BOTTLE_FEEDING_NOTIFY_DURING_SLEEP,
   DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
@@ -30,6 +32,7 @@ import {
   getChildProfile,
   getLatestBottleFeeding,
   listBottleFeedingsInRange,
+  updateBottleFeedingDefaultVolume,
   updateBottleFeedingReminderSettings,
   updateBottleFeeding,
 } from '@/db';
@@ -98,6 +101,7 @@ export default function BottleFeedingScreen() {
   const [last24HoursStats, setLast24HoursStats] =
     useState<BottleFeedingStats>(EMPTY_BOTTLE_FEEDING_STATS);
   const [periodFeedings, setPeriodFeedings] = useState<BottleFeeding[]>([]);
+  const [defaultVolumeMl, setDefaultVolumeMl] = useState(DEFAULT_BOTTLE_FEEDING_VOLUME_ML);
   const [remindersEnabled, setRemindersEnabled] = useState(false);
   const [reminderIntervalMinutes, setReminderIntervalMinutes] = useState(
     DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
@@ -133,6 +137,7 @@ export default function BottleFeedingScreen() {
             setTodayStats(EMPTY_BOTTLE_FEEDING_STATS);
             setLast24HoursStats(EMPTY_BOTTLE_FEEDING_STATS);
             setPeriodFeedings([]);
+            setDefaultVolumeMl(DEFAULT_BOTTLE_FEEDING_VOLUME_ML);
             router.replace(HOME_ROUTE);
           }
 
@@ -159,6 +164,7 @@ export default function BottleFeedingScreen() {
           setTodayStats(calculateBottleFeedingStats(todayFeedings));
           setLast24HoursStats(calculateBottleFeedingStats(last24HourFeedings));
           setPeriodFeedings(sortFeedingsNewestFirst(selectedFeedings));
+          setDefaultVolumeMl(profile.bottleFeedingDefaultVolumeMl);
           setRemindersEnabled(profile.bottleFeedingRemindersEnabled);
           setReminderIntervalMinutes(profile.bottleFeedingReminderIntervalMinutes);
           setNotifyDuringSleep(profile.bottleFeedingNotifyDuringSleep);
@@ -206,6 +212,27 @@ export default function BottleFeedingScreen() {
 
   async function reloadCurrentPeriod(currentNow = new Date()) {
     await loadFeedings(period, currentNow, () => true);
+  }
+
+  async function handleDefaultVolumeSelect(volumeMl: number) {
+    if (volumeMl === defaultVolumeMl || isSettingsSaving) {
+      return;
+    }
+
+    const previousVolumeMl = defaultVolumeMl;
+
+    setDefaultVolumeMl(volumeMl);
+    setIsSettingsSaving(true);
+    setErrorMessage(null);
+
+    try {
+      await updateBottleFeedingDefaultVolume(db, volumeMl);
+    } catch {
+      setDefaultVolumeMl(previousVolumeMl);
+      setErrorMessage('Не удалось сохранить объём по умолчанию');
+    } finally {
+      setIsSettingsSaving(false);
+    }
   }
 
   async function saveReminderSettings(input: {
@@ -431,6 +458,46 @@ export default function BottleFeedingScreen() {
             <Text style={styles.statsValue}>{selectedStatsLine}</Text>
           </View>
 
+          <View style={styles.defaultVolumeBlock}>
+            <View style={styles.reminderTextBlock}>
+              <Text style={styles.reminderTitle}>Объём по умолчанию</Text>
+              <Text style={styles.reminderDescription}>Подставится в новом кормлении.</Text>
+            </View>
+            <View
+              style={[
+                styles.intervalOptions,
+                isSettingsDisabled ? styles.settingOptionsDisabled : null,
+              ]}>
+              {BOTTLE_FEEDING_DEFAULT_VOLUME_OPTIONS.map((volumeMl) => {
+                const isSelected = defaultVolumeMl === volumeMl;
+
+                return (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
+                    disabled={isSettingsDisabled}
+                    key={volumeMl}
+                    onPress={() => {
+                      void handleDefaultVolumeSelect(volumeMl);
+                    }}
+                    style={({ pressed }) => [
+                      styles.intervalButton,
+                      isSelected ? styles.intervalButtonSelected : null,
+                      pressed && !isSettingsDisabled ? styles.intervalButtonPressed : null,
+                    ]}>
+                    <Text
+                      style={[
+                        styles.intervalButtonText,
+                        isSelected ? styles.intervalButtonTextSelected : null,
+                      ]}>
+                      {volumeMl} мл
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+
           <View style={styles.reminderBlock}>
             <View style={styles.reminderHeader}>
               <View style={styles.reminderTextBlock}>
@@ -601,9 +668,9 @@ export default function BottleFeedingScreen() {
       </ScrollView>
 
       <BottleFeedingEditorModal
+        defaultVolumeMl={defaultVolumeMl}
         feeding={editorState?.feeding ?? null}
         isSaving={isSaving}
-        lastUsedVolumeMl={latestFeeding?.volumeMl ?? null}
         mode={editorState?.mode ?? 'create'}
         onClose={() => setEditorState(null)}
         onDelete={handleEditorDelete}
@@ -712,6 +779,14 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   reminderBlock: {
+    gap: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  defaultVolumeBlock: {
     gap: spacing.sm,
     borderRadius: radius.sm,
     borderWidth: 1,

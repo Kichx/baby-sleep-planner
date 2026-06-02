@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import {
+  DEFAULT_BOTTLE_FEEDING_VOLUME_ML,
   DEFAULT_BOTTLE_FEEDING_NOTIFY_DURING_SLEEP,
   DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
 } from '@/constants/bottleFeeding';
@@ -79,6 +80,10 @@ const CHILD_PROFILE_COLUMNS = [
   {
     definition: 'bottle_feeding_prompt_dismissed INTEGER NOT NULL DEFAULT 0',
     name: 'bottle_feeding_prompt_dismissed',
+  },
+  {
+    definition: `bottle_feeding_default_volume_ml INTEGER NOT NULL DEFAULT ${DEFAULT_BOTTLE_FEEDING_VOLUME_ML}`,
+    name: 'bottle_feeding_default_volume_ml',
   },
   {
     definition: 'bottle_feeding_reminders_enabled INTEGER NOT NULL DEFAULT 0',

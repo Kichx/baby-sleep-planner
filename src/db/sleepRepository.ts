@@ -1,8 +1,10 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import {
+  DEFAULT_BOTTLE_FEEDING_VOLUME_ML,
   DEFAULT_BOTTLE_FEEDING_NOTIFY_DURING_SLEEP,
   DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
+  MAX_BOTTLE_FEEDING_VOLUME_ML,
 } from '@/constants/bottleFeeding';
 import { DEFAULT_CHILD_ID, DEFAULT_CHILD_NAME, DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import {
@@ -43,6 +45,7 @@ interface ChildProfileRow {
   photo_uri: string | null;
   bottle_feeding_enabled: number | null;
   bottle_feeding_prompt_dismissed: number | null;
+  bottle_feeding_default_volume_ml: number | null;
   bottle_feeding_reminders_enabled: number | null;
   bottle_feeding_reminder_interval_minutes: number | null;
   bottle_feeding_notify_during_sleep: number | null;
@@ -188,6 +191,10 @@ const CHILD_PROFILE_COLUMNS = [
     name: 'bottle_feeding_prompt_dismissed',
   },
   {
+    definition: `bottle_feeding_default_volume_ml INTEGER NOT NULL DEFAULT ${DEFAULT_BOTTLE_FEEDING_VOLUME_ML}`,
+    name: 'bottle_feeding_default_volume_ml',
+  },
+  {
     definition: 'bottle_feeding_reminders_enabled INTEGER NOT NULL DEFAULT 0',
     name: 'bottle_feeding_reminders_enabled',
   },
@@ -227,6 +234,9 @@ function mapChildProfileRow(row: ChildProfileRow): ChildProfile {
         ? DEFAULT_BOTTLE_FEEDING_NOTIFY_DURING_SLEEP
         : row.bottle_feeding_notify_during_sleep === 1,
     bottleFeedingPromptDismissed: row.bottle_feeding_prompt_dismissed === 1,
+    bottleFeedingDefaultVolumeMl: coalesceBottleFeedingVolume(
+      row.bottle_feeding_default_volume_ml,
+    ),
     bottleFeedingReminderIntervalMinutes: coalesceNumber(
       row.bottle_feeding_reminder_interval_minutes,
       DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
@@ -242,6 +252,15 @@ function mapChildProfileRow(row: ChildProfileRow): ChildProfile {
 
 function coalesceNumber(value: number | null | undefined, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function coalesceBottleFeedingVolume(value: number | null | undefined): number {
+  return typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value > 0 &&
+    value <= MAX_BOTTLE_FEEDING_VOLUME_ML
+    ? value
+    : DEFAULT_BOTTLE_FEEDING_VOLUME_ML;
 }
 
 function normalizeEveningRulesMode(value: string | null | undefined): EveningSleepRulesMode {
@@ -1221,6 +1240,7 @@ export async function getChildProfile(
       photo_uri,
       bottle_feeding_enabled,
       bottle_feeding_prompt_dismissed,
+      bottle_feeding_default_volume_ml,
       bottle_feeding_reminders_enabled,
       bottle_feeding_reminder_interval_minutes,
       bottle_feeding_notify_during_sleep,
@@ -1240,6 +1260,7 @@ export async function getChildProfile(
     bottleFeedingEnabled: false,
     bottleFeedingNotifyDuringSleep: DEFAULT_BOTTLE_FEEDING_NOTIFY_DURING_SLEEP,
     bottleFeedingPromptDismissed: false,
+    bottleFeedingDefaultVolumeMl: DEFAULT_BOTTLE_FEEDING_VOLUME_ML,
     bottleFeedingReminderIntervalMinutes: DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
     bottleFeedingRemindersEnabled: false,
     id: childId,
@@ -1276,6 +1297,31 @@ export async function updateBottleFeedingReminderSettings(
       input.notifyDuringSleep ? 1 : 0,
       childId,
     ],
+  );
+}
+
+export async function updateBottleFeedingDefaultVolume(
+  db: SQLiteDatabase,
+  defaultVolumeMl: number,
+  childId = DEFAULT_CHILD_ID,
+): Promise<void> {
+  await ensureDefaultChildProfile(db);
+
+  if (
+    !Number.isInteger(defaultVolumeMl) ||
+    defaultVolumeMl <= 0 ||
+    defaultVolumeMl > MAX_BOTTLE_FEEDING_VOLUME_ML
+  ) {
+    throw new Error('Bottle feeding default volume must be a positive integer');
+  }
+
+  await db.runAsync(
+    `
+    UPDATE child_profile
+    SET bottle_feeding_default_volume_ml = ?
+    WHERE id = ?
+    `,
+    [defaultVolumeMl, childId],
   );
 }
 

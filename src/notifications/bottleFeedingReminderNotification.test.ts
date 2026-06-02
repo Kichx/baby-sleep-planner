@@ -66,6 +66,7 @@ const db = {} as SQLiteDatabase;
 function profile(overrides: Partial<ChildProfile> = {}): ChildProfile {
   return {
     birthDate: null,
+    bottleFeedingDefaultVolumeMl: 180,
     bottleFeedingEnabled: true,
     bottleFeedingNotifyDuringSleep: true,
     bottleFeedingPromptDismissed: true,

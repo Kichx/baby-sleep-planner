@@ -1,6 +1,6 @@
 export const DATABASE_NAME = 'baby_sleep_planner.db';
 
-export const DATABASE_VERSION = 12;
+export const DATABASE_VERSION = 13;
 
 export const BOTTLE_FEEDINGS_STORAGE_SQL = `
 CREATE TABLE IF NOT EXISTS bottle_feedings (
@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS child_profile (
   photo_uri TEXT,
   bottle_feeding_enabled INTEGER NOT NULL DEFAULT 0,
   bottle_feeding_prompt_dismissed INTEGER NOT NULL DEFAULT 0,
+  bottle_feeding_default_volume_ml INTEGER NOT NULL DEFAULT 180,
   bottle_feeding_reminders_enabled INTEGER NOT NULL DEFAULT 0,
   bottle_feeding_reminder_interval_minutes INTEGER NOT NULL DEFAULT 180,
   bottle_feeding_notify_during_sleep INTEGER NOT NULL DEFAULT 1,

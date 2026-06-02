@@ -23,8 +23,7 @@ import { formatBottleFeedingRecordLine } from '@/core/bottleFeeding';
 import {
   addLocalCalendarDays,
   dateWithLocalDateAndTime,
-  formatLocalClock,
-  formatLocalDateInput,
+  formatLocalDateLabel,
   getLocalCalendarDayDiff,
   getLocalDateTimeParts,
 } from '@/core/localDateTime';
@@ -39,10 +38,15 @@ interface BottleFeedingEditorModalProps {
   feeding: BottleFeeding | null;
   referenceDate: Date;
   isSaving: boolean;
-  lastUsedVolumeMl?: number | null;
+  defaultVolumeMl?: number | null;
   onClose: () => void;
   onDelete: () => Promise<void>;
   onSave: (input: { startedAt: Date; volumeMl: number }) => Promise<void>;
+}
+
+interface TimeParts {
+  hours: number;
+  minutes: number;
 }
 
 function normalizeVolumeInput(value: string): string {
@@ -50,24 +54,83 @@ function normalizeVolumeInput(value: string): string {
 }
 
 function formatDate(date: Date): string {
-  return formatLocalDateInput(date);
+  return formatLocalDateLabel(date, {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
 }
 
-function formatTime(date: Date): string {
-  return formatLocalClock(date);
+function formatTimeInput(date: Date): string {
+  const timeParts = getLocalDateTimeParts(date);
+  const hours = String(timeParts.hours).padStart(2, '0');
+  const minutes = String(timeParts.minutes).padStart(2, '0');
+
+  return `${hours}:${minutes}`;
 }
 
-function getDefaultVolumeText(lastUsedVolumeMl?: number | null): string {
+function getDefaultVolumeText(defaultVolumeMl?: number | null): string {
   if (
-    typeof lastUsedVolumeMl === 'number' &&
-    Number.isInteger(lastUsedVolumeMl) &&
-    lastUsedVolumeMl > 0 &&
-    lastUsedVolumeMl <= MAX_BOTTLE_FEEDING_VOLUME_ML
+    typeof defaultVolumeMl === 'number' &&
+    Number.isInteger(defaultVolumeMl) &&
+    defaultVolumeMl > 0 &&
+    defaultVolumeMl <= MAX_BOTTLE_FEEDING_VOLUME_ML
   ) {
-    return String(lastUsedVolumeMl);
+    return String(defaultVolumeMl);
   }
 
   return String(DEFAULT_BOTTLE_FEEDING_VOLUME_ML);
+}
+
+function isValidTimeParts(hours: number, minutes: number): boolean {
+  return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
+}
+
+function parseTimeInput(value: string): TimeParts | null {
+  const trimmed = value.trim().replace(/[.,]/g, ':');
+  const colonMatch = /^(\d{1,2}):(\d{2})$/.exec(trimmed);
+
+  if (colonMatch) {
+    const hours = Number(colonMatch[1]);
+    const minutes = Number(colonMatch[2]);
+
+    return isValidTimeParts(hours, minutes) ? { hours, minutes } : null;
+  }
+
+  const digits = trimmed.replace(/\D/g, '');
+
+  if (digits.length === 0 || digits.length > 4) {
+    return null;
+  }
+
+  const hours = digits.length <= 2 ? Number(digits) : Number(digits.slice(0, -2));
+  const minutes = digits.length <= 2 ? 0 : Number(digits.slice(-2));
+
+  return isValidTimeParts(hours, minutes) ? { hours, minutes } : null;
+}
+
+function normalizeTimeInput(value: string): string {
+  const normalized = value.trim().replace(/[.,]/g, ':');
+
+  if (normalized.includes(':')) {
+    const [rawHours, ...rawMinuteParts] = normalized.split(':');
+    const hours = rawHours.replace(/\D/g, '').slice(0, 2);
+    const minutes = rawMinuteParts.join('').replace(/\D/g, '').slice(0, 2);
+
+    return `${hours}:${minutes}`;
+  }
+
+  const digits = normalized.replace(/\D/g, '').slice(0, 4);
+
+  if (digits.length <= 2) {
+    return digits;
+  }
+
+  if (digits.length === 3 && Number(digits.slice(0, 2)) > 23) {
+    return `${digits.slice(0, 1)}:${digits.slice(1)}`;
+  }
+
+  return `${digits.slice(0, 2)}:${digits.slice(2)}`;
 }
 
 function getDateShortcutBaseDate(dayOffset: DateShortcutOffset): Date {
@@ -82,7 +145,7 @@ export function BottleFeedingEditorModal({
   feeding,
   referenceDate,
   isSaving,
-  lastUsedVolumeMl,
+  defaultVolumeMl,
   onClose,
   onDelete,
   onSave,
@@ -92,10 +155,11 @@ export function BottleFeedingEditorModal({
     [feeding, referenceDate],
   );
   const initialVolumeText = useMemo(
-    () => (feeding ? String(feeding.volumeMl) : getDefaultVolumeText(lastUsedVolumeMl)),
-    [feeding, lastUsedVolumeMl],
+    () => (feeding ? String(feeding.volumeMl) : getDefaultVolumeText(defaultVolumeMl)),
+    [defaultVolumeMl, feeding],
   );
   const [startedAt, setStartedAt] = useState(initialStartedAt);
+  const [timeText, setTimeText] = useState(formatTimeInput(initialStartedAt));
   const [volumeText, setVolumeText] = useState(initialVolumeText);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const activeDateShortcut = getLocalCalendarDayDiff(startedAt, new Date());
@@ -108,6 +172,7 @@ export function BottleFeedingEditorModal({
     }
 
     setStartedAt(initialStartedAt);
+    setTimeText(formatTimeInput(initialStartedAt));
     setVolumeText(initialVolumeText);
     setErrorMessage(null);
   }, [initialStartedAt, initialVolumeText, visible]);
@@ -126,7 +191,7 @@ export function BottleFeedingEditorModal({
           return;
         }
 
-        const timeParts = getLocalDateTimeParts(startedAt);
+        const timeParts = parseTimeInput(timeText) ?? getLocalDateTimeParts(startedAt);
         const nextStartedAt = dateWithLocalDateAndTime(selectedDate, {
           hours: timeParts.hours,
           minutes: timeParts.minutes,
@@ -139,36 +204,8 @@ export function BottleFeedingEditorModal({
     });
   }
 
-  function openTimePicker() {
-    if (Platform.OS !== 'android') {
-      return;
-    }
-
-    DateTimePickerAndroid.open({
-      display: 'clock',
-      is24Hour: true,
-      mode: 'time',
-      onChange: (_event, selectedDate) => {
-        if (!selectedDate) {
-          return;
-        }
-
-        const timeParts = getLocalDateTimeParts(selectedDate);
-
-        setStartedAt(
-          dateWithLocalDateAndTime(startedAt, {
-            hours: timeParts.hours,
-            minutes: timeParts.minutes,
-          }),
-        );
-        setErrorMessage(null);
-      },
-      value: startedAt,
-    });
-  }
-
   function selectDateShortcut(dayOffset: DateShortcutOffset) {
-    const timeParts = getLocalDateTimeParts(startedAt);
+    const timeParts = parseTimeInput(timeText) ?? getLocalDateTimeParts(startedAt);
 
     setStartedAt(
       dateWithLocalDateAndTime(getDateShortcutBaseDate(dayOffset), {
@@ -186,6 +223,7 @@ export function BottleFeedingEditorModal({
 
   async function handleSave() {
     const volumeMl = Number(volumeText);
+    const timeParts = parseTimeInput(timeText);
 
     if (
       !/^\d+$/.test(volumeText) ||
@@ -197,13 +235,20 @@ export function BottleFeedingEditorModal({
       return;
     }
 
-    if (startedAt.getTime() > new Date().getTime()) {
+    if (!timeParts) {
+      setErrorMessage('Проверьте время кормления');
+      return;
+    }
+
+    const nextStartedAt = dateWithLocalDateAndTime(startedAt, timeParts);
+
+    if (nextStartedAt.getTime() > new Date().getTime()) {
       setErrorMessage('Время кормления не может быть в будущем');
       return;
     }
 
     setErrorMessage(null);
-    await onSave({ startedAt, volumeMl });
+    await onSave({ startedAt: nextStartedAt, volumeMl });
   }
 
   function confirmDelete() {
@@ -343,7 +388,13 @@ export function BottleFeedingEditorModal({
                   styles.dateValueButton,
                   pressed && !isSaving ? styles.shortcutPressed : null,
                 ]}>
-                <Text style={styles.dateValue}>{formatDate(startedAt)}</Text>
+                <Text
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.8}
+                  numberOfLines={1}
+                  style={styles.dateValue}>
+                  {formatDate(startedAt)}
+                </Text>
               </Pressable>
             </View>
             <View style={styles.dateShortcutRow}>
@@ -354,17 +405,26 @@ export function BottleFeedingEditorModal({
 
           <View style={styles.fieldBlock}>
             <Text style={styles.fieldLabel}>Время</Text>
-            <Pressable
-              accessibilityLabel="Время кормления"
-              accessibilityRole="button"
-              disabled={isSaving}
-              onPress={openTimePicker}
-              style={({ pressed }) => [
-                styles.timeField,
-                pressed && !isSaving ? styles.shortcutPressed : null,
-              ]}>
-              <Text style={styles.timeValue}>{formatTime(startedAt)}</Text>
-            </Pressable>
+            <View style={styles.timeField}>
+              <SelectAllTextInput
+                accessibilityLabel="Время кормления"
+                editable={!isSaving}
+                inputMode="numeric"
+                keyboardType="number-pad"
+                maxLength={5}
+                normalizeText={normalizeTimeInput}
+                onChangeText={(value) => {
+                  setTimeText(value);
+                  setErrorMessage(null);
+                }}
+                placeholder="0930"
+                placeholderTextColor={colors.textMuted}
+                returnKeyType="done"
+                style={styles.timeInput}
+                underlineColorAndroid="transparent"
+                value={timeText}
+              />
+            </View>
           </View>
 
           <View style={styles.actions}>
@@ -458,7 +518,9 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   dateValueButton: {
+    flex: 1,
     minHeight: 34,
+    alignItems: 'flex-end',
     justifyContent: 'center',
     borderRadius: radius.sm,
     paddingHorizontal: spacing.sm,
@@ -468,6 +530,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 16,
     fontWeight: '900',
+    textAlign: 'right',
   },
   dateShortcutRow: {
     flexDirection: 'row',
@@ -505,8 +568,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     backgroundColor: colors.surface,
   },
-  timeValue: {
+  timeInput: {
+    minHeight: 34,
+    padding: 0,
     color: colors.text,
+    backgroundColor: 'transparent',
     fontSize: 22,
     fontWeight: '900',
   },

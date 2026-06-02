@@ -26,6 +26,7 @@ const validBackup: AppDataBackup = {
         birth_date: '2025-12-10',
         bottle_feeding_enabled: 1,
         bottle_feeding_prompt_dismissed: 1,
+        bottle_feeding_default_volume_ml: 180,
         bottle_feeding_reminder_interval_minutes: 180,
         bottle_feeding_reminders_enabled: 1,
         bottle_feeding_notify_during_sleep: 1,
@@ -106,6 +107,7 @@ describe('data transfer backup parsing', () => {
     expect(parsedBackup.data.childProfiles[0].name).toBe('Малыш');
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_enabled).toBe(1);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_prompt_dismissed).toBe(1);
+    expect(parsedBackup.data.childProfiles[0].bottle_feeding_default_volume_ml).toBe(180);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_reminders_enabled).toBe(1);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_reminder_interval_minutes).toBe(180);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_notify_during_sleep).toBe(1);
@@ -118,6 +120,7 @@ describe('data transfer backup parsing', () => {
   it('parses an old backup without sleep day plan snapshots', () => {
     const {
       bottle_feeding_enabled,
+      bottle_feeding_default_volume_ml,
       bottle_feeding_notify_during_sleep,
       bottle_feeding_prompt_dismissed,
       bottle_feeding_reminder_interval_minutes,
@@ -139,6 +142,7 @@ describe('data transfer backup parsing', () => {
     expect(parsedBackup.data.bottleFeedings).toEqual([]);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_enabled).toBe(0);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_prompt_dismissed).toBe(0);
+    expect(parsedBackup.data.childProfiles[0].bottle_feeding_default_volume_ml).toBe(180);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_reminders_enabled).toBe(0);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_reminder_interval_minutes).toBe(180);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_notify_during_sleep).toBe(1);

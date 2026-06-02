@@ -17,6 +17,7 @@ import { SleepPlanIcon } from '@/components/SleepPlanIcon';
 import { SleepDayTimeline } from '@/components/SleepDayTimeline';
 import { SleepSessionEditorModal } from '@/components/SleepSessionEditorModal';
 import { SummaryCard } from '@/components/SummaryCard';
+import { DEFAULT_BOTTLE_FEEDING_VOLUME_ML } from '@/constants/bottleFeeding';
 import { DEFAULT_CHILD_NAME, DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
@@ -627,6 +628,9 @@ export default function TodaySleepScreen() {
   const [childBirthDate, setChildBirthDate] = useState<string | null>(null);
   const [childPhotoUri, setChildPhotoUri] = useState<string | null>(null);
   const [bottleFeedingEnabled, setBottleFeedingEnabled] = useState(false);
+  const [bottleFeedingDefaultVolumeMl, setBottleFeedingDefaultVolumeMl] = useState(
+    DEFAULT_BOTTLE_FEEDING_VOLUME_ML,
+  );
   const [sleepPlan, setSleepPlan] = useState(DEFAULT_SLEEP_PLAN);
   const [sleepDayPlan, setSleepDayPlan] = useState<SleepDayPlan | null>(null);
   const [availablePlans, setAvailablePlans] = useState<TargetDayPlan[]>([]);
@@ -742,6 +746,7 @@ export default function TodaySleepScreen() {
 
           if (isActive) {
             setBottleFeedingEnabled(profile.bottleFeedingEnabled);
+            setBottleFeedingDefaultVolumeMl(profile.bottleFeedingDefaultVolumeMl);
             setChildBirthDate(profile.birthDate);
             setChildName(profile.name);
             setChildPhotoUri(profile.photoUri);
@@ -749,6 +754,7 @@ export default function TodaySleepScreen() {
         } catch {
           if (isActive) {
             setBottleFeedingEnabled(false);
+            setBottleFeedingDefaultVolumeMl(DEFAULT_BOTTLE_FEEDING_VOLUME_ML);
             setChildBirthDate(null);
             setChildName(DEFAULT_CHILD_NAME);
             setChildPhotoUri(null);
@@ -1921,9 +1927,9 @@ export default function TodaySleepScreen() {
       />
       {bottleFeedingEnabled ? (
         <BottleFeedingEditorModal
+          defaultVolumeMl={bottleFeedingDefaultVolumeMl}
           feeding={bottleFeedingEditorState?.feeding ?? null}
           isSaving={isSaving}
-          lastUsedVolumeMl={latestBottleFeeding?.volumeMl ?? null}
           mode={bottleFeedingEditorState?.mode ?? 'create'}
           onClose={() => setBottleFeedingEditorState(null)}
           onDelete={handleBottleFeedingDelete}
