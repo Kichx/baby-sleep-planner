@@ -13,7 +13,18 @@ export {
   saveProfilePhotoCopy,
 } from '@/db/profilePhotoStorage';
 export {
+  createBottleFeeding,
+  deleteBottleFeeding,
+  getBottleFeedingStatsInRange,
+  getLast24HoursBottleFeedingStats,
+  getLatestBottleFeeding,
+  getTodayBottleFeedingStats,
+  listBottleFeedingsInRange,
+  updateBottleFeeding,
+} from '@/db/bottleFeedingRepository';
+export {
   activateTargetDayPlan,
+  applyBottleFeedingPromptDecision,
   assignSleepDayPlanSnapshot,
   createTargetDayPlan,
   createSleepSession,
@@ -30,6 +41,7 @@ export {
   saveTargetDayPlan,
   startSleepSession,
   stopActiveSleepSession,
+  updateChildBottleFeedingEnabled,
   updateChildProfile,
   updateChildProfileName,
   updateChildProfilePhotoUri,

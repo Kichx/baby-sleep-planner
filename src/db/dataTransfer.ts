@@ -1,7 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { DEFAULT_CHILD_ID, DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
-import { DATABASE_VERSION } from '@/db/schema';
+import { BOTTLE_FEEDINGS_STORAGE_SQL, DATABASE_VERSION } from '@/db/schema';
 import {
   backfillMissingSleepDayPlanSnapshots,
   ensureDefaultChildProfile,
@@ -11,9 +11,17 @@ import {
 import type { EveningSleepRulesMode, SleepKind } from '@/types/sleep';
 
 export const APP_DATA_BACKUP_FORMAT = 'baby-sleep-planner-backup';
-export const APP_DATA_BACKUP_FORMAT_VERSION = 4;
+export const APP_DATA_BACKUP_FORMAT_VERSION = 7;
 export const APP_DATA_BACKUP_MIME_TYPE = 'application/json';
-const SUPPORTED_BACKUP_FORMAT_VERSIONS = new Set([1, 2, 3, APP_DATA_BACKUP_FORMAT_VERSION]);
+const SUPPORTED_BACKUP_FORMAT_VERSIONS = new Set([
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  APP_DATA_BACKUP_FORMAT_VERSION,
+]);
 
 type DataTransferErrorCode = 'invalid-json' | 'unsupported-format' | 'invalid-data';
 
@@ -21,6 +29,8 @@ interface ChildProfileBackupRow {
   id: string;
   name: string;
   birth_date: string | null;
+  bottle_feeding_enabled: number;
+  bottle_feeding_prompt_dismissed: number;
   created_at: string;
 }
 
@@ -30,6 +40,15 @@ interface SleepSessionBackupRow {
   kind: SleepKind;
   started_at: string;
   ended_at: string | null;
+}
+
+interface BottleFeedingBackupRow {
+  id: string;
+  child_id: string;
+  started_at: string;
+  volume_ml: number;
+  created_at: string;
+  updated_at: string;
 }
 
 interface TargetDayPlanBackupRow {
@@ -85,6 +104,7 @@ export interface AppDataBackup {
   databaseVersion: number;
   exportedAt: string;
   data: {
+    bottleFeedings: BottleFeedingBackupRow[];
     childProfiles: ChildProfileBackupRow[];
     sleepDayPlanSnapshots: SleepDayPlanSnapshotBackupRow[];
     sleepSessions: SleepSessionBackupRow[];
@@ -93,6 +113,7 @@ export interface AppDataBackup {
 }
 
 export interface AppDataRestoreSummary {
+  bottleFeedings: number;
   childProfiles: number;
   sleepDayPlanSnapshots: number;
   sleepSessions: number;
@@ -246,6 +267,20 @@ function readActiveFlag(row: Record<string, unknown>): number {
   return value;
 }
 
+function readOptionalEnabledFlag(row: Record<string, unknown>, fieldName: string): number {
+  const value = row[fieldName];
+
+  if (value === undefined) {
+    return 0;
+  }
+
+  if (value !== 0 && value !== 1) {
+    failInvalidData(`Invalid enabled flag: ${fieldName}`);
+  }
+
+  return value;
+}
+
 function readOptionalEveningRulesMode(row: Record<string, unknown>): EveningSleepRulesMode {
   const value = row.evening_rules_mode;
 
@@ -307,6 +342,11 @@ function assertUniqueSleepDayPlanSnapshots(
 function parseChildProfiles(value: unknown): ChildProfileBackupRow[] {
   const rows = assertRecordArray(value, 'childProfiles').map((row) => ({
     birth_date: readNullableString(row, 'birth_date'),
+    bottle_feeding_enabled: readOptionalEnabledFlag(row, 'bottle_feeding_enabled'),
+    bottle_feeding_prompt_dismissed: readOptionalEnabledFlag(
+      row,
+      'bottle_feeding_prompt_dismissed',
+    ),
     created_at: readIsoDateString(row, 'created_at'),
     id: readString(row, 'id'),
     name: readString(row, 'name'),
@@ -352,6 +392,37 @@ function parseSleepSessions(
   });
 
   assertUniqueIds(rows, 'sleep session');
+
+  return rows;
+}
+
+function parseBottleFeedings(
+  value: unknown,
+  childProfileIds: Set<string>,
+): BottleFeedingBackupRow[] {
+  const rows = readOptionalRecordArray(value, 'bottleFeedings').map((row) => {
+    const childId = readString(row, 'child_id');
+    const volumeMl = readInteger(row, 'volume_ml');
+
+    if (!childProfileIds.has(childId)) {
+      failInvalidData('Bottle feeding references an unknown child profile');
+    }
+
+    if (volumeMl <= 0) {
+      failInvalidData('Bottle feeding volume must be positive');
+    }
+
+    return {
+      child_id: childId,
+      created_at: readIsoDateString(row, 'created_at'),
+      id: readString(row, 'id'),
+      started_at: readIsoDateString(row, 'started_at'),
+      updated_at: readIsoDateString(row, 'updated_at'),
+      volume_ml: volumeMl,
+    };
+  });
+
+  assertUniqueIds(rows, 'bottle feeding');
 
   return rows;
 }
@@ -474,6 +545,7 @@ function normalizeBackup(value: unknown): AppDataBackup {
 
   const childProfiles = parseChildProfiles(data.childProfiles);
   const childProfileIds = new Set(childProfiles.map((profile) => profile.id));
+  const bottleFeedings = parseBottleFeedings(data.bottleFeedings, childProfileIds);
   const sleepSessions = parseSleepSessions(data.sleepSessions, childProfileIds);
   const targetDayPlans = parseTargetDayPlans(data.targetDayPlans, childProfileIds);
   const sleepDayPlanSnapshots = parseSleepDayPlanSnapshots(
@@ -483,6 +555,7 @@ function normalizeBackup(value: unknown): AppDataBackup {
 
   return {
     data: {
+      bottleFeedings,
       childProfiles,
       sleepDayPlanSnapshots,
       sleepSessions,
@@ -552,10 +625,17 @@ export async function buildAppDataBackup(db: SQLiteDatabase): Promise<AppDataBac
   await ensureDefaultChildProfile(db);
   await getTargetDayPlan(db);
   await ensureSleepDayPlanSnapshotStorage(db);
+  await db.execAsync(BOTTLE_FEEDINGS_STORAGE_SQL);
 
   const childProfiles = await db.getAllAsync<ChildProfileBackupRow>(
     `
-    SELECT id, name, birth_date, created_at
+    SELECT
+      id,
+      name,
+      birth_date,
+      bottle_feeding_enabled,
+      bottle_feeding_prompt_dismissed,
+      created_at
     FROM child_profile
     ORDER BY created_at ASC, id ASC
     `,
@@ -564,6 +644,13 @@ export async function buildAppDataBackup(db: SQLiteDatabase): Promise<AppDataBac
     `
     SELECT id, child_id, kind, started_at, ended_at
     FROM sleep_sessions
+    ORDER BY started_at ASC, id ASC
+    `,
+  );
+  const bottleFeedings = await db.getAllAsync<BottleFeedingBackupRow>(
+    `
+    SELECT id, child_id, started_at, volume_ml, created_at, updated_at
+    FROM bottle_feedings
     ORDER BY started_at ASC, id ASC
     `,
   );
@@ -625,6 +712,7 @@ export async function buildAppDataBackup(db: SQLiteDatabase): Promise<AppDataBac
 
   return normalizeBackup({
     data: {
+      bottleFeedings,
       childProfiles,
       sleepDayPlanSnapshots,
       sleepSessions,
@@ -662,20 +750,60 @@ export async function restoreAppDataBackup(
   await ensureDefaultChildProfile(db);
   await getTargetDayPlan(db);
   await ensureSleepDayPlanSnapshotStorage(db);
+  await db.execAsync(BOTTLE_FEEDINGS_STORAGE_SQL);
 
   await db.withTransactionAsync(async () => {
     await db.runAsync('DELETE FROM sleep_day_plan_snapshot');
     await db.runAsync('DELETE FROM target_day_plan');
+    await db.runAsync('DELETE FROM bottle_feedings');
     await db.runAsync('DELETE FROM sleep_sessions');
     await db.runAsync('DELETE FROM child_profile');
 
     for (const profile of normalizedBackup.data.childProfiles) {
       await db.runAsync(
         `
-        INSERT INTO child_profile (id, name, birth_date, created_at)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO child_profile (
+          id,
+          name,
+          birth_date,
+          bottle_feeding_enabled,
+          bottle_feeding_prompt_dismissed,
+          created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
         `,
-        [profile.id, profile.name, profile.birth_date, profile.created_at],
+        [
+          profile.id,
+          profile.name,
+          profile.birth_date,
+          profile.bottle_feeding_enabled,
+          profile.bottle_feeding_prompt_dismissed,
+          profile.created_at,
+        ],
+      );
+    }
+
+    for (const feeding of normalizedBackup.data.bottleFeedings) {
+      await db.runAsync(
+        `
+        INSERT INTO bottle_feedings (
+          id,
+          child_id,
+          started_at,
+          volume_ml,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        `,
+        [
+          feeding.id,
+          feeding.child_id,
+          feeding.started_at,
+          feeding.volume_ml,
+          feeding.created_at,
+          feeding.updated_at,
+        ],
       );
     }
 
@@ -807,6 +935,7 @@ export async function restoreAppDataBackup(
   );
 
   return {
+    bottleFeedings: normalizedBackup.data.bottleFeedings.length,
     childProfiles: normalizedBackup.data.childProfiles.length,
     sleepDayPlanSnapshots: snapshotCountRow?.count ?? 0,
     sleepSessions: normalizedBackup.data.sleepSessions.length,

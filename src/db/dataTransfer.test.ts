@@ -11,9 +11,21 @@ import {
 
 const validBackup: AppDataBackup = {
   data: {
+    bottleFeedings: [
+      {
+        child_id: 'default-child',
+        created_at: '2026-05-26T07:45:00.000Z',
+        id: 'bottle-feeding-1',
+        started_at: '2026-05-26T07:40:00.000Z',
+        updated_at: '2026-05-26T07:45:00.000Z',
+        volume_ml: 120,
+      },
+    ],
     childProfiles: [
       {
         birth_date: '2025-12-10',
+        bottle_feeding_enabled: 1,
+        bottle_feeding_prompt_dismissed: 1,
         created_at: '2026-05-20T08:00:00.000Z',
         id: 'default-child',
         name: 'Малыш',
@@ -89,16 +101,24 @@ describe('data transfer backup parsing', () => {
     const parsedBackup = parseAppDataBackup(serializeAppDataBackup(validBackup));
 
     expect(parsedBackup.data.childProfiles[0].name).toBe('Малыш');
+    expect(parsedBackup.data.childProfiles[0].bottle_feeding_enabled).toBe(1);
+    expect(parsedBackup.data.childProfiles[0].bottle_feeding_prompt_dismissed).toBe(1);
+    expect(parsedBackup.data.bottleFeedings[0].volume_ml).toBe(120);
     expect(parsedBackup.data.sleepSessions).toHaveLength(1);
     expect(parsedBackup.data.sleepDayPlanSnapshots[0].sleep_day_date).toBe('2026-05-26');
     expect(parsedBackup.data.targetDayPlans[0].is_active).toBe(1);
   });
 
   it('parses an old backup without sleep day plan snapshots', () => {
+    const {
+      bottle_feeding_enabled,
+      bottle_feeding_prompt_dismissed,
+      ...oldProfile
+    } = validBackup.data.childProfiles[0];
     const oldBackup = {
       ...validBackup,
       data: {
-        childProfiles: validBackup.data.childProfiles,
+        childProfiles: [oldProfile],
         sleepSessions: validBackup.data.sleepSessions,
         targetDayPlans: validBackup.data.targetDayPlans,
       },
@@ -107,6 +127,9 @@ describe('data transfer backup parsing', () => {
     const parsedBackup = parseAppDataBackup(JSON.stringify(oldBackup));
 
     expect(parsedBackup.data.sleepDayPlanSnapshots).toEqual([]);
+    expect(parsedBackup.data.bottleFeedings).toEqual([]);
+    expect(parsedBackup.data.childProfiles[0].bottle_feeding_enabled).toBe(0);
+    expect(parsedBackup.data.childProfiles[0].bottle_feeding_prompt_dismissed).toBe(0);
   });
 
   it('uses default evening settings for an old target day plan backup', () => {
@@ -144,6 +167,25 @@ describe('data transfer backup parsing', () => {
         sleepSessions: [
           {
             ...validBackup.data.sleepSessions[0],
+            child_id: 'missing-child',
+          },
+        ],
+      },
+    };
+
+    expect(() => parseAppDataBackup(serializeAppDataBackup(brokenBackup))).toThrow(
+      DataTransferError,
+    );
+  });
+
+  it('rejects bottle feedings that reference an unknown child profile', () => {
+    const brokenBackup: AppDataBackup = {
+      ...validBackup,
+      data: {
+        ...validBackup.data,
+        bottleFeedings: [
+          {
+            ...validBackup.data.bottleFeedings[0],
             child_id: 'missing-child',
           },
         ],

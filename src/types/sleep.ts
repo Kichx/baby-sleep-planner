@@ -20,6 +20,8 @@ export interface ChildProfile {
   name: string;
   birthDate: ISODateString | null;
   photoUri: string | null;
+  bottleFeedingEnabled: boolean;
+  bottleFeedingPromptDismissed: boolean;
   createdAt: ISODateString;
 }
 

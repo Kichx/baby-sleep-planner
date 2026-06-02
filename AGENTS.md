@@ -405,6 +405,18 @@ Before considering a SQLite schema change done, verify both cases:
 
 If the app suddenly shows broad load failures after a schema change, suspect migration/table-shape mismatch first. Check the exact SQL reads/writes that now reference new columns before changing UI error handling.
 
+## Implementation lessons from optional bottle-feeding tracker work
+
+Bottle feeding is an explicitly optional tracker, not a new default app domain. Keep the sleep flow primary and do not expand feeding into a general baby-tracker surface unless the user explicitly asks. In v1, keep `BottleFeeding` limited to `id`, `childId`, `startedAt`, `volumeMl`, `createdAt`, and `updatedAt`; do not add milk type, duration, notes, caregiver, temperature, mood, or links to a specific sleep session without a new request.
+
+Gate every feeding UI surface behind `bottleFeedingEnabled`: the home card, day-feed rows, any dedicated section/navigation entry, and feeding reminders. Disabling the setting must only hide functionality and stop reminders; it must not delete existing feeding rows. The soft suggestion prompt is controlled separately by `bottleFeedingPromptDismissed`; once dismissed, do not show it again automatically, and keep the feature available through settings.
+
+When adding or changing feeding persistence, update the full local-data chain together: fresh SQLite schema, idempotent migrations, repository functions, backup/export format, restore validation/defaults, TypeScript types, and focused tests. Treat existing local feeding rows as user data once the feature exists.
+
+For feeding time calculations, use the same local-time helpers and day-boundary approach as sleep. "Today" feeding stats mean the user's current calendar day from local day start to the next local day start; "last 24 hours" is a separate rolling window from `now - 24h` to `now`. The latest feeding must come from a global `startedAt DESC` query, not from a selected-day display list.
+
+On the main screen, if the feeding card is enabled, keep it compact and place it directly under the current sleep status before the sleep action buttons. Do not rewrite or simplify the existing sleep status block when adding optional tracker UI. Reload feeding state after create, edit, delete, selected-day changes, and setting toggles.
+
 ## Implementation lessons from APK builds and local data preservation
 
 APK builds are standalone Android apps, not Expo Go sessions. Data entered through Expo Go is not expected to appear after the first APK install. After the first APK install, local sleep data must be treated as user data that should survive normal app updates.
@@ -703,7 +715,7 @@ When adding a new `src/app` screen:
 - keep the new screen read-only if the task only asks to move or expose existing information;
 - avoid adding icon libraries only for one button. Prefer a small local presentational icon component built with React Native views.
 
-With Expo Router typed routes, `.expo/types/router.d.ts` can lag behind a newly added file route until Expo regenerates it. Do not edit generated `.expo` files. If TypeScript needs help for a new route, use a narrow named `Href` constant such as `const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href`, then run `npm run typecheck`.
+With Expo Router typed routes, `.expo/types/router.d.ts` can lag behind a newly added file route until Expo regenerates it. Do not edit generated `.expo` files. If TypeScript needs help for a new route, use a narrow named `Href` constant such as `const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href`, then run `npm run typecheck`. If TypeScript fails inside `.expo/types/router.d.ts` after an interrupted Expo web run or Fast Refresh, inspect the file for duplicated/truncated declarations, delete only the generated `.expo/types/router.d.ts`, and rerun `npm run typecheck` so Expo/TypeScript can regenerate clean route types.
 
 On Windows, before starting Expo/Metro, check whether running Metro is actually needed. Do not start Metro after every code change by default; TypeScript checks are enough unless the user asked to run the app, the task requires visual/manual verification, or the current change is risky without Expo Go testing.
 
@@ -716,6 +728,8 @@ Avoid short foreground timeouts as a Metro verification strategy. If Expo reache
 For browser-based UI checks, prefer the Codex in-app browser against the user's already-running local app. In this project the user usually keeps Expo web running at:
 
 `http://localhost:8081/`
+
+If the user message includes an in-app browser context with a current URL, use that exact URL and port first, for example `http://localhost:8083/`. Do not start another Expo server just because the usual `8081` port is documented here.
 
 Before starting any new Expo/Metro process, check whether `8081` is already usable:
 - `Get-NetTCPConnection -LocalPort 8081 -ErrorAction SilentlyContinue`;
@@ -730,6 +744,8 @@ When using the in-app browser, verify the changed UI with a DOM snapshot first, 
 - `/sleep-plan` for plan metrics, editors, and compact card layout;
 - `/profile` for profile/date input behavior;
 - `/info` for static help articles.
+
+For React Native Web verification, remember that `react-native-web` `Alert.alert` is effectively a no-op. If a new delete/edit flow must be verified in the browser, implement a visible confirmation UI or a narrow `Platform.OS === 'web'` confirmation path instead of relying only on `Alert.alert`.
 
 If a temporary Expo web server is truly needed because `8081` is unavailable, start only one alternate server, record the port in the progress update, and stop only the process you started after verification. Do not kill the user's long-running `8081` Metro process. Remove temporary logs such as `expo-web.log` before finishing.
 

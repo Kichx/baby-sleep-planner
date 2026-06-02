@@ -11,6 +11,7 @@ import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/PrimaryButton';
+import { BottleFeedingEditorModal } from '@/components/BottleFeedingEditorModal';
 import { ProfileAvatar } from '@/components/ProfileAvatar';
 import { SleepPlanIcon } from '@/components/SleepPlanIcon';
 import { SleepDayTimeline } from '@/components/SleepDayTimeline';
@@ -54,19 +55,26 @@ import {
 import { buildTodayPlanShareText } from '@/core/shareTodayPlan';
 import {
   assignSleepDayPlanSnapshot,
+  createBottleFeeding,
   createSleepSession,
+  deleteBottleFeeding,
   deleteSleepSession,
   ensureDefaultChildProfile,
+  getLatestBottleFeeding,
   getChildProfile,
+  getTodayBottleFeedingStats,
   getLatestSleepSession,
   getSleepDayPlan,
   listTargetDayPlans,
+  listBottleFeedingsInRange,
   listSleepSessionsInRange,
   startSleepSession,
   stopActiveSleepSession,
+  updateBottleFeeding,
   updateSleepSession,
 } from '@/db';
 import { syncSleepNotificationsFromDatabase } from '@/notifications/sleepNotifications';
+import type { BottleFeeding, BottleFeedingStats } from '@/types/bottleFeeding';
 import type {
   SleepDayPlan,
   SleepKind,
@@ -87,6 +95,18 @@ type EditorState =
       referenceDate: Date;
     };
 
+type BottleFeedingEditorState =
+  | {
+      mode: 'create';
+      feeding: null;
+      referenceDate: Date;
+    }
+  | {
+      mode: 'edit';
+      feeding: BottleFeeding;
+      referenceDate: Date;
+    };
+
 type SelectedDayType = 'past' | 'today' | 'future';
 
 interface LoadedSessionsForDate {
@@ -95,11 +115,32 @@ interface LoadedSessionsForDate {
   nearbySessions: SleepSession[];
 }
 
+interface LoadedBottleFeedingsForDate {
+  latestBottleFeeding: BottleFeeding | null;
+  selectedFeedings: BottleFeeding[];
+  nearbyFeedings: BottleFeeding[];
+  todayStats: BottleFeedingStats;
+}
+
+type DayFeedItem =
+  | {
+      id: string;
+      startedAt: string;
+      type: 'sleep';
+      session: SleepSession;
+    }
+  | {
+      id: string;
+      startedAt: string;
+      type: 'bottleFeeding';
+      feeding: BottleFeeding;
+    };
+
 interface SessionDayGroup {
   key: 'selected' | 'previous';
   title: string;
   subtitle: string;
-  sessions: SleepSession[];
+  items: DayFeedItem[];
 }
 
 const DAY_MINUTES = 24 * 60;
@@ -111,6 +152,10 @@ const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
 const SLEEP_RETROSPECTIVE_ROUTE = '/sleep-retrospective' as Href;
 const OFFICIAL_SLEEP_SOURCE_SUMMARY =
   'Источники: ВОЗ, CDC, AASM, Australian/Canadian 24-Hour';
+const EMPTY_BOTTLE_FEEDING_STATS: BottleFeedingStats = {
+  count: 0,
+  totalVolumeMl: 0,
+};
 
 function formatClock(date: Date): string {
   return formatLocalClock(date);
@@ -527,16 +572,70 @@ function sessionStartsInRange(session: SleepSession, rangeStart: Date, rangeEnd:
   return startedAt.getTime() >= rangeStart.getTime() && startedAt.getTime() < rangeEnd.getTime();
 }
 
+function bottleFeedingStartsInRange(
+  feeding: BottleFeeding,
+  rangeStart: Date,
+  rangeEnd: Date,
+): boolean {
+  const startedAt = new Date(feeding.startedAt);
+
+  return startedAt.getTime() >= rangeStart.getTime() && startedAt.getTime() < rangeEnd.getTime();
+}
+
+function sortDayFeedItemsNewestFirst(items: DayFeedItem[]): DayFeedItem[] {
+  return [...items].sort(
+    (first, second) =>
+      new Date(second.startedAt).getTime() - new Date(first.startedAt).getTime(),
+  );
+}
+
+function formatBottleFeedingMainLine(feeding: BottleFeeding | null, now: Date): string {
+  if (!feeding) {
+    return 'Записей пока нет';
+  }
+
+  const startedAt = new Date(feeding.startedAt);
+
+  if (!isSameCalendarDay(startedAt, now)) {
+    return `Последнее: ${formatRangeDateLabel(startedAt, now)} в ${formatClock(startedAt)} · ${
+      feeding.volumeMl
+    } мл`;
+  }
+
+  return `${formatDuration(Math.max(0, minutesBetween(startedAt, now)))} назад · ${
+    feeding.volumeMl
+  } мл`;
+}
+
+function formatBottleFeedingStatsLine(stats: BottleFeedingStats): string {
+  if (stats.count === 0) {
+    return 'Сегодня: пока нет записей';
+  }
+
+  return `Сегодня: ${stats.totalVolumeMl} мл · ${formatCount(
+    stats.count,
+    'кормление',
+    'кормления',
+    'кормлений',
+  )}`;
+}
+
 export default function TodaySleepScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const params = useLocalSearchParams<{ date?: string }>();
   const [sessions, setSessions] = useState<SleepSession[]>([]);
   const [nearbySessions, setNearbySessions] = useState<SleepSession[]>([]);
+  const [bottleFeedings, setBottleFeedings] = useState<BottleFeeding[]>([]);
+  const [nearbyBottleFeedings, setNearbyBottleFeedings] = useState<BottleFeeding[]>([]);
+  const [latestBottleFeeding, setLatestBottleFeeding] = useState<BottleFeeding | null>(null);
+  const [todayBottleFeedingStats, setTodayBottleFeedingStats] =
+    useState<BottleFeedingStats>(EMPTY_BOTTLE_FEEDING_STATS);
   const [latestSleepSessionId, setLatestSleepSessionId] = useState<string | null>(null);
   const [childName, setChildName] = useState(DEFAULT_CHILD_NAME);
   const [childBirthDate, setChildBirthDate] = useState<string | null>(null);
   const [childPhotoUri, setChildPhotoUri] = useState<string | null>(null);
+  const [bottleFeedingEnabled, setBottleFeedingEnabled] = useState(false);
   const [sleepPlan, setSleepPlan] = useState(DEFAULT_SLEEP_PLAN);
   const [sleepDayPlan, setSleepDayPlan] = useState<SleepDayPlan | null>(null);
   const [availablePlans, setAvailablePlans] = useState<TargetDayPlan[]>([]);
@@ -549,6 +648,8 @@ export default function TodaySleepScreen() {
   const [reloadVersion, setReloadVersion] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [editorState, setEditorState] = useState<EditorState | null>(null);
+  const [bottleFeedingEditorState, setBottleFeedingEditorState] =
+    useState<BottleFeedingEditorState | null>(null);
 
   const fetchSessionsForDate = useCallback(
     async (
@@ -578,6 +679,41 @@ export default function TodaySleepScreen() {
     [db],
   );
 
+  const fetchBottleFeedingsForDate = useCallback(
+    async (
+      referenceDate: Date,
+      currentNow: Date,
+      plan: SleepPlanPreset,
+      enabled: boolean,
+    ): Promise<LoadedBottleFeedingsForDate> => {
+      if (!enabled) {
+        return {
+          latestBottleFeeding: null,
+          nearbyFeedings: [],
+          selectedFeedings: [],
+          todayStats: EMPTY_BOTTLE_FEEDING_STATS,
+        };
+      }
+
+      const dayStart = getSleepDayStartForSelection(referenceDate, currentNow, plan);
+      const dayEnd = addMinutes(dayStart, DAY_MINUTES);
+      const previousDayStart = addMinutes(dayStart, -DAY_MINUTES);
+      const loadedFeedings = await listBottleFeedingsInRange(db, previousDayStart, dayEnd);
+      const latestFeeding = await getLatestBottleFeeding(db);
+      const todayStats = await getTodayBottleFeedingStats(db, currentNow);
+
+      return {
+        latestBottleFeeding: latestFeeding,
+        nearbyFeedings: loadedFeedings,
+        selectedFeedings: loadedFeedings.filter((feeding) =>
+          bottleFeedingStartsInRange(feeding, dayStart, dayEnd),
+        ),
+        todayStats,
+      };
+    },
+    [db],
+  );
+
   const loadSelectedDayData = useCallback(
     async (referenceDate: Date, currentNow: Date) => {
       const loadedDayPlan = await getSleepDayPlan(db, referenceDate, currentNow);
@@ -586,13 +722,20 @@ export default function TodaySleepScreen() {
         currentNow,
         loadedDayPlan.plan,
       );
+      const loadedBottleFeedings = await fetchBottleFeedingsForDate(
+        referenceDate,
+        currentNow,
+        loadedDayPlan.plan,
+        bottleFeedingEnabled,
+      );
 
       return {
+        bottleFeedings: loadedBottleFeedings,
         dayPlan: loadedDayPlan,
         sessions: loadedSessions,
       };
     },
-    [db, fetchSessionsForDate],
+    [bottleFeedingEnabled, db, fetchBottleFeedingsForDate, fetchSessionsForDate],
   );
 
   useFocusEffect(
@@ -604,12 +747,14 @@ export default function TodaySleepScreen() {
           const profile = await getChildProfile(db);
 
           if (isActive) {
+            setBottleFeedingEnabled(profile.bottleFeedingEnabled);
             setChildBirthDate(profile.birthDate);
             setChildName(profile.name);
             setChildPhotoUri(profile.photoUri);
           }
         } catch {
           if (isActive) {
+            setBottleFeedingEnabled(false);
             setChildBirthDate(null);
             setChildName(DEFAULT_CHILD_NAME);
             setChildPhotoUri(null);
@@ -661,6 +806,10 @@ export default function TodaySleepScreen() {
           setSleepPlan(loadedData.dayPlan.plan);
           setSessions(loadedData.sessions.selectedSessions);
           setNearbySessions(loadedData.sessions.nearbySessions);
+          setBottleFeedings(loadedData.bottleFeedings.selectedFeedings);
+          setNearbyBottleFeedings(loadedData.bottleFeedings.nearbyFeedings);
+          setLatestBottleFeeding(loadedData.bottleFeedings.latestBottleFeeding);
+          setTodayBottleFeedingStats(loadedData.bottleFeedings.todayStats);
           setLatestSleepSessionId(loadedData.sessions.latestSleepSessionId);
           setErrorMessage(null);
         }
@@ -701,6 +850,11 @@ export default function TodaySleepScreen() {
     const selectedGroupSessions = nearbySessions.filter((session) =>
       sessionStartsInRange(session, selectedDayStart, selectedDayEnd),
     );
+    const selectedGroupFeedings = bottleFeedingEnabled
+      ? nearbyBottleFeedings.filter((feeding) =>
+          bottleFeedingStartsInRange(feeding, selectedDayStart, selectedDayEnd),
+        )
+      : [];
     const previousGroupSessions = nearbySessions.filter((session) => {
       if (sessionStartsInRange(session, selectedDayStart, selectedDayEnd)) {
         return false;
@@ -708,24 +862,63 @@ export default function TodaySleepScreen() {
 
       return sleepSessionOverlapsDay(session, previousDayStart, selectedDayStart, now);
     });
+    const previousGroupFeedings = bottleFeedingEnabled
+      ? nearbyBottleFeedings.filter((feeding) =>
+          bottleFeedingStartsInRange(feeding, previousDayStart, selectedDayStart),
+        )
+      : [];
 
     return [
       {
+        items: sortDayFeedItemsNewestFirst([
+          ...selectedGroupSessions.map((session) => ({
+            id: session.id,
+            session,
+            startedAt: session.startedAt,
+            type: 'sleep' as const,
+          })),
+          ...selectedGroupFeedings.map((feeding) => ({
+            feeding,
+            id: feeding.id,
+            startedAt: feeding.startedAt,
+            type: 'bottleFeeding' as const,
+          })),
+        ]),
         key: 'selected',
-        sessions: sortSessionsNewestFirst(selectedGroupSessions),
         subtitle: formatDateLabel(selectedDate),
         title: formatSessionGroupTitle(selectedDate, now),
       },
       {
+        items: sortDayFeedItemsNewestFirst([
+          ...previousGroupSessions.map((session) => ({
+            id: session.id,
+            session,
+            startedAt: session.startedAt,
+            type: 'sleep' as const,
+          })),
+          ...previousGroupFeedings.map((feeding) => ({
+            feeding,
+            id: feeding.id,
+            startedAt: feeding.startedAt,
+            type: 'bottleFeeding' as const,
+          })),
+        ]),
         key: 'previous',
-        sessions: sortSessionsNewestFirst(previousGroupSessions),
         subtitle: formatDateLabel(previousDate),
         title: formatSessionGroupTitle(previousDate, now),
       },
     ];
-  }, [nearbySessions, now, selectedDate, selectedDayEnd, selectedDayStart]);
+  }, [
+    bottleFeedingEnabled,
+    nearbyBottleFeedings,
+    nearbySessions,
+    now,
+    selectedDate,
+    selectedDayEnd,
+    selectedDayStart,
+  ]);
   const displayedSessionCount = useMemo(
-    () => sessionDayGroups.reduce((total, group) => total + group.sessions.length, 0),
+    () => sessionDayGroups.reduce((total, group) => total + group.items.length, 0),
     [sessionDayGroups],
   );
 
@@ -933,6 +1126,10 @@ export default function TodaySleepScreen() {
     setSleepPlan(loadedData.dayPlan.plan);
     setSessions(loadedData.sessions.selectedSessions);
     setNearbySessions(loadedData.sessions.nearbySessions);
+    setBottleFeedings(loadedData.bottleFeedings.selectedFeedings);
+    setNearbyBottleFeedings(loadedData.bottleFeedings.nearbyFeedings);
+    setLatestBottleFeeding(loadedData.bottleFeedings.latestBottleFeeding);
+    setTodayBottleFeedingStats(loadedData.bottleFeedings.todayStats);
     setLatestSleepSessionId(loadedData.sessions.latestSleepSessionId);
   }
 
@@ -953,6 +1150,22 @@ export default function TodaySleepScreen() {
       mode: 'create',
       referenceDate: isToday ? new Date() : dateAtNoon(selectedDate),
       session: null,
+    });
+  }
+
+  function openCreateBottleFeedingEditor() {
+    setBottleFeedingEditorState({
+      feeding: null,
+      mode: 'create',
+      referenceDate: isToday ? new Date() : dateAtNoon(selectedDate),
+    });
+  }
+
+  function openEditBottleFeedingEditor(feeding: BottleFeeding) {
+    setBottleFeedingEditorState({
+      feeding,
+      mode: 'edit',
+      referenceDate: new Date(feeding.startedAt),
     });
   }
 
@@ -1059,6 +1272,51 @@ export default function TodaySleepScreen() {
       setEditorState(null);
     } catch {
       setErrorMessage('Не удалось удалить запись');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleBottleFeedingSave(input: { startedAt: Date; volumeMl: number }) {
+    const actionAt = new Date();
+
+    setIsSaving(true);
+    setErrorMessage(null);
+    setNow(actionAt);
+
+    try {
+      if (bottleFeedingEditorState?.mode === 'edit') {
+        await updateBottleFeeding(db, bottleFeedingEditorState.feeding.id, input);
+      } else {
+        await createBottleFeeding(db, input);
+      }
+
+      await reloadSelectedDay(selectedDate, actionAt);
+      setBottleFeedingEditorState(null);
+    } catch {
+      setErrorMessage('Не удалось сохранить кормление');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleBottleFeedingDelete() {
+    if (bottleFeedingEditorState?.mode !== 'edit') {
+      return;
+    }
+
+    const actionAt = new Date();
+
+    setIsSaving(true);
+    setErrorMessage(null);
+    setNow(actionAt);
+
+    try {
+      await deleteBottleFeeding(db, bottleFeedingEditorState.feeding.id);
+      await reloadSelectedDay(selectedDate, actionAt);
+      setBottleFeedingEditorState(null);
+    } catch {
+      setErrorMessage('Не удалось удалить кормление');
     } finally {
       setIsSaving(false);
     }
@@ -1296,6 +1554,31 @@ export default function TodaySleepScreen() {
                 <Text style={styles.helper}>с {formatClock(snapshot.statusStartedAt)}</Text>
               </View>
 
+              {bottleFeedingEnabled ? (
+                <View style={styles.bottleFeedingCard}>
+                  <View style={styles.bottleFeedingTextBlock}>
+                    <Text style={styles.bottleFeedingTitle}>Кормление</Text>
+                    <Text style={styles.bottleFeedingValue}>
+                      {formatBottleFeedingMainLine(latestBottleFeeding, now)}
+                    </Text>
+                    {latestBottleFeeding ? (
+                      <Text style={styles.bottleFeedingCaption}>
+                        {formatBottleFeedingStatsLine(todayBottleFeedingStats)}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <PrimaryButton
+                    compact
+                    disabled={isLoading || isSaving}
+                    label="+ Добавить"
+                    onPress={openCreateBottleFeedingEditor}
+                    style={styles.bottleFeedingButton}
+                    textStyle={styles.bottleFeedingButtonText}
+                    variant="secondary"
+                  />
+                </View>
+              ) : null}
+
               <View style={styles.actionRow}>
                 <PrimaryButton
                   compact
@@ -1522,16 +1805,41 @@ export default function TodaySleepScreen() {
                       </View>
                     </View>
                     <Text style={styles.sessionDayCount}>
-                      {group.sessions.length === 0
+                      {group.items.length === 0
                         ? 'нет'
-                        : formatSessionCount(group.sessions.length)}
+                        : formatSessionCount(group.items.length)}
                     </Text>
                   </View>
 
-                  {group.sessions.length === 0 ? (
+                  {group.items.length === 0 ? (
                     <Text style={styles.groupEmptyText}>Нет записей</Text>
                   ) : (
-                    group.sessions.map((session) => {
+                    group.items.map((item) => {
+                      if (item.type === 'bottleFeeding') {
+                        const startedAt = new Date(item.feeding.startedAt);
+
+                        return (
+                          <Pressable
+                            accessibilityRole="button"
+                            key={item.id}
+                            onPress={() => openEditBottleFeedingEditor(item.feeding)}
+                            style={({ pressed }) => [
+                              styles.sessionRow,
+                              styles.bottleFeedingRow,
+                              group.key === 'previous' ? styles.previousSessionRow : null,
+                              pressed ? styles.sessionRowPressed : null,
+                            ]}>
+                            <View style={styles.sessionInfo}>
+                              <Text style={styles.sessionTitle}>Кормление бутылочкой</Text>
+                              <Text style={styles.sessionTime}>{formatClock(startedAt)}</Text>
+                            </View>
+                            <Text style={styles.sessionDuration}>{item.feeding.volumeMl} мл</Text>
+                            <Text style={styles.sessionAction}>Изменить</Text>
+                          </Pressable>
+                        );
+                      }
+
+                      const session = item.session;
                       const startedAt = new Date(session.startedAt);
                       const endedAt = session.endedAt ? new Date(session.endedAt) : null;
                       const effectiveKind = getSessionKindForCalculations(
@@ -1586,6 +1894,18 @@ export default function TodaySleepScreen() {
         session={editorState?.session ?? null}
         visible={editorState !== null}
       />
+      {bottleFeedingEnabled ? (
+        <BottleFeedingEditorModal
+          feeding={bottleFeedingEditorState?.feeding ?? null}
+          isSaving={isSaving}
+          mode={bottleFeedingEditorState?.mode ?? 'create'}
+          onClose={() => setBottleFeedingEditorState(null)}
+          onDelete={handleBottleFeedingDelete}
+          onSave={handleBottleFeedingSave}
+          referenceDate={bottleFeedingEditorState?.referenceDate ?? now}
+          visible={bottleFeedingEditorState !== null}
+        />
+      ) : null}
     </>
   );
 }
@@ -1886,6 +2206,47 @@ const styles = StyleSheet.create({
   manualButton: {
     flex: 1,
   },
+  bottleFeedingCard: {
+    minHeight: 92,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  bottleFeedingTextBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: spacing.xs,
+  },
+  bottleFeedingTitle: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  bottleFeedingValue: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: '900',
+  },
+  bottleFeedingCaption: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  bottleFeedingButton: {
+    minWidth: 112,
+    minHeight: 40,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+  },
+  bottleFeedingButtonText: {
+    fontSize: 14,
+  },
   grid: {
     flexDirection: 'row',
     gap: spacing.md,
@@ -2088,6 +2449,9 @@ const styles = StyleSheet.create({
   },
   previousSessionRow: {
     backgroundColor: colors.surfaceMuted,
+  },
+  bottleFeedingRow: {
+    borderColor: colors.primarySoft,
   },
   sessionInfo: {
     flex: 1,

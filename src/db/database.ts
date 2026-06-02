@@ -68,6 +68,14 @@ const TARGET_DAY_PLAN_COLUMNS = [
 const CHILD_PROFILE_COLUMNS = [
   { definition: 'birth_date TEXT', name: 'birth_date' },
   { definition: 'photo_uri TEXT', name: 'photo_uri' },
+  {
+    definition: 'bottle_feeding_enabled INTEGER NOT NULL DEFAULT 0',
+    name: 'bottle_feeding_enabled',
+  },
+  {
+    definition: 'bottle_feeding_prompt_dismissed INTEGER NOT NULL DEFAULT 0',
+    name: 'bottle_feeding_prompt_dismissed',
+  },
 ] as const;
 
 const DEFAULT_TARGET_DAY_PLAN_NAME = 'Основной';

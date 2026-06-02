@@ -13,6 +13,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -27,6 +28,7 @@ import { colors, radius, spacing } from '@/constants/theme';
 import {
   APP_DATA_BACKUP_MIME_TYPE,
   DataTransferError,
+  applyBottleFeedingPromptDecision,
   buildAppDataBackup,
   deleteProfilePhotoCopy,
   getChildProfile,
@@ -34,6 +36,7 @@ import {
   restoreAppDataBackup,
   saveProfilePhotoCopy,
   serializeAppDataBackup,
+  updateChildBottleFeedingEnabled,
   updateChildProfile,
   updateChildProfilePhotoUri,
 } from '@/db';
@@ -110,6 +113,7 @@ function getTransferErrorMessage(error: unknown, fallback: string): string {
 }
 
 function formatRestoreMessage(summary: {
+  bottleFeedings: number;
   childProfiles: number;
   sleepDayPlanSnapshots: number;
   sleepSessions: number;
@@ -118,6 +122,7 @@ function formatRestoreMessage(summary: {
   return [
     `Профилей: ${summary.childProfiles}`,
     `Записей сна: ${summary.sleepSessions}`,
+    `Кормлений бутылочкой: ${summary.bottleFeedings}`,
     `Планов сна: ${summary.targetDayPlans}`,
     `Привязок дней: ${summary.sleepDayPlanSnapshots}`,
   ].join('\n');
@@ -199,8 +204,11 @@ export default function ProfileScreen() {
   const [draftBirthDate, setDraftBirthDate] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isFeatureSaving, setIsFeatureSaving] = useState(false);
   const [isPhotoSaving, setIsPhotoSaving] = useState(false);
   const [isDataTransferRunning, setIsDataTransferRunning] = useState(false);
+  const [bottleFeedingEnabled, setBottleFeedingEnabled] = useState(false);
+  const [bottleFeedingPromptDismissed, setBottleFeedingPromptDismissed] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -214,12 +222,17 @@ export default function ProfileScreen() {
     trimmedDraftName.length > 0 &&
     (trimmedDraftName !== profileName || draftBirthDate !== birthDate);
   const isBusy = isLoading || isSaving || isPhotoSaving || isDataTransferRunning;
+  const isToggleDisabled = isBusy || isFeatureSaving;
 
   function applyProfile(profile: {
+    bottleFeedingEnabled: boolean;
+    bottleFeedingPromptDismissed: boolean;
     name: string;
     birthDate: string | null;
     photoUri: string | null;
   }) {
+    setBottleFeedingEnabled(profile.bottleFeedingEnabled);
+    setBottleFeedingPromptDismissed(profile.bottleFeedingPromptDismissed);
     setProfileName(profile.name);
     setBirthDate(profile.birthDate);
     setProfilePhotoUri(profile.photoUri);
@@ -392,6 +405,47 @@ export default function ProfileScreen() {
       setErrorMessage('Не удалось убрать фото');
     } finally {
       setIsPhotoSaving(false);
+    }
+  }
+
+  async function handleBottleFeedingEnabledChange(enabled: boolean) {
+    const previousValue = bottleFeedingEnabled;
+
+    setBottleFeedingEnabled(enabled);
+    setIsFeatureSaving(true);
+    setMessage(null);
+    setErrorMessage(null);
+
+    try {
+      await updateChildBottleFeedingEnabled(db, enabled);
+      setMessage('Настройка сохранена');
+    } catch {
+      setBottleFeedingEnabled(previousValue);
+      setErrorMessage('Не удалось сохранить настройку');
+    } finally {
+      setIsFeatureSaving(false);
+    }
+  }
+
+  async function handleBottleFeedingPromptDecision(enabled: boolean) {
+    const previousEnabled = bottleFeedingEnabled;
+    const previousDismissed = bottleFeedingPromptDismissed;
+
+    setBottleFeedingEnabled(enabled);
+    setBottleFeedingPromptDismissed(true);
+    setIsFeatureSaving(true);
+    setMessage(null);
+    setErrorMessage(null);
+
+    try {
+      await applyBottleFeedingPromptDecision(db, enabled);
+      setMessage(enabled ? 'Кормление бутылочкой включено' : 'Настройка сохранена');
+    } catch {
+      setBottleFeedingEnabled(previousEnabled);
+      setBottleFeedingPromptDismissed(previousDismissed);
+      setErrorMessage('Не удалось сохранить настройку');
+    } finally {
+      setIsFeatureSaving(false);
     }
   }
 
@@ -638,6 +692,65 @@ export default function ProfileScreen() {
             </View>
 
             <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Дополнительно</Text>
+              {!bottleFeedingEnabled && !bottleFeedingPromptDismissed ? (
+                <View style={styles.featurePrompt}>
+                  <View style={styles.featureToggleTextBlock}>
+                    <Text style={styles.featurePromptTitle}>
+                      Хотите отслеживать кормление бутылочкой?
+                    </Text>
+                    <Text style={styles.featureToggleDescription}>
+                      Записывайте время и объём кормления, чтобы видеть, сколько прошло с последнего раза.
+                    </Text>
+                  </View>
+                  <View style={styles.featurePromptActions}>
+                    <PrimaryButton
+                      compact
+                      disabled={isToggleDisabled}
+                      label="Включить"
+                      onPress={() => {
+                        void handleBottleFeedingPromptDecision(true);
+                      }}
+                      style={styles.featurePromptButton}
+                      textStyle={styles.featurePromptButtonText}
+                    />
+                    <PrimaryButton
+                      compact
+                      disabled={isToggleDisabled}
+                      label="Не сейчас"
+                      onPress={() => {
+                        void handleBottleFeedingPromptDecision(false);
+                      }}
+                      style={styles.featurePromptButton}
+                      textStyle={styles.featurePromptButtonText}
+                      variant="secondary"
+                    />
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.featureToggleRow}>
+                  <View style={styles.featureToggleTextBlock}>
+                    <Text style={styles.featureToggleTitle}>Кормление бутылочкой</Text>
+                    <Text style={styles.featureToggleDescription}>
+                      Записывайте время и объём кормления, чтобы видеть, сколько прошло с последнего раза.
+                    </Text>
+                  </View>
+                  <Switch
+                    accessibilityLabel="Кормление бутылочкой"
+                    disabled={isToggleDisabled}
+                    onValueChange={handleBottleFeedingEnabledChange}
+                    thumbColor={bottleFeedingEnabled ? colors.primary : colors.surface}
+                    trackColor={{
+                      false: colors.surfaceMuted,
+                      true: colors.primarySoft,
+                    }}
+                    value={bottleFeedingEnabled}
+                  />
+                </View>
+              )}
+            </View>
+
+            <View style={styles.section}>
               <Text style={styles.sectionTitle}>Данные</Text>
               <View style={styles.infoList}>
                 <InfoRow label="Хранение" value="На устройстве" />
@@ -856,6 +969,60 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 24,
     fontWeight: '900',
+  },
+  featureToggleRow: {
+    minHeight: 92,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  featurePrompt: {
+    gap: spacing.md,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  featureToggleTextBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: spacing.xs,
+  },
+  featurePromptTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 23,
+  },
+  featureToggleTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  featureToggleDescription: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 19,
+  },
+  featurePromptActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  featurePromptButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+  },
+  featurePromptButtonText: {
+    fontSize: 15,
   },
   infoList: {
     gap: spacing.xs,

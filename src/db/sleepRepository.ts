@@ -37,6 +37,8 @@ interface ChildProfileRow {
   name: string;
   birth_date: string | null;
   photo_uri: string | null;
+  bottle_feeding_enabled: number | null;
+  bottle_feeding_prompt_dismissed: number | null;
   created_at: string;
 }
 
@@ -164,6 +166,14 @@ const TARGET_DAY_PLAN_COLUMNS = [
 const CHILD_PROFILE_COLUMNS = [
   { definition: 'birth_date TEXT', name: 'birth_date' },
   { definition: 'photo_uri TEXT', name: 'photo_uri' },
+  {
+    definition: 'bottle_feeding_enabled INTEGER NOT NULL DEFAULT 0',
+    name: 'bottle_feeding_enabled',
+  },
+  {
+    definition: 'bottle_feeding_prompt_dismissed INTEGER NOT NULL DEFAULT 0',
+    name: 'bottle_feeding_prompt_dismissed',
+  },
 ] as const;
 
 function createLocalId(prefix: string, date: Date): string {
@@ -184,6 +194,8 @@ function mapSleepSessionRow(row: SleepSessionRow): SleepSession {
 
 function mapChildProfileRow(row: ChildProfileRow): ChildProfile {
   return {
+    bottleFeedingEnabled: row.bottle_feeding_enabled === 1,
+    bottleFeedingPromptDismissed: row.bottle_feeding_prompt_dismissed === 1,
     id: row.id,
     name: row.name,
     birthDate: row.birth_date,
@@ -1166,7 +1178,14 @@ export async function getChildProfile(
 
   const row = await db.getFirstAsync<ChildProfileRow>(
     `
-    SELECT id, name, birth_date, photo_uri, created_at
+    SELECT
+      id,
+      name,
+      birth_date,
+      photo_uri,
+      bottle_feeding_enabled,
+      bottle_feeding_prompt_dismissed,
+      created_at
     FROM child_profile
     WHERE id = ?
     LIMIT 1
@@ -1179,12 +1198,48 @@ export async function getChildProfile(
   }
 
   return {
+    bottleFeedingEnabled: false,
+    bottleFeedingPromptDismissed: false,
     id: childId,
     name: DEFAULT_CHILD_NAME,
     birthDate: null,
     photoUri: null,
     createdAt: new Date().toISOString(),
   };
+}
+
+export async function applyBottleFeedingPromptDecision(
+  db: SQLiteDatabase,
+  enabled: boolean,
+  childId = DEFAULT_CHILD_ID,
+): Promise<void> {
+  await ensureDefaultChildProfile(db);
+
+  await db.runAsync(
+    `
+    UPDATE child_profile
+    SET bottle_feeding_enabled = ?, bottle_feeding_prompt_dismissed = 1
+    WHERE id = ?
+    `,
+    [enabled ? 1 : 0, childId],
+  );
+}
+
+export async function updateChildBottleFeedingEnabled(
+  db: SQLiteDatabase,
+  enabled: boolean,
+  childId = DEFAULT_CHILD_ID,
+): Promise<void> {
+  await ensureDefaultChildProfile(db);
+
+  await db.runAsync(
+    `
+    UPDATE child_profile
+    SET bottle_feeding_enabled = ?
+    WHERE id = ?
+    `,
+    [enabled ? 1 : 0, childId],
+  );
 }
 
 export async function updateChildProfile(
