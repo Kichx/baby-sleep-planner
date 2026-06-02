@@ -44,6 +44,12 @@ export default function RootLayout() {
             }}
           />
           <Stack.Screen
+            name="sleep-retrospective"
+            options={{
+              title: 'Ретроспектива сна',
+            }}
+          />
+          <Stack.Screen
             name="info"
             options={{
               title: 'Справка',

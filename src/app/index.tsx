@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Stack, type Href, useFocusEffect, useRouter } from 'expo-router';
+import {
+  Stack,
+  type Href,
+  useFocusEffect,
+  useLocalSearchParams,
+  useRouter,
+} from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -34,6 +40,10 @@ import {
   isSameLocalCalendarDay,
   startOfLocalCalendarDay,
 } from '@/core/localDateTime';
+import {
+  dateFromSleepDayDateKey,
+  formatSleepDayDateKey,
+} from '@/core/sleepDay';
 import {
   checkTotalSleepAgainstOfficialGuideline,
   formatDurationRangeShort,
@@ -98,6 +108,7 @@ const DEFAULT_TIMER_REFRESH_MS = 30_000;
 const ACTIVE_SLEEP_DETAIL_REFRESH_MS = 1_000;
 const MAX_PAST_DAY_FEEDBACK_LINES = 3;
 const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
+const SLEEP_RETROSPECTIVE_ROUTE = '/sleep-retrospective' as Href;
 const OFFICIAL_SLEEP_SOURCE_SUMMARY =
   'Источники: ВОЗ, CDC, AASM, Australian/Canadian 24-Hour';
 
@@ -313,6 +324,16 @@ function dateAtNoon(date: Date): Date {
   return dateAtLocalNoon(date);
 }
 
+function parseSelectedDateParam(value: string | undefined): Date | null {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+
+  const date = dateFromSleepDayDateKey(value);
+
+  return formatSleepDayDateKey(date) === value ? date : null;
+}
+
 function addCalendarDays(date: Date, days: number): Date {
   return addLocalCalendarDays(date, days);
 }
@@ -509,6 +530,7 @@ function sessionStartsInRange(session: SleepSession, rangeStart: Date, rangeEnd:
 export default function TodaySleepScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
+  const params = useLocalSearchParams<{ date?: string }>();
   const [sessions, setSessions] = useState<SleepSession[]>([]);
   const [nearbySessions, setNearbySessions] = useState<SleepSession[]>([]);
   const [latestSleepSessionId, setLatestSleepSessionId] = useState<string | null>(null);
@@ -706,6 +728,20 @@ export default function TodaySleepScreen() {
     () => sessionDayGroups.reduce((total, group) => total + group.sessions.length, 0),
     [sessionDayGroups],
   );
+
+  useEffect(() => {
+    const routeDate = parseSelectedDateParam(params.date);
+
+    if (!routeDate) {
+      return;
+    }
+
+    setSelectedDate((currentDate) =>
+      formatSleepDayDateKey(currentDate) === formatSleepDayDateKey(routeDate)
+        ? currentDate
+        : routeDate,
+    );
+  }, [params.date]);
   const displayedSessionCountLabel =
     displayedSessionCount === 0
       ? 'Пока нет записей'
@@ -906,6 +942,10 @@ export default function TodaySleepScreen() {
 
   function openSleepPlan() {
     router.push(SLEEP_PLAN_ROUTE);
+  }
+
+  function openRetrospective() {
+    router.push(SLEEP_RETROSPECTIVE_ROUTE);
   }
 
   function openCreateEditor() {
@@ -1160,6 +1200,17 @@ export default function TodaySleepScreen() {
         options={{
           headerRight: () => (
             <View style={styles.headerActions}>
+              <Pressable
+                accessibilityLabel="Ретроспектива сна"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={openRetrospective}
+                style={({ pressed }) => [
+                  styles.retrospectiveButton,
+                  pressed ? styles.headerIconButtonPressed : null,
+                ]}>
+                <Text style={styles.retrospectiveIcon}>↺</Text>
+              </Pressable>
               <Pressable
                 accessibilityLabel="План дня"
                 accessibilityRole="button"
@@ -1548,6 +1599,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+  },
+  retrospectiveButton: {
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  retrospectiveIcon: {
+    color: colors.primary,
+    fontSize: 21,
+    fontWeight: '900',
+    lineHeight: 24,
   },
   sleepPlanButton: {
     width: 38,

@@ -358,6 +358,37 @@ Before considering this UI done, verify:
 - tomorrow without active-session leakage;
 - an active sleep session that started today.
 
+## Implementation lessons from sleep retrospective work
+
+The dedicated multi-day history screen is named "Ретроспектива сна". It should stay a calm retrospective, not an analytics dashboard. Default to 7 days and offer only simple period switches such as 7/14/21 days.
+
+Retrospective lists must show only completed past sleep days. Derive the period from the current sleep-day key, not from the raw calendar date. If the current time is before `plan.dayStartMinutes`, the current sleep day is still yesterday, so the latest completed day is the day before that.
+
+Keep retrospective summary/status/copy logic in `src/core` as pure TypeScript, for example `src/core/sleepRetrospective.ts`. UI screens should load the relevant sessions and plan snapshots, call existing day-summary logic such as `buildSleepDaySummary`, then render the core result. Do not decide status thresholds, dominant reasons, or hint copy inside React components.
+
+For each retrospective day, load and calculate with that day's saved plan snapshot via `getSleepDayPlan`, not only the currently active plan. Build the range from that plan's `dayStartMinutes`, load sessions for `[dayStart, dayEnd)`, and use the same open-session guard as other history screens: an active session ends at `min(now, dayEnd)` for overlap checks.
+
+Keep daily cards compact and scannable:
+- date and calm status;
+- подъём;
+- дневной сон with nap count;
+- отбой;
+- бодрствование vs plan;
+- one short hint.
+
+Details belong on the existing day screen. A retrospective card should navigate to the selected day, for example with a stable `YYYY-MM-DD` sleep-day key route param, instead of duplicating timeline, editing, or record-list UI inside the retrospective screen.
+
+Retrospective copy must be non-judgmental. Prefer statuses like "Близко к плану", "Немного сдвинулся", and "Сильно сдвинулся". Avoid "плохо", "ошибка", "нарушение", medical claims, or guilt language.
+
+Before considering retrospective work done, verify:
+- 7, 14, and 21 day periods;
+- early morning before day start does not include the still-open current sleep day;
+- empty days render calmly;
+- active sleep does not leak into future or unrelated days;
+- tapping a card opens the correct existing day screen;
+- core tests cover statuses, dominant reasons, empty state, and period summary copy;
+- TypeScript checks pass and unit tests pass.
+
 ## Implementation lessons from SQLite profile/settings work
 
 When adding a column to an existing SQLite table, update both paths:
