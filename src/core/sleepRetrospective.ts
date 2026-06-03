@@ -1,4 +1,8 @@
-import type { SleepDaySummary } from '@/types/sleep';
+import type {
+  SleepDaySummary,
+  SleepDayTemporaryMode,
+  SleepDayTemporaryModeType,
+} from '@/types/sleep';
 
 export type SleepRetrospectiveStatus = 'empty' | 'onTrack' | 'shifted' | 'stronglyShifted';
 
@@ -14,6 +18,7 @@ type RetrospectiveReason =
 export interface SleepRetrospectiveDayInput {
   date: Date;
   summary: SleepDaySummary;
+  temporaryModes?: SleepDayTemporaryMode[];
 }
 
 export interface SleepRetrospectiveDay {
@@ -26,8 +31,16 @@ export interface SleepRetrospectiveDay {
   reason: RetrospectiveReason | null;
   status: SleepRetrospectiveStatus;
   statusLabel: string;
+  temporaryModeBadges: SleepRetrospectiveTemporaryModeBadge[];
   totalDaySleepMinutes: number;
   wakeUpAt: Date | null;
+}
+
+export type SleepRetrospectiveTemporaryModeBadgeLabel = 'Мягкий день' | 'Ранний подъём';
+
+export interface SleepRetrospectiveTemporaryModeBadge {
+  label: SleepRetrospectiveTemporaryModeBadgeLabel;
+  mode: SleepDayTemporaryModeType;
 }
 
 export interface SleepRetrospectivePeriodSummary {
@@ -151,9 +164,25 @@ function getPrimaryReason(summary: SleepDaySummary): RetrospectiveReason | null 
   return noticeableCandidates[0]?.reason ?? null;
 }
 
-function buildHint(status: SleepRetrospectiveStatus, reason: RetrospectiveReason | null): string {
+function buildHint(
+  status: SleepRetrospectiveStatus,
+  reason: RetrospectiveReason | null,
+  temporaryModeContext: { hasEarlyWake: boolean; hasSoftDay: boolean },
+): string {
   if (status === 'empty') {
     return 'Нет записей за день. Можно открыть день и добавить сон.';
+  }
+
+  if (temporaryModeContext.hasSoftDay && temporaryModeContext.hasEarlyWake) {
+    return 'День был мягче обычного после раннего подъёма. Можно вернуться к основному плану.';
+  }
+
+  if (temporaryModeContext.hasSoftDay) {
+    return 'День был мягче обычного после сложной ночи. Можно вернуться к основному плану.';
+  }
+
+  if (temporaryModeContext.hasEarlyWake) {
+    return 'День начался раньше обычного, поэтому первый сон был сдвинут мягче.';
   }
 
   if (status === 'onTrack') {
@@ -199,6 +228,31 @@ function getReasonSummary(reason: RetrospectiveReason): string {
   }
 }
 
+function hasActiveTemporaryMode(
+  temporaryModes: SleepDayTemporaryMode[],
+  mode: SleepDayTemporaryModeType,
+): boolean {
+  return temporaryModes.some(
+    (temporaryMode) => temporaryMode.mode === mode && temporaryMode.disabledAt === null,
+  );
+}
+
+export function getSleepRetrospectiveTemporaryModeBadges(
+  temporaryModes: SleepDayTemporaryMode[] = [],
+): SleepRetrospectiveTemporaryModeBadge[] {
+  const badges: SleepRetrospectiveTemporaryModeBadge[] = [];
+
+  if (hasActiveTemporaryMode(temporaryModes, 'soft_day')) {
+    badges.push({ label: 'Мягкий день', mode: 'soft_day' });
+  }
+
+  if (hasActiveTemporaryMode(temporaryModes, 'early_wake')) {
+    badges.push({ label: 'Ранний подъём', mode: 'early_wake' });
+  }
+
+  return badges;
+}
+
 function getTopReason(days: SleepRetrospectiveDay[]): RetrospectiveReason | null {
   const counts = new Map<RetrospectiveReason, number>();
 
@@ -216,6 +270,9 @@ export function buildSleepRetrospectiveDay(
 ): SleepRetrospectiveDay {
   const status = getStatus(input.summary);
   const reason = status === 'empty' || status === 'onTrack' ? null : getPrimaryReason(input.summary);
+  const temporaryModeBadges = getSleepRetrospectiveTemporaryModeBadges(input.temporaryModes);
+  const hasSoftDay = temporaryModeBadges.some((badge) => badge.mode === 'soft_day');
+  const hasEarlyWake = temporaryModeBadges.some((badge) => badge.mode === 'early_wake');
 
   return {
     awakeDeltaMinutes: input.summary.targetAwakeDeltaMinutes,
@@ -223,10 +280,11 @@ export function buildSleepRetrospectiveDay(
     completedNaps: input.summary.completedNaps,
     date: input.date,
     hasRecords: input.summary.sleepSessionCount > 0,
-    hint: buildHint(status, reason),
+    hint: buildHint(status, reason, { hasEarlyWake, hasSoftDay }),
     reason,
     status,
     statusLabel: getStatusLabel(status),
+    temporaryModeBadges,
     totalDaySleepMinutes: input.summary.totalDaySleepMinutes,
     wakeUpAt: input.summary.wakeUpAt,
   };

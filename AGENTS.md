@@ -235,6 +235,13 @@ When changing recommendation logic, update or add tests.
 
 Temporary day modes such as `soft_day` and `early_wake` are effective-plan overlays for one sleep day. They must not rewrite the permanent `target_day_plan`, saved sleep-day snapshots, SQLite schema, or user history unless a later task explicitly asks for persistence changes.
 
+Keep the plan layers explicit:
+- `preset_template` is a non-persisted starter recommendation from core, usually age-based. It can prefill or preview a plan but must not create rows until the parent explicitly applies it.
+- `target_day_plan` is the persisted permanent base plan. It is the source of plan name, active state, source plan id, saved snapshots, and long-term history context.
+- `effective_plan` is a one-day calculated overlay built from a base `target_day_plan` or saved snapshot plus active temporary modes. It is used for calculations and display only, and is never saved as a replacement plan.
+
+Keep summed 24-hour awake time (`Бодрствование за 24 часа (ВБ)`) as detail content in expanded `/sleep-plan` calculation checks. The main "Сон сегодня" screen may show remaining awake time to the day target, but not a standalone summed-WB card or first-level `всего ...` awake metric.
+
 Keep effective-plan derivation in `src/core/sleepPlan.ts` or another pure `src/core` module. UI, repository, notifications, and screens should pass the base active/snapshot plan plus `SleepDayTemporaryMode[]` into core logic and use the returned plan for calculations.
 
 Use the existing core entry points instead of duplicating schedule math:
@@ -518,15 +525,22 @@ Retrospective lists must show only completed past sleep days. Derive the period 
 
 Keep retrospective summary/status/copy logic in `src/core` as pure TypeScript, for example `src/core/sleepRetrospective.ts`. UI screens should load the relevant sessions and plan snapshots, call existing day-summary logic such as `buildSleepDaySummary`, then render the core result. Do not decide status thresholds, dominant reasons, or hint copy inside React components.
 
-For each retrospective day, load and calculate with that day's saved plan snapshot via `getSleepDayPlan`, not only the currently active plan. Build the range from that plan's `dayStartMinutes`, load sessions for `[dayStart, dayEnd)`, and use the same open-session guard as other history screens: an active session ends at `min(now, dayEnd)` for overlap checks.
+For each retrospective day, load that day's saved plan snapshot via `getSleepDayPlan`, not only the currently active plan. Build the range from that base plan's `dayStartMinutes`, load sessions for `[dayStart, dayEnd)`, and use the same open-session guard as other history screens: an active session ends at `min(now, dayEnd)` for overlap checks.
+
+If `soft_day` or `early_wake` was active for a retrospective sleep-day, read `sleep_day_temporary_mode` by that exact `sleepDayDate`. Derive any retrospective `effective_plan` from the saved snapshot/base `SleepDayPlan` plus those modes; do not substitute the current active `target_day_plan`. If modes are absent, retrospective behavior should stay the same as before.
+
+Keep effective-plan derivation out of `buildSleepRetrospectiveDay`: the screen or a pure helper should load the saved/base `SleepDayPlan`, derive actual wake for `early_wake` from that day's sleep sessions, call `buildEffectiveSleepDayPlan`, and pass the resulting `SleepDaySummary` plus temporary modes into the retrospective core view model. `buildSleepRetrospectiveDay` should not read SQLite or silently swap plans.
 
 Keep daily cards compact and scannable:
 - date and calm status;
+- small temporary-mode badges such as "Мягкий день" or "Ранний подъём" only when active modes existed for that sleep-day;
 - подъём;
 - дневной сон with nap count;
 - отбой;
 - бодрствование vs plan;
 - one short hint.
+
+Retrospective hints should account for temporary day context without sounding corrective. For `soft_day`, acknowledge that the day was intentionally softer and suggest returning to the main plan. For `early_wake`, explain that the day started earlier and the first sleep was shifted softer. Avoid turning this into a dashboard, score, or long explanation.
 
 Details belong on the existing day screen. A retrospective card should navigate to the selected day, for example with a stable `YYYY-MM-DD` sleep-day key route param, instead of duplicating timeline, editing, or record-list UI inside the retrospective screen.
 
@@ -538,6 +552,8 @@ Before considering retrospective work done, verify:
 - empty days render calmly;
 - active sleep does not leak into future or unrelated days;
 - tapping a card opens the correct existing day screen;
+- soft-day and early-wake days show compact badges and mode-aware hints;
+- old days without temporary modes render as before;
 - core tests cover statuses, dominant reasons, empty state, and period summary copy;
 - TypeScript checks pass and unit tests pass.
 
@@ -719,18 +735,17 @@ When changing temporary mode persistence, update the whole local-data chain toge
 
 Use a unique key on `child_id + sleep_day_date_key + mode`. Re-enabling the same mode for the same child and sleep-day should reuse the existing row, clear `disabled_at` and `dismissed_at`, and avoid duplicate rows. Keep `dismissed_at` explicit so dismissing an `early_wake` suggestion can be remembered without pretending the mode is active.
 
-Until a UI task explicitly wires temporary modes into the app, keep them out of:
-- `buildTodaySleepSnapshot`;
-- `buildSleepDaySummary`;
-- `buildSleepRetrospectiveDay`;
-- `SleepDayTimeline`;
-- start/stop sleep;
-- active sleep notification sync;
-- bottle feeding logic.
+Current UI consumers should keep temporary modes narrow:
+- `/sleep-plan` owns compact controls for today's sleep-day and writes only `sleep_day_temporary_mode`;
+- `/` applies active modes only for today through an `effective_plan` and may show one compact badge or early-wake suggestion;
+- `/sleep-retrospective` reads modes for completed sleep-days, derives calculations from the saved snapshot plus modes, and shows only small badges and one calm hint;
+- `SleepDayTimeline`, start/stop sleep, active sleep notification state, and bottle feeding logic should not become temporary-mode management surfaces.
 
-If UI is added later, prefer a compact, calm day-level hint near the relevant screen-day decision. Do not put temporary-mode controls into the sleep-plan editor by default, because that makes a one-day exception look like a plan setting. The UI should reduce parent decision load, offer a safe default action, and keep `target_day_plan` unchanged unless the parent explicitly edits the plan.
+Temporary-mode UI should stay compact and calm near the relevant screen-day decision. It should reduce parent decision load, offer a safe default action, and keep `target_day_plan` unchanged unless the parent explicitly edits the permanent plan.
 
 When adding or changing temporary mode behavior, update Confluence along with code. At minimum update the page "Временные режимы sleep-day" plus any affected screen pages such as "Экран: Сон сегодня", "Экран: План дня", "Экран: Ретроспектива сна", "Экран: Профиль", and the technical/project map pages. After Confluence writes, read the pages back in markdown and verify Russian headings and key bullets are readable.
+
+When a feature moves from "not implemented yet" to implemented, search affected Confluence pages for stale negative statements such as "пока не отображается", "отдельного UI пока нет", or "если будет добавлено позже". Replace them in the same documentation pass so future implementation work does not follow outdated boundaries.
 
 ## Implementation lessons from shared sleep-plan messages and local time
 

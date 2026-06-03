@@ -24,16 +24,19 @@ import {
   type SleepRetrospectiveDay,
   type SleepRetrospectiveStatus,
 } from '@/core/sleepRetrospective';
+import { buildEffectiveSleepDayPlan } from '@/core/sleepPlan';
 import {
   dateFromSleepDayDateKey,
   formatSleepDayDateKey,
 } from '@/core/sleepDay';
+import { getActualWakeTimeForEarlyWakeMode } from '@/core/todayEffectiveSleepPlan';
 import {
   ensureDefaultChildProfile,
   getSleepDayPlan,
+  listSleepDayTemporaryModes,
   listSleepSessionsInRange,
 } from '@/db';
-import type { SleepSession } from '@/types/sleep';
+import type { SleepDayPlan, SleepSession, TargetDayPlan } from '@/types/sleep';
 
 type PeriodDays = 7 | 14 | 21;
 
@@ -142,6 +145,18 @@ function getStatusMarkerStyle(status: SleepRetrospectiveStatus) {
   }
 }
 
+function buildTargetPlanFromSleepDayPlan(dayPlan: SleepDayPlan): TargetDayPlan {
+  return {
+    childId: dayPlan.childId,
+    eveningRulesMode: 'auto',
+    id: dayPlan.sourcePlanId ?? 'sleep-day-plan',
+    isActive: !dayPlan.isSnapshot,
+    name: dayPlan.sourcePlanName,
+    plan: dayPlan.plan,
+    updatedAt: '1970-01-01T00:00:00.000Z',
+  };
+}
+
 export default function SleepRetrospectiveScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
@@ -173,17 +188,34 @@ export default function SleepRetrospectiveScreen() {
         const daySessions = loadedSessions.filter((session) =>
           sessionOverlapsRange(session, dayStart, dayEnd, loadedAt),
         );
+        const temporaryModes = await listSleepDayTemporaryModes(
+          db,
+          dayPlan.childId,
+          dayPlan.sleepDayDate,
+        );
+        const actualWakeTime = getActualWakeTimeForEarlyWakeMode({
+          now: loadedAt,
+          plan: dayPlan.plan,
+          sessions: daySessions,
+          sleepDayDateKey: dayPlan.sleepDayDate,
+        });
+        const effectiveDayPlan = buildEffectiveSleepDayPlan(
+          buildTargetPlanFromSleepDayPlan(dayPlan),
+          temporaryModes,
+          { actualWakeTime },
+        );
         const summary = buildSleepDaySummary(
           daySessions,
           referenceDate,
           loadedAt,
-          dayPlan.plan,
+          effectiveDayPlan.plan,
         );
 
         loadedDays.push({
           ...buildSleepRetrospectiveDay({
             date: dayDate,
             summary,
+            temporaryModes,
           }),
           dateKey: formatSleepDayDateKey(dayDate),
         });
@@ -298,6 +330,18 @@ export default function SleepRetrospectiveScreen() {
                       {day.statusLabel}
                     </Text>
                   </View>
+
+                  {day.temporaryModeBadges.length > 0 ? (
+                    <View style={styles.temporaryModeBadgeList}>
+                      {day.temporaryModeBadges.map((badge) => (
+                        <View key={badge.mode} style={styles.temporaryModeBadge}>
+                          <Text numberOfLines={1} style={styles.temporaryModeBadgeText}>
+                            {badge.label}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
 
                   <View style={styles.factList}>
                     <View style={styles.factRow}>
@@ -492,6 +536,27 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
     textAlign: 'right',
+  },
+  temporaryModeBadgeList: {
+    minHeight: 24,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  temporaryModeBadge: {
+    minHeight: 24,
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.primarySoft,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+  },
+  temporaryModeBadgeText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '900',
   },
   factList: {
     gap: spacing.xs,
