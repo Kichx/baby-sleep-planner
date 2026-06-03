@@ -551,6 +551,35 @@ When changing backup or restore logic, add focused tests for backup parsing/vali
 - returning to the main screen uses restored profile, active plan, and sleep sessions;
 - `android.package` and `DATABASE_NAME` are unchanged.
 
+## Implementation lessons from sleep-day temporary modes
+
+Temporary sleep-day modes are a day-level sleep context, not a target plan setting. Keep `soft_day` and `early_wake` in the separate `sleep_day_temporary_mode` table and domain type. Enabling, disabling, or dismissing a temporary mode must not mutate `target_day_plan`, active-plan state, sleep sessions, sleep-day plan snapshots, bottle feeding rows, or notifications unless a later task explicitly asks for that behavior.
+
+When changing temporary mode persistence, update the whole local-data chain together:
+- fresh SQLite schema in `src/db/schema.ts`;
+- idempotent migration guard in `src/db/database.ts`, before any early return based on `PRAGMA user_version`;
+- `DATABASE_VERSION`;
+- `src/types/sleep.ts`;
+- repository methods in `src/db/sleepDayTemporaryModeRepository.ts`;
+- backup/export-import in `src/db/dataTransfer.ts`;
+- `APP_DATA_BACKUP_FORMAT_VERSION` and support for older backups without `sleepDayTemporaryModes`;
+- focused tests for schema, migration, repository, and data transfer.
+
+Use a unique key on `child_id + sleep_day_date_key + mode`. Re-enabling the same mode for the same child and sleep-day should reuse the existing row, clear `disabled_at` and `dismissed_at`, and avoid duplicate rows. Keep `dismissed_at` explicit so dismissing an `early_wake` suggestion can be remembered without pretending the mode is active.
+
+Until a UI task explicitly wires temporary modes into the app, keep them out of:
+- `buildTodaySleepSnapshot`;
+- `buildSleepDaySummary`;
+- `buildSleepRetrospectiveDay`;
+- `SleepDayTimeline`;
+- start/stop sleep;
+- active sleep notification sync;
+- bottle feeding logic.
+
+If UI is added later, prefer a compact, calm day-level hint near the relevant screen-day decision. Do not put temporary-mode controls into the sleep-plan editor by default, because that makes a one-day exception look like a plan setting. The UI should reduce parent decision load, offer a safe default action, and keep `target_day_plan` unchanged unless the parent explicitly edits the plan.
+
+When adding or changing temporary mode behavior, update Confluence along with code. At minimum update the page "Временные режимы sleep-day" plus any affected screen pages such as "Экран: Сон сегодня", "Экран: План дня", "Экран: Ретроспектива сна", "Экран: Профиль", and the technical/project map pages. After Confluence writes, read the pages back in markdown and verify Russian headings and key bullets are readable.
+
 ## Implementation lessons from shared sleep-plan messages and local time
 
 For sending the current day plan to another caregiver, keep the generated message in `src/core` as pure TypeScript. UI code should only call the core formatter and open the system share sheet. For plain text sharing, use React Native `Share.share`; reserve `expo-sharing` for file export/share flows such as JSON backups.
