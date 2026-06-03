@@ -737,6 +737,27 @@ Keep `/info?article=practical-sleep-guidelines` compact. The article should expl
 
 When adding an apply-guideline action for Level B, do not auto-apply it. A button such as "Применить к плану" should only change the selected plan's daytime nap count and daytime sleep range, preserving wake-up time, total awake time, plan name, and active state. After applying, Level A should still recalculate independently and may show that the resulting 24-hour sleep range is below or above its official range.
 
+## Implementation lessons from age-based sleep plan preset templates
+
+Age-based plan templates for 0-12 months are a starter layer on top of Level B practical presets and the existing `src/core/sleepPlan.ts` schedule builders. Keep template catalogs in pure `src/core` code, such as `src/core/ageSleepPlanPresetTemplates.ts`, and build `SleepPlanPreset` values through `buildSleepPlanPreset`, `deriveEveningSleepRulesForPlan`, and `buildWakeWindowsForPlan`. Do not duplicate bedtime, wake-window, or evening-rule math in React screens.
+
+Treat age templates as `preset_template` recommendations, not as 20+ persisted user plans. Showing a template on `/sleep-plan` must not automatically create a plan, activate a plan, rewrite `target_day_plan`, rewrite snapshots, change SQLite schema, or enable a temporary sleep-day mode. A recommended template can be highlighted as "Рекомендуем", but it is applied only after an explicit user action.
+
+When an age band has two neighboring nap-count modes, recommend the softer option with more daytime naps and show the lower-nap option as the alternative. This is a conservative default for tired parents because more naps usually means shorter wake intervals. Keep the copy non-medical: these are practical plan starters, not official medical norms.
+
+If the child profile has a valid birth date, derive the age from the profile and ignore manual age-band selection. Manual age-band selection is only a fallback when the birth date is missing; it does not need to be persisted to the profile unless a separate task asks for persistence.
+
+Keep Level B and Level C boundaries explicit in age-template UI and documentation. Level B can guide nap count and daytime sleep range; Level C wake windows remain practical guidance and must be produced by the plan builder, not by hard-coded UI math. Do not call daytime naps or wake windows official medical norms.
+
+Before considering age-based preset templates done, verify:
+- every age from 0 through 12 months returns a `recommendedPreset`;
+- transition bands recommend the higher nap count and expose a non-duplicated alternative;
+- `whyRecommendedText` is non-empty and the recommended preset is not marked as automatically selected;
+- returned plans are compatible with `buildSleepPlanPreset` and `buildWakeWindowsForPlan`;
+- `/sleep-plan` works both with a profile birth date and with missing birth date plus manual age-band selection;
+- Confluence pages for A/B/C, `Экран: План дня`, `Экран: Справка`, technical information, and the app screen map are updated when this layer changes;
+- TypeScript checks pass and core tests pass.
+
 Before considering practical daytime sleep guidance done, verify:
 - `/sleep-plan` shows Level A and Level B as separate blocks;
 - `/info?article=practical-sleep-guidelines` opens directly and shows the table from `PRACTICAL_SLEEP_PRESETS`;

@@ -18,6 +18,13 @@ import { SleepPlanIcon } from '@/components/SleepPlanIcon';
 import { DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
+  AGE_SLEEP_PLAN_PRESET_TEMPLATE_BANDS,
+  getAgeSleepPlanPresetTemplateCatalogForProfile,
+  type AgeSleepPlanPresetTemplate,
+  type AgeSleepPlanPresetTemplateAgeBandId,
+  type AgeSleepPlanPresetTemplateCatalog,
+} from '@/core/ageSleepPlanPresetTemplates';
+import {
   calculateTotalSleepRangeFromWakeRange,
   checkTotalSleepRangeAgainstOfficialGuideline,
   formatDurationRangeShort,
@@ -118,11 +125,15 @@ interface OfficialSleepGuidelineCardProps {
 
 interface PracticalSleepPresetCardProps {
   ageMonths: number | null;
+  agePresetCatalog: AgeSleepPlanPresetTemplateCatalog | null;
   canApplyPreset: boolean;
   hasBirthDate: boolean;
-  onApplyPreset: (preset: PracticalSleepPreset) => void;
+  manualAgeBandId: AgeSleepPlanPresetTemplateAgeBandId | null;
+  onApplyPracticalPreset: (preset: PracticalSleepPreset) => void;
+  onApplyRecommendedTemplate: (preset: AgeSleepPlanPresetTemplate) => void;
   onOpenInfo: () => void;
   onOpenProfile: () => void;
+  onSelectManualAgeBand: (ageBandId: AgeSleepPlanPresetTemplateAgeBandId) => void;
   plan: SleepPlanPreset | null;
 }
 
@@ -373,6 +384,24 @@ function getPracticalDaySleepCaption(
         preset.daySleepMaxMinutes,
       )}`
     : 'суммарно';
+}
+
+function formatPresetTemplateDaySleep(preset: AgeSleepPlanPresetTemplate): string {
+  return formatDurationRangeShort(preset.daySleepMinMinutes, preset.daySleepMaxMinutes);
+}
+
+function formatPresetTemplateBedtime(preset: AgeSleepPlanPresetTemplate): string {
+  return formatClockRange(
+    preset.estimatedBedtimeStartMinutes,
+    preset.estimatedBedtimeEndMinutes,
+  );
+}
+
+function formatPresetTemplateNightSleep(preset: AgeSleepPlanPresetTemplate): string {
+  return formatDurationRangeShort(
+    preset.estimatedNightSleepMinMinutes,
+    preset.estimatedNightSleepMaxMinutes,
+  );
 }
 
 function formatPlanNapCount(napCount: number): string {
@@ -938,11 +967,15 @@ function OfficialSleepGuidelineCard({
 
 function PracticalSleepPresetCard({
   ageMonths,
+  agePresetCatalog,
   canApplyPreset,
   hasBirthDate,
-  onApplyPreset,
+  manualAgeBandId,
+  onApplyPracticalPreset,
+  onApplyRecommendedTemplate,
   onOpenInfo,
   onOpenProfile,
+  onSelectManualAgeBand,
   plan,
 }: PracticalSleepPresetCardProps) {
   const header = (
@@ -961,57 +994,83 @@ function PracticalSleepPresetCard({
       </Pressable>
     </View>
   );
+  const manualAgeBandSelector = !hasBirthDate ? (
+    <View style={styles.ageBandSelector}>
+      {AGE_SLEEP_PLAN_PRESET_TEMPLATE_BANDS.map((ageBand) => {
+        const isSelected = manualAgeBandId === ageBand.id;
 
-  if (!hasBirthDate) {
+        return (
+          <Pressable
+            key={ageBand.id}
+            accessibilityRole="button"
+            accessibilityState={{ selected: isSelected }}
+            onPress={() => onSelectManualAgeBand(ageBand.id)}
+            style={({ pressed }) => [
+              styles.ageBandChip,
+              isSelected ? styles.ageBandChipSelected : null,
+              pressed ? styles.ageBandChipPressed : null,
+            ]}>
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.ageBandChipText,
+                isSelected ? styles.ageBandChipTextSelected : null,
+              ]}>
+              {ageBand.title}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  ) : null;
+
+  const preset = agePresetCatalog?.practicalPreset ?? getPracticalSleepPresetByAgeMonths(ageMonths);
+  const practicalAgeMonths = ageMonths ?? agePresetCatalog?.ageBand.ageFromMonths ?? null;
+
+  if (!preset) {
     return (
       <View style={styles.guidelineCard}>
         {header}
         <Text style={styles.guidelineMicroText}>Уровень B · практический ориентир</Text>
         <Text style={styles.guidelineBody}>
-          Укажите дату рождения в профиле, чтобы видеть возрастной ориентир дневного сна.
+          {hasBirthDate
+            ? 'Для этого возраста практический ориентир дневного сна пока не задан.'
+            : 'Выберите возрастной диапазон или укажите дату рождения в профиле.'}
         </Text>
-        <Pressable
-          accessibilityRole="button"
-          onPress={onOpenProfile}
-          style={({ pressed }) => [
-            styles.guidelineSecondaryButton,
-            pressed ? styles.guidelineSecondaryButtonPressed : null,
-          ]}>
-          <Text style={styles.guidelineSecondaryButtonText}>Открыть профиль</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
-  const preset = getPracticalSleepPresetByAgeMonths(ageMonths);
-
-  if (!preset || ageMonths === null) {
-    return (
-      <View style={styles.guidelineCard}>
-        {header}
-        <Text style={styles.guidelineMicroText}>Уровень B · практический ориентир</Text>
-        <Text style={styles.guidelineBody}>
-          Для этого возраста практический ориентир дневного сна пока не задан.
-        </Text>
+        {manualAgeBandSelector}
+        {!hasBirthDate ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={onOpenProfile}
+            style={({ pressed }) => [
+              styles.guidelineSecondaryButton,
+              pressed ? styles.guidelineSecondaryButtonPressed : null,
+            ]}>
+            <Text style={styles.guidelineSecondaryButtonText}>Открыть профиль</Text>
+          </Pressable>
+        ) : null}
       </View>
     );
   }
 
   const napCountStatus = getNapCountStatusForPracticalPreset({
-    ageMonths,
+    ageMonths: practicalAgeMonths,
     napCount: plan?.napCount,
   });
   const daySleepStatus = getDaySleepRangeStatusForPracticalPreset({
-    ageMonths,
+    ageMonths: practicalAgeMonths,
     daySleepMaxMinutes: plan?.targetDaySleepMaxMinutes,
     daySleepMinMinutes: plan?.targetDaySleepMinMinutes,
   });
   const alternativeNapCounts = formatPracticalAlternativeNapCounts(preset);
+  const recommendedTemplate = agePresetCatalog?.recommendedPreset ?? null;
+  const alternativeTemplate = agePresetCatalog?.alternativePreset ?? null;
 
   return (
     <View style={styles.guidelineCard}>
       {header}
       <Text style={styles.guidelineMicroText}>Уровень B · практический ориентир</Text>
+      {manualAgeBandSelector}
 
       <View style={styles.guidelineLines}>
         <Text style={styles.guidelineBody}>
@@ -1030,6 +1089,48 @@ function PracticalSleepPresetCard({
       <Text style={styles.guidelineMicroText}>{preset.note}</Text>
       {preset.transitionNote ? (
         <Text style={styles.guidelineMicroText}>{preset.transitionNote}</Text>
+      ) : null}
+
+      {recommendedTemplate ? (
+        <View style={styles.templateBlock}>
+          <View style={styles.templateHeaderLine}>
+            <Text style={styles.templateTitle}>{recommendedTemplate.title}</Text>
+            <View style={styles.recommendedBadge}>
+              <Text style={styles.recommendedBadgeText}>Рекомендуем</Text>
+            </View>
+          </View>
+          <Text style={styles.guidelineMicroText}>
+            {agePresetCatalog?.whyRecommendedText}
+          </Text>
+          <View style={styles.templateFacts}>
+            <Text style={styles.templateFactText}>
+              Дневной сон: {formatPresetTemplateDaySleep(recommendedTemplate)}
+            </Text>
+            <Text style={styles.templateFactText}>
+              Отбой: {formatPresetTemplateBedtime(recommendedTemplate)}
+            </Text>
+            <Text style={styles.templateFactText}>
+              Ночь: {formatPresetTemplateNightSleep(recommendedTemplate)}
+            </Text>
+          </View>
+          <Text style={styles.guidelineMicroText}>{recommendedTemplate.softVariantText}</Text>
+          {alternativeTemplate ? (
+            <Text style={styles.guidelineMicroText}>
+              Соседний вариант: {alternativeTemplate.title}
+            </Text>
+          ) : null}
+          {canApplyPreset ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => onApplyRecommendedTemplate(recommendedTemplate)}
+              style={({ pressed }) => [
+                styles.guidelinePrimaryButton,
+                pressed ? styles.guidelinePrimaryButtonPressed : null,
+              ]}>
+              <Text style={styles.guidelinePrimaryButtonText}>Применить базовый режим</Text>
+            </Pressable>
+          ) : null}
+        </View>
       ) : null}
 
       {plan ? (
@@ -1053,10 +1154,10 @@ function PracticalSleepPresetCard({
         </Text>
       )}
 
-      {canApplyPreset ? (
+      {!recommendedTemplate && canApplyPreset ? (
         <Pressable
           accessibilityRole="button"
-          onPress={() => onApplyPreset(preset)}
+          onPress={() => onApplyPracticalPreset(preset)}
           style={({ pressed }) => [
             styles.guidelinePrimaryButton,
             pressed ? styles.guidelinePrimaryButtonPressed : null,
@@ -1289,6 +1390,8 @@ export default function SleepPlanScreen() {
   const [nameEditorMode, setNameEditorMode] = useState<NameEditorMode | null>(null);
   const [newPlanName, setNewPlanName] = useState('');
   const [childBirthDate, setChildBirthDate] = useState<string | null>(null);
+  const [manualAgeBandId, setManualAgeBandId] =
+    useState<AgeSleepPlanPresetTemplateAgeBandId | null>(null);
   const [isDeleteConfirmVisible, setIsDeleteConfirmVisible] = useState(false);
   const [isNapDropdownOpen, setIsNapDropdownOpen] = useState(false);
   const [isEveningSettingsExpanded, setIsEveningSettingsExpanded] = useState(false);
@@ -1345,6 +1448,15 @@ export default function SleepPlanScreen() {
     () => (childBirthDateValue ? getAgeInCompletedMonths(childBirthDateValue, new Date()) : null),
     [childBirthDateValue],
   );
+  const agePresetCatalog = useMemo(
+    () =>
+      getAgeSleepPlanPresetTemplateCatalogForProfile({
+        birthDate: childBirthDateValue,
+        manualAgeBandId,
+        now: new Date(),
+      }),
+    [childBirthDateValue, manualAgeBandId],
+  );
   const activePlanName = useMemo(
     () => plans.find((plan) => plan.isActive)?.name ?? DEFAULT_PLAN_NAME,
     [plans],
@@ -1352,16 +1464,17 @@ export default function SleepPlanScreen() {
   const parsedDraft = useMemo(() => parsePlanDraft(draft), [draft]);
   const draftNameError = useMemo(() => getDraftNameError(draft), [draft]);
   const practicalPreset = useMemo(
-    () => getPracticalSleepPresetByAgeMonths(childAgeMonths),
-    [childAgeMonths],
+    () => agePresetCatalog?.practicalPreset ?? getPracticalSleepPresetByAgeMonths(childAgeMonths),
+    [agePresetCatalog, childAgeMonths],
   );
+  const practicalAgeMonths = childAgeMonths ?? agePresetCatalog?.ageBand.ageFromMonths ?? null;
   const practicalNapCountStatus = useMemo(
     () =>
       getNapCountStatusForPracticalPreset({
-        ageMonths: childAgeMonths,
+        ageMonths: practicalAgeMonths,
         napCount: parsedDraft.plan?.napCount,
       }),
-    [childAgeMonths, parsedDraft.plan?.napCount],
+    [practicalAgeMonths, parsedDraft.plan?.napCount],
   );
   const bedtimeRange = useMemo(() => {
     if (!parsedDraft.plan) {
@@ -1398,7 +1511,8 @@ export default function SleepPlanScreen() {
     (nameEditorMode === 'edit' ? draftNameError : activeEditor ? parsedDraft.errorMessage : null);
   const isEditingDisabled = isLoading || isSaving || !selectedPlan;
   const canApplyPracticalPreset =
-    childBirthDateValue !== null && practicalPreset !== null && !isEditingDisabled;
+    (agePresetCatalog !== null || (childBirthDateValue !== null && practicalPreset !== null)) &&
+    !isEditingDisabled;
   const isPlanDeleteDisabled = isLoading || isSaving || !selectedPlan || plans.length <= 1;
   const isEditorModalVisible = activeEditor !== null;
   const sheetTitle =
@@ -1722,6 +1836,25 @@ export default function SleepPlanScreen() {
       name: selectedPlan.name,
       napCount: String(preset.recommendedNapCount),
     };
+    const nextParsedDraft = parsePlanDraft(nextDraft);
+
+    setDraft(nextDraft);
+    setErrorMessage(null);
+
+    if (!nextParsedDraft.plan) {
+      setErrorMessage(nextParsedDraft.errorMessage ?? 'Проверьте план сна');
+      return;
+    }
+
+    await saveDraftPlan(nextDraft, nextParsedDraft.plan);
+  }
+
+  async function applyPresetTemplate(preset: AgeSleepPlanPresetTemplate) {
+    if (!selectedPlan || isSaving) {
+      return;
+    }
+
+    const nextDraft = createDraftFromPlan(preset.plan, selectedPlan.name);
     const nextParsedDraft = parsePlanDraft(nextDraft);
 
     setDraft(nextDraft);
@@ -2131,13 +2264,19 @@ export default function SleepPlanScreen() {
 
           <PracticalSleepPresetCard
             ageMonths={childAgeMonths}
+            agePresetCatalog={agePresetCatalog}
             canApplyPreset={canApplyPracticalPreset}
             hasBirthDate={childBirthDateValue !== null}
-            onApplyPreset={(preset) => {
+            manualAgeBandId={manualAgeBandId}
+            onApplyPracticalPreset={(preset) => {
               void applyPracticalPreset(preset);
+            }}
+            onApplyRecommendedTemplate={(preset) => {
+              void applyPresetTemplate(preset);
             }}
             onOpenInfo={() => router.push(PRACTICAL_SLEEP_INFO_ROUTE)}
             onOpenProfile={() => router.push(PROFILE_ROUTE)}
+            onSelectManualAgeBand={setManualAgeBandId}
             plan={parsedDraft.plan}
           />
 
@@ -2770,6 +2909,74 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     fontWeight: '700',
+  },
+  ageBandSelector: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  ageBandChip: {
+    minHeight: 34,
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.sm,
+    backgroundColor: colors.surface,
+  },
+  ageBandChipSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  ageBandChipPressed: {
+    backgroundColor: colors.surfaceMuted,
+  },
+  ageBandChipText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  ageBandChipTextSelected: {
+    color: colors.primary,
+  },
+  templateBlock: {
+    gap: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: spacing.sm,
+  },
+  templateHeaderLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  templateTitle: {
+    flexShrink: 1,
+    color: colors.text,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '900',
+  },
+  recommendedBadge: {
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 3,
+    backgroundColor: colors.primarySoft,
+  },
+  recommendedBadgeText: {
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  templateFacts: {
+    gap: 3,
+  },
+  templateFactText: {
+    color: colors.text,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
   },
   practicalStatusList: {
     gap: spacing.xs,
