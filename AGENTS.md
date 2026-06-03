@@ -231,6 +231,46 @@ At minimum, test:
 
 When changing recommendation logic, update or add tests.
 
+## Implementation lessons from effective sleep day plan work
+
+Temporary day modes such as `soft_day` and `early_wake` are effective-plan overlays for one sleep day. They must not rewrite the permanent `target_day_plan`, saved sleep-day snapshots, SQLite schema, or user history unless a later task explicitly asks for persistence changes.
+
+Keep effective-plan derivation in `src/core/sleepPlan.ts` or another pure `src/core` module. UI, repository, notifications, and screens should pass the base active/snapshot plan plus `SleepDayTemporaryMode[]` into core logic and use the returned plan for calculations.
+
+Use the existing core entry points instead of duplicating schedule math:
+- `buildEffectiveSleepDayPlan(basePlan, temporaryModes, options)` for combined modes;
+- `deriveSoftDayPlan(basePlan)` for soft-day-only derivation;
+- `deriveEarlyWakePlan(basePlan, actualWakeTime)` for early-wake-only derivation;
+- `shouldSuggestEarlyWakeMode(...)` and `EARLY_WAKE_THRESHOLD_MINUTES` for suggestion logic.
+
+Apply temporary modes in this order:
+1. base target day plan;
+2. `early_wake` first-window adjustment;
+3. `soft_day` awake/day-sleep adjustment;
+4. auto-derived evening rules through `deriveEveningSleepRulesForPlan`.
+
+Do not chain `deriveEarlyWakePlan` and `deriveSoftDayPlan` manually when both modes are enabled. Use `buildEffectiveSleepDayPlan`, because rebuilding a plan can overwrite adjusted wake windows if the order is implemented ad hoc.
+
+For `soft_day` MVP:
+- keep `napCount`, wake-up range, and `dayStartMinutes` unchanged;
+- reduce both target awake range boundaries by 30 minutes;
+- allow the max day-sleep boundary to increase by 30 minutes only while keeping ranges valid;
+- rebuild through `buildSleepPlanPreset` and auto evening rules so midpoints, wake windows, bedtime, early bedtime, and evening limits stay coherent.
+
+For `early_wake` MVP:
+- keep the permanent plan unchanged and never enable the mode automatically;
+- suggest it only when actual wake-up is at least `EARLY_WAKE_THRESHOLD_MINUTES` before `plan.wakeUpStartMinutes`, unless already enabled or dismissed;
+- make only the first wake window softer by 15-30 minutes; do not change `napCount`, wake-up range, or total awake target;
+- treat `actualWakeTime` as local clock time when deriving the one-day adjustment.
+
+When changing effective-plan logic, cover at least:
+- soft day reduces total awake time by 30 minutes;
+- soft day keeps `napCount` and wake-up range;
+- early wake softens the first wake window only;
+- suggestion true/false cases for threshold, enabled, and dismissed states;
+- combined mode order;
+- base `TargetDayPlan` is not mutated.
+
 ## Implementation lessons from date-based UI work
 
 When adding date navigation or history screens, verify every date mode explicitly:
