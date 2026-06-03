@@ -15,6 +15,7 @@ import { BottleFeedingEditorModal } from '@/components/BottleFeedingEditorModal'
 import { EventTypeBadge } from '@/components/EventTypeBadge';
 import { ProfileAvatar } from '@/components/ProfileAvatar';
 import { SleepPlanIcon } from '@/components/SleepPlanIcon';
+import { SleepRetrospectiveIcon } from '@/components/SleepRetrospectiveIcon';
 import { SleepDayTimeline } from '@/components/SleepDayTimeline';
 import { SleepSessionEditorModal } from '@/components/SleepSessionEditorModal';
 import { SummaryCard } from '@/components/SummaryCard';
@@ -1428,7 +1429,7 @@ export default function TodaySleepScreen() {
                   styles.retrospectiveButton,
                   pressed ? styles.headerIconButtonPressed : null,
                 ]}>
-                <Text style={styles.retrospectiveIcon}>↺</Text>
+                <SleepRetrospectiveIcon size={25} />
               </Pressable>
               <Pressable
                 accessibilityLabel="План дня"
@@ -1920,12 +1921,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
-  },
-  retrospectiveIcon: {
-    color: colors.primary,
-    fontSize: 21,
-    fontWeight: '900',
-    lineHeight: 24,
   },
   sleepPlanButton: {
     width: 38,

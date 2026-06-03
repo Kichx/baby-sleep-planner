@@ -4,6 +4,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { SleepRetrospectiveIcon } from '@/components/SleepRetrospectiveIcon';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
   addMinutes,
@@ -264,7 +265,12 @@ export default function SleepRetrospectiveScreen() {
           {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
           <View style={styles.summaryPanel}>
-            <Text style={styles.summaryMeta}>{periodSummary.periodLabel}</Text>
+            <View style={styles.summaryHeader}>
+              <View style={styles.summaryIconBadge}>
+                <SleepRetrospectiveIcon size={34} />
+              </View>
+              <Text style={styles.summaryMeta}>{periodSummary.periodLabel}</Text>
+            </View>
             <Text style={styles.summaryTitle}>
               {isLoading && days.length === 0 ? 'Загрузка' : periodSummary.primaryLine}
             </Text>
@@ -381,7 +387,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   summaryPanel: {
-    minHeight: 142,
+    minHeight: 154,
     justifyContent: 'center',
     gap: spacing.xs,
     borderRadius: radius.lg,
@@ -390,7 +396,24 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     padding: spacing.lg,
   },
+  summaryHeader: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  summaryIconBadge: {
+    width: 42,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    borderRadius: 21,
+    backgroundColor: colors.primarySoft,
+  },
   summaryMeta: {
+    flex: 1,
+    minWidth: 0,
     color: colors.textMuted,
     fontSize: 14,
     fontWeight: '800',
