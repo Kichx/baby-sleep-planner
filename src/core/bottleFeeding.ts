@@ -15,15 +15,22 @@ export interface BottleFeedingDateRange {
   start: Date;
 }
 
+export function getBottleFeedingCalendarDayRange(
+  date: Date,
+  timeZone?: string,
+): BottleFeedingDateRange {
+  const start = startOfLocalCalendarDay(date, timeZone);
+  const nextDay = addLocalCalendarDays(date, 1, timeZone);
+  const end = startOfLocalCalendarDay(nextDay, timeZone);
+
+  return { end, start };
+}
+
 export function getTodayBottleFeedingRange(
   now: Date,
   timeZone?: string,
 ): BottleFeedingDateRange {
-  const start = startOfLocalCalendarDay(now, timeZone);
-  const nextDay = addLocalCalendarDays(now, 1, timeZone);
-  const end = startOfLocalCalendarDay(nextDay, timeZone);
-
-  return { end, start };
+  return getBottleFeedingCalendarDayRange(now, timeZone);
 }
 
 export function getLast24HoursBottleFeedingRange(now: Date): BottleFeedingDateRange {
@@ -46,6 +53,16 @@ export function filterBottleFeedingsInRange(
 
     return startedAt >= startTime && startedAt < endTime;
   });
+}
+
+export function filterBottleFeedingsInCalendarDay(
+  feedings: readonly BottleFeeding[],
+  date: Date,
+  timeZone?: string,
+): BottleFeeding[] {
+  const range = getBottleFeedingCalendarDayRange(date, timeZone);
+
+  return filterBottleFeedingsInRange(feedings, range.start, range.end);
 }
 
 export function calculateBottleFeedingStats(

@@ -4,6 +4,7 @@ import {
   BOTTLE_FEEDING_EMPTY_TEXT,
   calculateBottleFeedingStats,
   calculateBottleFeedingStatsInRange,
+  filterBottleFeedingsInCalendarDay,
   formatBottleFeedingCount,
   formatBottleFeedingElapsed,
   formatBottleFeedingRecordLine,
@@ -13,6 +14,7 @@ import {
   formatBottleFeedingStatsLine,
   formatLatestBottleFeedingLine,
   formatTodayBottleFeedingStatsLine,
+  getBottleFeedingCalendarDayRange,
   getLast24HoursBottleFeedingRange,
   getTodayBottleFeedingRange,
 } from '@/core/bottleFeeding';
@@ -40,6 +42,39 @@ describe('bottle feeding calculations', () => {
 
     expect(range.start.toISOString()).toBe('2026-05-30T21:00:00.000Z');
     expect(range.end.toISOString()).toBe('2026-05-31T21:00:00.000Z');
+  });
+
+  it('builds a calendar day range for any displayed feeding day', () => {
+    const selectedDay = new Date('2026-06-03T09:00:00.000Z');
+    const range = getBottleFeedingCalendarDayRange(selectedDay, 'Europe/Moscow');
+
+    expect(range.start.toISOString()).toBe('2026-06-02T21:00:00.000Z');
+    expect(range.end.toISOString()).toBe('2026-06-03T21:00:00.000Z');
+  });
+
+  it('keeps an early morning feeding on the same local calendar day', () => {
+    const selectedDay = new Date('2026-06-03T09:00:00.000Z');
+    const previousDay = new Date('2026-06-02T09:00:00.000Z');
+    const earlyMorningFeeding = feeding(
+      'early-morning',
+      '2026-06-03T01:00:00.000Z',
+      150,
+    );
+
+    expect(
+      filterBottleFeedingsInCalendarDay(
+        [earlyMorningFeeding],
+        selectedDay,
+        'Europe/Moscow',
+      ).map((item) => item.id),
+    ).toEqual(['early-morning']);
+    expect(
+      filterBottleFeedingsInCalendarDay(
+        [earlyMorningFeeding],
+        previousDay,
+        'Europe/Moscow',
+      ),
+    ).toEqual([]);
   });
 
   it('builds the last 24 hours range from now', () => {

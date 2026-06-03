@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildDayFeedItems,
   buildBottleFeedingDayFeedItem,
   buildSleepDayFeedItem,
+  countDayFeedRecords,
   getSleepDayFeedSortAt,
   sortDayFeedItemsNewestFirst,
 } from '@/core/dayFeed';
@@ -96,5 +98,125 @@ describe('day feed sorting', () => {
     ]).map((item) => item.id);
 
     expect(sortedIds).toEqual(['sleep', 'feeding']);
+  });
+
+  it('nests a bottle feeding that happened during night sleep', () => {
+    const rangeStart = new Date('2026-06-03T03:00:00.000Z');
+    const rangeEnd = new Date('2026-06-04T03:00:00.000Z');
+    const nightSleep = buildSleepSession({
+      endedAt: '2026-06-03T03:58:00.000Z',
+      id: 'night-sleep',
+      startedAt: '2026-06-02T17:58:00.000Z',
+    });
+    const nightFeeding = buildBottleFeeding({
+      id: 'night-feeding',
+      startedAt: '2026-06-03T01:00:00.000Z',
+      volumeMl: 150,
+    });
+
+    const items = buildDayFeedItems({
+      feedings: [nightFeeding],
+      now: new Date('2026-06-03T04:01:00.000Z'),
+      rangeEnd,
+      rangeStart,
+      sessions: [nightSleep],
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      id: 'night-sleep',
+      type: 'sleep',
+    });
+    expect(items[0].type === 'sleep' ? items[0].sleepFeedings.map((feeding) => feeding.id) : []).toEqual([
+      'night-feeding',
+    ]);
+    expect(countDayFeedRecords(items)).toBe(2);
+  });
+
+  it('nests a bottle feeding that happened during a nap', () => {
+    const rangeStart = new Date('2026-06-03T03:00:00.000Z');
+    const rangeEnd = new Date('2026-06-04T03:00:00.000Z');
+    const nap = buildSleepSession({
+      endedAt: '2026-06-03T10:10:00.000Z',
+      id: 'nap',
+      startedAt: '2026-06-03T09:30:00.000Z',
+    });
+    const napFeeding = buildBottleFeeding({
+      id: 'nap-feeding',
+      startedAt: '2026-06-03T09:45:00.000Z',
+      volumeMl: 90,
+    });
+
+    const items = buildDayFeedItems({
+      feedings: [napFeeding],
+      now: new Date('2026-06-03T11:00:00.000Z'),
+      rangeEnd,
+      rangeStart,
+      sessions: [nap],
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0].type === 'sleep' ? items[0].sleepFeedings.map((feeding) => feeding.id) : []).toEqual([
+      'nap-feeding',
+    ]);
+  });
+
+  it('nests a feeding even when it should not be shown as a standalone row in that group', () => {
+    const rangeStart = new Date('2026-06-03T03:00:00.000Z');
+    const rangeEnd = new Date('2026-06-04T03:00:00.000Z');
+    const nightSleep = buildSleepSession({
+      endedAt: '2026-06-03T03:58:00.000Z',
+      id: 'night-sleep',
+      startedAt: '2026-06-02T17:58:00.000Z',
+    });
+    const previousCalendarFeeding = buildBottleFeeding({
+      id: 'previous-calendar-feeding',
+      startedAt: '2026-06-02T19:30:00.000Z',
+      volumeMl: 120,
+    });
+
+    const items = buildDayFeedItems({
+      feedings: [previousCalendarFeeding],
+      now: new Date('2026-06-03T04:01:00.000Z'),
+      rangeEnd,
+      rangeStart,
+      sessions: [nightSleep],
+      standaloneFeedings: [],
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0].type === 'sleep' ? items[0].sleepFeedings.map((feeding) => feeding.id) : []).toEqual([
+      'previous-calendar-feeding',
+    ]);
+    expect(countDayFeedRecords(items)).toBe(2);
+  });
+
+  it('keeps bottle feeding outside sleep as a standalone row', () => {
+    const rangeStart = new Date('2026-06-03T03:00:00.000Z');
+    const rangeEnd = new Date('2026-06-04T03:00:00.000Z');
+    const nap = buildSleepSession({
+      endedAt: '2026-06-03T10:10:00.000Z',
+      id: 'nap',
+      startedAt: '2026-06-03T09:30:00.000Z',
+    });
+    const afterNapFeeding = buildBottleFeeding({
+      id: 'after-nap-feeding',
+      startedAt: '2026-06-03T10:20:00.000Z',
+      volumeMl: 120,
+    });
+
+    const items = buildDayFeedItems({
+      feedings: [afterNapFeeding],
+      now: new Date('2026-06-03T11:00:00.000Z'),
+      rangeEnd,
+      rangeStart,
+      sessions: [nap],
+    });
+
+    expect(items.map((item) => item.id)).toEqual(['after-nap-feeding', 'nap']);
+    expect(items.find((item) => item.type === 'sleep' && item.id === 'nap')).toMatchObject({
+      sleepFeedings: [],
+    });
+    expect(countDayFeedRecords(items)).toBe(2);
   });
 });
