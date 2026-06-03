@@ -289,6 +289,56 @@ function buildPresetCatalog(params: {
   };
 }
 
+function formatNapCountForPlanName(napCount: NapCountOption): string {
+  if (napCount === 1) {
+    return '1 сон';
+  }
+
+  if (napCount >= 2 && napCount <= 4) {
+    return `${napCount} сна`;
+  }
+
+  return `${napCount} снов`;
+}
+
+function formatAgeBandShortTitle(ageBand: AgeSleepPlanPresetTemplateAgeBand): string {
+  if (ageBand.ageFromMonths === ageBand.ageToMonths) {
+    return `${ageBand.ageFromMonths} мес`;
+  }
+
+  return `${ageBand.ageFromMonths}–${ageBand.ageToMonths} мес`;
+}
+
+export function getAgeSleepPlanPresetTemplateOptions(
+  catalog: AgeSleepPlanPresetTemplateCatalog | null,
+): AgeSleepPlanPresetTemplate[] {
+  if (!catalog) {
+    return [];
+  }
+
+  return [catalog.recommendedPreset, catalog.alternativePreset].filter(
+    (preset): preset is AgeSleepPlanPresetTemplate => preset !== null,
+  );
+}
+
+export function formatAgeSleepPlanPresetTargetPlanName(
+  preset: AgeSleepPlanPresetTemplate,
+): string {
+  const ageBand = getAgeSleepPlanPresetTemplateAgeBandById(preset.ageBandId);
+  const ageBandTitle = ageBand ? formatAgeBandShortTitle(ageBand) : preset.title;
+
+  return `${formatNapCountForPlanName(preset.napCount)} · ${ageBandTitle}`;
+}
+
+export function formatAgeSleepPlanPresetCustomPlanName(
+  preset: AgeSleepPlanPresetTemplate,
+): string {
+  const ageBand = getAgeSleepPlanPresetTemplateAgeBandById(preset.ageBandId);
+  const ageBandTitle = ageBand ? formatAgeBandShortTitle(ageBand) : preset.title;
+
+  return `Свой план · ${ageBandTitle}`;
+}
+
 export function getAgeSleepPlanPresetTemplateAgeBandById(
   ageBandId: AgeSleepPlanPresetTemplateAgeBandId | null | undefined,
 ): AgeSleepPlanPresetTemplateAgeBand | null {

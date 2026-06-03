@@ -510,7 +510,7 @@ export async function ensureSleepDayPlanSnapshotStorage(db: SQLiteDatabase): Pro
   await ensureSleepDayPlanSnapshotTable(db);
 }
 
-async function ensureDefaultTargetDayPlan(
+async function ensureTargetDayPlanStorage(
   db: SQLiteDatabase,
   childId = DEFAULT_CHILD_ID,
 ): Promise<void> {
@@ -518,70 +518,6 @@ async function ensureDefaultTargetDayPlan(
   await ensureTargetDayPlanColumns(db);
   await ensureSleepDayPlanSnapshotTable(db);
   await normalizeTargetDayPlans(db, childId);
-
-  const existingRow = await db.getFirstAsync<{ id: string }>(
-    `
-    SELECT id
-    FROM target_day_plan
-    WHERE child_id = ?
-    LIMIT 1
-    `,
-    [childId],
-  );
-
-  if (existingRow) {
-    return;
-  }
-
-  const now = new Date().toISOString();
-
-  await db.runAsync(
-    `
-    INSERT INTO target_day_plan (
-      id,
-      child_id,
-      name,
-      is_active,
-      evening_rules_mode,
-      wake_up_start_minutes,
-      wake_up_end_minutes,
-      target_awake_min_minutes,
-      target_awake_max_minutes,
-      target_awake_minutes,
-      nap_count,
-      target_day_sleep_min_minutes,
-      target_day_sleep_max_minutes,
-      target_day_sleep_minutes,
-      bedtime_target_minutes,
-      latest_evening_nap_end_minutes,
-      max_evening_nap_minutes,
-      micro_nap_minutes,
-      updated_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `,
-    [
-      DEFAULT_TARGET_DAY_PLAN_ID,
-      childId,
-      DEFAULT_TARGET_DAY_PLAN_NAME,
-      1,
-      'auto',
-      DEFAULT_SLEEP_PLAN.wakeUpStartMinutes,
-      DEFAULT_SLEEP_PLAN.wakeUpEndMinutes,
-      DEFAULT_SLEEP_PLAN.targetAwakeMinMinutes,
-      DEFAULT_SLEEP_PLAN.targetAwakeMaxMinutes,
-      DEFAULT_SLEEP_PLAN.targetAwakeMinutes,
-      DEFAULT_SLEEP_PLAN.napCount,
-      DEFAULT_SLEEP_PLAN.targetDaySleepMinMinutes,
-      DEFAULT_SLEEP_PLAN.targetDaySleepMaxMinutes,
-      DEFAULT_SLEEP_PLAN.targetDaySleepMinutes,
-      DEFAULT_SLEEP_PLAN.bedtimeTargetMinutes,
-      DEFAULT_SLEEP_PLAN.latestEveningNapEndMinutes,
-      DEFAULT_SLEEP_PLAN.maxEveningNapMinutes,
-      DEFAULT_SLEEP_PLAN.microNapMinutes,
-      now,
-    ],
-  );
 }
 
 async function selectTargetDayPlanById(
@@ -751,7 +687,7 @@ async function getActiveTargetDayPlan(
   db: SQLiteDatabase,
   childId = DEFAULT_CHILD_ID,
 ): Promise<TargetDayPlan> {
-  await ensureDefaultTargetDayPlan(db, childId);
+  await ensureTargetDayPlanStorage(db, childId);
 
   const row = await db.getFirstAsync<TargetDayPlanRow>(
     `
@@ -833,7 +769,7 @@ export async function listTargetDayPlans(
   db: SQLiteDatabase,
   childId = DEFAULT_CHILD_ID,
 ): Promise<TargetDayPlan[]> {
-  await ensureDefaultTargetDayPlan(db, childId);
+  await ensureTargetDayPlanStorage(db, childId);
 
   const rows = await db.getAllAsync<TargetDayPlanRow>(
     `
@@ -871,7 +807,7 @@ export async function getTargetDayPlan(
   db: SQLiteDatabase,
   childId = DEFAULT_CHILD_ID,
 ): Promise<SleepPlanPreset> {
-  await ensureDefaultTargetDayPlan(db, childId);
+  await ensureTargetDayPlanStorage(db, childId);
 
   const row = await db.getFirstAsync<TargetDayPlanRow>(
     `
@@ -940,7 +876,7 @@ export async function assignSleepDayPlanSnapshot(
   targetPlanId: string,
   childId = DEFAULT_CHILD_ID,
 ): Promise<SleepDayPlan> {
-  await ensureDefaultTargetDayPlan(db, childId);
+  await ensureTargetDayPlanStorage(db, childId);
 
   const targetPlan = await selectTargetDayPlanById(db, targetPlanId, childId);
 
@@ -966,7 +902,7 @@ export async function createTargetDayPlan(
   input: SaveTargetDayPlanInput,
   childId = DEFAULT_CHILD_ID,
 ): Promise<TargetDayPlan> {
-  await ensureDefaultTargetDayPlan(db, childId);
+  await ensureTargetDayPlanStorage(db, childId);
 
   const now = new Date();
   const planId = createLocalId('target-day-plan', now);
@@ -1035,7 +971,7 @@ export async function updateTargetDayPlan(
   input: SaveTargetDayPlanInput,
   childId = DEFAULT_CHILD_ID,
 ): Promise<TargetDayPlan> {
-  await ensureDefaultTargetDayPlan(db, childId);
+  await ensureTargetDayPlanStorage(db, childId);
 
   await db.runAsync(
     `
@@ -1119,7 +1055,7 @@ export async function activateTargetDayPlan(
   planId: string,
   childId = DEFAULT_CHILD_ID,
 ): Promise<TargetDayPlan> {
-  await ensureDefaultTargetDayPlan(db, childId);
+  await ensureTargetDayPlanStorage(db, childId);
 
   const existingPlan = await selectTargetDayPlanById(db, planId, childId);
 
@@ -1154,7 +1090,7 @@ export async function deleteTargetDayPlan(
   planId: string,
   childId = DEFAULT_CHILD_ID,
 ): Promise<TargetDayPlan> {
-  await ensureDefaultTargetDayPlan(db, childId);
+  await ensureTargetDayPlanStorage(db, childId);
 
   const existingPlan = await selectTargetDayPlanById(db, planId, childId);
 
@@ -1476,7 +1412,7 @@ export async function backfillMissingSleepDayPlanSnapshots(
   db: SQLiteDatabase,
   childId = DEFAULT_CHILD_ID,
 ): Promise<void> {
-  await ensureDefaultTargetDayPlan(db, childId);
+  await ensureTargetDayPlanStorage(db, childId);
 
   const rows = await db.getAllAsync<SleepSessionRow>(
     `

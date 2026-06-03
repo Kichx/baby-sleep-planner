@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   AGE_SLEEP_PLAN_PRESET_TEMPLATE_BANDS,
+  formatAgeSleepPlanPresetCustomPlanName,
+  formatAgeSleepPlanPresetTargetPlanName,
   getAgeSleepPlanPresetTemplateCatalog,
   getAgeSleepPlanPresetTemplateCatalogForProfile,
+  getAgeSleepPlanPresetTemplateOptions,
 } from '@/core/ageSleepPlanPresetTemplates';
 import { buildSleepPlanPreset, buildWakeWindowsForPlan } from '@/core/sleepPlan';
 
@@ -50,6 +53,27 @@ describe('getAgeSleepPlanPresetTemplateCatalog', () => {
 
     expect(catalog?.recommendedPreset.isRecommended).toBe(true);
     expect(catalog?.recommendedPreset.isAutomaticallySelected).toBe(false);
+  });
+
+  it('builds at most two preset options with the recommendation first', () => {
+    const catalog = getAgeSleepPlanPresetTemplateCatalog({ ageMonths: 5 });
+    const options = getAgeSleepPlanPresetTemplateOptions(catalog);
+
+    expect(options).toHaveLength(2);
+    expect(options[0]).toBe(catalog?.recommendedPreset);
+    expect(options[0].isAutomaticallySelected).toBe(false);
+    expect(options[1]).toBe(catalog?.alternativePreset);
+  });
+
+  it('formats a clear target plan name from a preset template', () => {
+    const catalog = getAgeSleepPlanPresetTemplateCatalog({ ageMonths: 5 });
+
+    expect(formatAgeSleepPlanPresetTargetPlanName(catalog!.recommendedPreset)).toBe(
+      '4 сна · 5–6 мес',
+    );
+    expect(formatAgeSleepPlanPresetCustomPlanName(catalog!.recommendedPreset)).toBe(
+      'Свой план · 5–6 мес',
+    );
   });
 
   it('builds plan data compatible with buildSleepPlanPreset and buildWakeWindowsForPlan', () => {

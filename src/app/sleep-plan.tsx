@@ -19,7 +19,10 @@ import { DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
   AGE_SLEEP_PLAN_PRESET_TEMPLATE_BANDS,
+  formatAgeSleepPlanPresetCustomPlanName,
+  formatAgeSleepPlanPresetTargetPlanName,
   getAgeSleepPlanPresetTemplateCatalogForProfile,
+  getAgeSleepPlanPresetTemplateOptions,
   type AgeSleepPlanPresetTemplate,
   type AgeSleepPlanPresetTemplateAgeBandId,
   type AgeSleepPlanPresetTemplateCatalog,
@@ -77,6 +80,7 @@ import type {
 
 type EditorType = 'wakeUp' | 'awake' | 'napCount' | 'daySleep' | 'evening';
 type NameEditorMode = 'create' | 'edit';
+type PresetFlowMode = 'select' | 'preview' | 'manual';
 
 interface PlanDraft {
   name: string;
@@ -153,6 +157,52 @@ interface WakeWindowGuidelineCardProps {
   onOpenInfo: () => void;
   onOpenProfile: () => void;
   plan: SleepPlanPreset | null;
+}
+
+interface BasePlanPresetFlowProps {
+  agePresetCatalog: AgeSleepPlanPresetTemplateCatalog | null;
+  canClose: boolean;
+  disabled: boolean;
+  flowMode: PresetFlowMode;
+  hasBirthDate: boolean;
+  manualAgeBandId: AgeSleepPlanPresetTemplateAgeBandId | null;
+  manualDraft: PlanDraft;
+  manualPlan: SleepPlanPreset | null;
+  onBackToSelection: () => void;
+  onClose: () => void;
+  onOpenEditor: (editorType: EditorType) => void;
+  onOpenProfile: () => void;
+  onSelectManualAgeBand: (ageBandId: AgeSleepPlanPresetTemplateAgeBandId) => void;
+  onSelectPreset: (preset: AgeSleepPlanPresetTemplate) => void;
+  onStartManualEdit: (preset: AgeSleepPlanPresetTemplate) => void;
+  onUseManualPlan: () => void;
+  onUsePreset: (preset: AgeSleepPlanPresetTemplate) => void;
+  selectedPreset: AgeSleepPlanPresetTemplate | null;
+}
+
+interface PresetTemplateCardProps {
+  catalog: AgeSleepPlanPresetTemplateCatalog;
+  disabled: boolean;
+  onSelect: () => void;
+  preset: AgeSleepPlanPresetTemplate;
+}
+
+interface PresetPreviewCardProps {
+  disabled: boolean;
+  onBack: () => void;
+  onEditDetails: () => void;
+  onUse: () => void;
+  preset: AgeSleepPlanPresetTemplate;
+}
+
+interface ManualPresetDraftCardProps {
+  disabled: boolean;
+  draft: PlanDraft;
+  onBack: () => void;
+  onOpenEditor: (editorType: EditorType) => void;
+  onUse: () => void;
+  plan: SleepPlanPreset | null;
+  preset: AgeSleepPlanPresetTemplate;
 }
 
 interface ActivePlanSummaryCardProps {
@@ -454,6 +504,27 @@ function formatPresetTemplateNightSleep(preset: AgeSleepPlanPresetTemplate): str
     preset.estimatedNightSleepMinMinutes,
     preset.estimatedNightSleepMaxMinutes,
   );
+}
+
+function formatPresetTemplateWakeUpAround(preset: AgeSleepPlanPresetTemplate): string {
+  return formatClockMinutes(preset.plan.wakeUpStartMinutes);
+}
+
+function getPresetTemplateMeaningText(preset: AgeSleepPlanPresetTemplate): string {
+  return preset.isRecommended
+    ? 'Мягкий старт: больше дневных снов и короче промежутки бодрствования.'
+    : 'Соседний вариант, если ребёнок уже спокойно бодрствует дольше.';
+}
+
+function getPresetTemplateWhyText(
+  catalog: AgeSleepPlanPresetTemplateCatalog,
+  preset: AgeSleepPlanPresetTemplate,
+): string {
+  if (preset.isRecommended) {
+    return catalog.whyRecommendedText;
+  }
+
+  return 'Это близкий возрастной вариант. Он может подойти, если текущий режим уже устойчиво держится без перегруза.';
 }
 
 function formatPlanNapCount(napCount: number): string {
@@ -1545,6 +1616,382 @@ function PracticalSleepPresetCard({
   );
 }
 
+function PresetTemplateCard({
+  catalog,
+  disabled,
+  onSelect,
+  preset,
+}: PresetTemplateCardProps) {
+  return (
+    <View
+      style={[
+        styles.presetTemplateCard,
+        preset.isRecommended ? styles.presetTemplateCardRecommended : null,
+      ]}>
+      <View style={styles.presetTemplateHeader}>
+        <Text style={styles.presetTemplateTitle}>{preset.title}</Text>
+        {preset.isRecommended ? (
+          <View style={styles.recommendedBadge}>
+            <Text style={styles.recommendedBadgeText}>Рекомендуем</Text>
+          </View>
+        ) : null}
+      </View>
+
+      <Text style={styles.presetTemplateMeaning}>{getPresetTemplateMeaningText(preset)}</Text>
+
+      <View style={styles.presetTemplateFacts}>
+        <Text style={styles.presetTemplateFact}>
+          Дневных снов: {formatNapCountText(preset.napCount)}
+        </Text>
+        <Text style={styles.presetTemplateFact}>
+          Дневной сон: {formatPresetTemplateDaySleep(preset)}
+        </Text>
+        <Text style={styles.presetTemplateFact}>
+          Ориентир ночи: {formatPresetTemplateNightSleep(preset)}, отбой{' '}
+          {formatPresetTemplateBedtime(preset)}
+        </Text>
+      </View>
+
+      <View style={styles.presetWhyBlock}>
+        <Text style={styles.presetWhyTitle}>Почему мы это советуем</Text>
+        <Text style={styles.presetWhyText}>{getPresetTemplateWhyText(catalog, preset)}</Text>
+      </View>
+
+      <Pressable
+        accessibilityRole="button"
+        disabled={disabled}
+        onPress={onSelect}
+        style={({ pressed }) => [
+          styles.presetPrimaryButton,
+          pressed && !disabled ? styles.guidelinePrimaryButtonPressed : null,
+          disabled ? styles.disabledCard : null,
+        ]}>
+        <Text style={styles.presetPrimaryButtonText}>Выбрать этот план</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function PresetPreviewCard({
+  disabled,
+  onBack,
+  onEditDetails,
+  onUse,
+  preset,
+}: PresetPreviewCardProps) {
+  return (
+    <View style={styles.presetPreviewCard}>
+      <View style={styles.sectionTitleBlock}>
+        <Text style={styles.sectionTitle}>Ваш базовый план</Text>
+        <Text style={styles.sectionCaption}>
+          Проверьте спокойный стартовый режим. Он сохранится только после нажатия кнопки.
+        </Text>
+      </View>
+
+      <View style={styles.presetPreviewList}>
+        <Text style={styles.presetPreviewRow}>
+          Подъём около {formatPresetTemplateWakeUpAround(preset)}
+        </Text>
+        <Text style={styles.presetPreviewRow}>{formatPlanNapCount(preset.napCount)}</Text>
+        <Text style={styles.presetPreviewRow}>
+          Дневной сон {formatPresetTemplateDaySleep(preset)}
+        </Text>
+        <Text style={styles.presetPreviewRow}>
+          Ночь примерно {formatPresetTemplateNightSleep(preset)}, отбой{' '}
+          {formatPresetTemplateBedtime(preset)}
+        </Text>
+      </View>
+
+      <View style={styles.presetActions}>
+        <Pressable
+          accessibilityRole="button"
+          disabled={disabled}
+          onPress={onUse}
+          style={({ pressed }) => [
+            styles.presetPrimaryButton,
+            pressed && !disabled ? styles.guidelinePrimaryButtonPressed : null,
+            disabled ? styles.disabledCard : null,
+          ]}>
+          <Text style={styles.presetPrimaryButtonText}>Использовать этот план</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          disabled={disabled}
+          onPress={onEditDetails}
+          style={({ pressed }) => [
+            styles.presetSecondaryButton,
+            pressed && !disabled ? styles.guidelineSecondaryButtonPressed : null,
+            disabled ? styles.disabledCard : null,
+          ]}>
+          <Text style={styles.presetSecondaryButtonText}>Изменить детали</Text>
+        </Pressable>
+      </View>
+
+      <Pressable
+        accessibilityRole="button"
+        disabled={disabled}
+        onPress={onBack}
+        style={({ pressed }) => [
+          styles.presetPlainButton,
+          pressed && !disabled ? styles.scientificEvidenceLinkPressed : null,
+          disabled ? styles.disabledCard : null,
+        ]}>
+        <Text style={styles.presetPlainButtonText}>Назад к вариантам</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function ManualPresetDraftCard({
+  disabled,
+  draft,
+  onBack,
+  onOpenEditor,
+  onUse,
+  plan,
+  preset,
+}: ManualPresetDraftCardProps) {
+  return (
+    <View style={styles.presetPreviewCard}>
+      <View style={styles.sectionTitleBlock}>
+        <Text style={styles.sectionTitle}>Ваш базовый план</Text>
+        <Text style={styles.sectionCaption}>
+          Стартуем от «{preset.title}». Изменения сохранятся как пользовательский план.
+        </Text>
+      </View>
+
+      <View style={styles.metricGrid}>
+        <MetricCard
+          caption="ориентир утра"
+          disabled={disabled}
+          label="Подъем"
+          onPress={() => onOpenEditor('wakeUp')}
+          value={`${draft.wakeUpStart} - ${draft.wakeUpEnd}`}
+        />
+        <MetricCard
+          caption={
+            plan
+              ? `Отбой ${formatClockRange(plan.bedtimeTargetMinutes, plan.bedtimeTargetMinutes)}`
+              : 'отбой'
+          }
+          disabled={disabled}
+          label="Бодрствование"
+          onPress={() => onOpenEditor('awake')}
+          value={
+            plan
+              ? formatDurationRange(plan.targetAwakeMinMinutes, plan.targetAwakeMaxMinutes)
+              : `${draft.awakeStart} - ${draft.awakeEnd}`
+          }
+        />
+        <MetricCard
+          caption="в день"
+          disabled={disabled}
+          label="Дневных снов"
+          onPress={() => onOpenEditor('napCount')}
+          value={draft.napCount}
+        />
+        <MetricCard
+          caption="суммарно"
+          disabled={disabled}
+          label="Дневной сон"
+          onPress={() => onOpenEditor('daySleep')}
+          value={
+            plan
+              ? formatDurationRange(plan.targetDaySleepMinMinutes, plan.targetDaySleepMaxMinutes)
+              : `${draft.daySleepStart} - ${draft.daySleepEnd}`
+          }
+        />
+      </View>
+
+      {!plan ? <Text style={styles.presetErrorText}>Проверьте параметры плана</Text> : null}
+
+      <View style={styles.presetActions}>
+        <Pressable
+          accessibilityRole="button"
+          disabled={disabled || !plan}
+          onPress={onUse}
+          style={({ pressed }) => [
+            styles.presetPrimaryButton,
+            pressed && !disabled && plan ? styles.guidelinePrimaryButtonPressed : null,
+            disabled || !plan ? styles.disabledCard : null,
+          ]}>
+          <Text style={styles.presetPrimaryButtonText}>Сохранить как свой план</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          disabled={disabled}
+          onPress={onBack}
+          style={({ pressed }) => [
+            styles.presetSecondaryButton,
+            pressed && !disabled ? styles.guidelineSecondaryButtonPressed : null,
+            disabled ? styles.disabledCard : null,
+          ]}>
+          <Text style={styles.presetSecondaryButtonText}>Назад к вариантам</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function BasePlanPresetFlow({
+  agePresetCatalog,
+  canClose,
+  disabled,
+  flowMode,
+  hasBirthDate,
+  manualAgeBandId,
+  manualDraft,
+  manualPlan,
+  onBackToSelection,
+  onClose,
+  onOpenEditor,
+  onOpenProfile,
+  onSelectManualAgeBand,
+  onSelectPreset,
+  onStartManualEdit,
+  onUseManualPlan,
+  onUsePreset,
+  selectedPreset,
+}: BasePlanPresetFlowProps) {
+  const presetOptions = getAgeSleepPlanPresetTemplateOptions(agePresetCatalog);
+  const recommendedPreset = agePresetCatalog?.recommendedPreset ?? null;
+  const sourceText = hasBirthDate
+    ? agePresetCatalog?.ageMonths !== null && agePresetCatalog?.ageMonths !== undefined
+      ? `Возраст из профиля: ${formatAgeMonthsLabel(agePresetCatalog.ageMonths)}`
+      : 'Для этого возраста базовый шаблон пока не задан.'
+    : 'Дата рождения не указана. Можно выбрать возраст вручную и не заполнять профиль сейчас.';
+
+  return (
+    <View style={styles.presetFlow}>
+      <View style={styles.presetFlowHeader}>
+        <View style={styles.sectionTitleBlock}>
+          <Text style={styles.presetFlowTitle}>
+            {canClose ? 'Сменить шаблон' : 'Выберите базовый план'}
+          </Text>
+          <Text style={styles.sectionCaption}>{sourceText}</Text>
+        </View>
+        {canClose ? (
+          <Pressable
+            accessibilityRole="button"
+            disabled={disabled}
+            hitSlop={8}
+            onPress={onClose}
+            style={({ pressed }) => [
+              styles.presetCloseButton,
+              pressed && !disabled ? styles.guidelineSecondaryButtonPressed : null,
+              disabled ? styles.disabledCard : null,
+            ]}>
+            <Text style={styles.presetCloseButtonText}>Назад</Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      {!hasBirthDate ? (
+        <View style={styles.presetBirthDateBlock}>
+          <Pressable
+            accessibilityRole="button"
+            disabled={disabled}
+            onPress={onOpenProfile}
+            style={({ pressed }) => [
+              styles.presetSecondaryButton,
+              pressed && !disabled ? styles.guidelineSecondaryButtonPressed : null,
+              disabled ? styles.disabledCard : null,
+            ]}>
+            <Text style={styles.presetSecondaryButtonText}>Указать дату рождения</Text>
+          </Pressable>
+          <View style={styles.ageBandSelector}>
+            {AGE_SLEEP_PLAN_PRESET_TEMPLATE_BANDS.map((ageBand) => {
+              const isSelected = manualAgeBandId === ageBand.id;
+
+              return (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                  disabled={disabled}
+                  key={ageBand.id}
+                  onPress={() => onSelectManualAgeBand(ageBand.id)}
+                  style={({ pressed }) => [
+                    styles.ageBandChip,
+                    isSelected ? styles.ageBandChipSelected : null,
+                    pressed && !disabled ? styles.ageBandChipPressed : null,
+                    disabled ? styles.disabledCard : null,
+                  ]}>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.ageBandChipText,
+                      isSelected ? styles.ageBandChipTextSelected : null,
+                    ]}>
+                    {ageBand.title}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+
+      {flowMode === 'select' ? (
+        <>
+          {agePresetCatalog ? (
+            <View style={styles.presetList}>
+              {presetOptions.map((preset) => (
+                <PresetTemplateCard
+                  catalog={agePresetCatalog}
+                  disabled={disabled}
+                  key={preset.id}
+                  onSelect={() => onSelectPreset(preset)}
+                  preset={preset}
+                />
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.presetEmptyText}>
+              Выберите возрастную группу, чтобы увидеть мягкий стартовый план.
+            </Text>
+          )}
+
+          {recommendedPreset ? (
+            <Pressable
+              accessibilityRole="button"
+              disabled={disabled}
+              onPress={() => onStartManualEdit(recommendedPreset)}
+              style={({ pressed }) => [
+                styles.presetPlainButton,
+                pressed && !disabled ? styles.scientificEvidenceLinkPressed : null,
+                disabled ? styles.disabledCard : null,
+              ]}>
+              <Text style={styles.presetPlainButtonText}>Настроить вручную</Text>
+            </Pressable>
+          ) : null}
+        </>
+      ) : null}
+
+      {flowMode === 'preview' && selectedPreset ? (
+        <PresetPreviewCard
+          disabled={disabled}
+          onBack={onBackToSelection}
+          onEditDetails={() => onStartManualEdit(selectedPreset)}
+          onUse={() => onUsePreset(selectedPreset)}
+          preset={selectedPreset}
+        />
+      ) : null}
+
+      {flowMode === 'manual' && selectedPreset ? (
+        <ManualPresetDraftCard
+          disabled={disabled}
+          draft={manualDraft}
+          onBack={onBackToSelection}
+          onOpenEditor={onOpenEditor}
+          onUse={onUseManualPlan}
+          plan={manualPlan}
+          preset={selectedPreset}
+        />
+      ) : null}
+    </View>
+  );
+}
+
 function WakeWindowGuidelineCard({
   ageMonths,
   hasBirthDate,
@@ -1741,6 +2188,11 @@ export default function SleepPlanScreen() {
   const [childBirthDate, setChildBirthDate] = useState<string | null>(null);
   const [manualAgeBandId, setManualAgeBandId] =
     useState<AgeSleepPlanPresetTemplateAgeBandId | null>(null);
+  const [isPresetFlowOpen, setIsPresetFlowOpen] = useState(false);
+  const [presetFlowMode, setPresetFlowMode] = useState<PresetFlowMode>('select');
+  const [selectedPresetForPreview, setSelectedPresetForPreview] =
+    useState<AgeSleepPlanPresetTemplate | null>(null);
+  const [draftBeforePresetFlow, setDraftBeforePresetFlow] = useState<PlanDraft | null>(null);
   const [isDeleteConfirmVisible, setIsDeleteConfirmVisible] = useState(false);
   const [isNapDropdownOpen, setIsNapDropdownOpen] = useState(false);
   const [isEveningSettingsExpanded, setIsEveningSettingsExpanded] = useState(false);
@@ -1794,6 +2246,8 @@ export default function SleepPlanScreen() {
     [plans, selectedPlanId],
   );
   const activePlan = useMemo(() => plans.find((plan) => plan.isActive) ?? null, [plans]);
+  const isPresetFlowVisible = !activePlan || isPresetFlowOpen;
+  const isPresetManualMode = isPresetFlowVisible && presetFlowMode === 'manual';
   const todaySleepDayKey = useMemo(
     () => (activePlan ? getSleepDayDateKeyForDate(new Date(), activePlan.plan) : null),
     [activePlan],
@@ -1999,6 +2453,155 @@ export default function SleepPlanScreen() {
     setIsDeleteConfirmVisible(false);
     setIsNapDropdownOpen(false);
     setErrorMessage(null);
+  }
+
+  function openPresetSelectionFlow() {
+    if (isSaving) {
+      return;
+    }
+
+    setDraftBeforePresetFlow(draft);
+    setIsPresetFlowOpen(true);
+    setPresetFlowMode('select');
+    setSelectedPresetForPreview(null);
+    setActiveEditor(null);
+    setNameEditorMode(null);
+    setIsNapDropdownOpen(false);
+    setErrorMessage(null);
+  }
+
+  function closePresetSelectionFlow() {
+    if (!activePlan || isSaving) {
+      return;
+    }
+
+    if (draftBeforePresetFlow) {
+      setDraft(draftBeforePresetFlow);
+    }
+
+    setIsPresetFlowOpen(false);
+    setPresetFlowMode('select');
+    setSelectedPresetForPreview(null);
+    setDraftBeforePresetFlow(null);
+    setActiveEditor(null);
+    setNameEditorMode(null);
+    setIsNapDropdownOpen(false);
+    setErrorMessage(null);
+  }
+
+  function backToPresetSelection() {
+    if (draftBeforePresetFlow) {
+      setDraft(draftBeforePresetFlow);
+    } else {
+      setDraft(createDraftFromPlan(DEFAULT_SLEEP_PLAN));
+    }
+
+    setPresetFlowMode('select');
+    setSelectedPresetForPreview(null);
+    setActiveEditor(null);
+    setNameEditorMode(null);
+    setIsNapDropdownOpen(false);
+    setErrorMessage(null);
+  }
+
+  function selectPresetForPreview(preset: AgeSleepPlanPresetTemplate) {
+    if (isSaving) {
+      return;
+    }
+
+    setSelectedPresetForPreview(preset);
+    setPresetFlowMode('preview');
+    setActiveEditor(null);
+    setNameEditorMode(null);
+    setIsNapDropdownOpen(false);
+    setErrorMessage(null);
+  }
+
+  function startPresetManualEdit(preset: AgeSleepPlanPresetTemplate) {
+    if (isSaving) {
+      return;
+    }
+
+    if (!draftBeforePresetFlow && activePlan) {
+      setDraftBeforePresetFlow(draft);
+    }
+
+    setSelectedPresetForPreview(preset);
+    setPresetFlowMode('manual');
+    setDraft(createDraftFromPlan(preset.plan, formatAgeSleepPlanPresetCustomPlanName(preset)));
+    setActiveEditor(null);
+    setNameEditorMode(null);
+    setIsNapDropdownOpen(false);
+    setErrorMessage(null);
+  }
+
+  async function createAndActivatePresetPlan(input: {
+    name: string;
+    plan: SleepPlanPreset;
+  }): Promise<boolean> {
+    setIsSaving(true);
+    setErrorMessage(null);
+
+    try {
+      const createdPlan = await createTargetDayPlan(db, {
+        eveningRulesMode: 'auto',
+        name: input.name,
+        plan: input.plan,
+      });
+      const activePresetPlan = await activateTargetDayPlan(db, createdPlan.id);
+      const loadedPlans = sortPlansForDisplay(await listTargetDayPlans(db));
+
+      setPlans(loadedPlans);
+      setSelectedPlanId(activePresetPlan.id);
+      setDraft(createDraftFromTargetPlan(activePresetPlan));
+      setIsPresetFlowOpen(false);
+      setPresetFlowMode('select');
+      setSelectedPresetForPreview(null);
+      setDraftBeforePresetFlow(null);
+      setActiveEditor(null);
+      setNameEditorMode(null);
+      setIsNapDropdownOpen(false);
+
+      try {
+        await syncSleepNotificationsFromDatabase(db);
+      } catch {
+        // Notification sync is best-effort; plan selection should stay local and usable.
+      }
+
+      return true;
+    } catch {
+      setErrorMessage('Не удалось создать базовый план');
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function usePresetTemplate(preset: AgeSleepPlanPresetTemplate) {
+    if (isSaving) {
+      return;
+    }
+
+    await createAndActivatePresetPlan({
+      name: formatAgeSleepPlanPresetTargetPlanName(preset),
+      plan: preset.plan,
+    });
+  }
+
+  async function useManualPresetPlan() {
+    if (!selectedPresetForPreview || isSaving) {
+      return;
+    }
+
+    if (!parsedDraft.plan) {
+      setErrorMessage(parsedDraft.errorMessage ?? 'Проверьте план сна');
+      return;
+    }
+
+    await createAndActivatePresetPlan({
+      name: formatAgeSleepPlanPresetCustomPlanName(selectedPresetForPreview),
+      plan: parsedDraft.plan,
+    });
   }
 
   async function reloadTodayTemporaryModes() {
@@ -2218,6 +2821,16 @@ export default function SleepPlanScreen() {
   }
 
   async function handleEditorDone() {
+    if (isPresetManualMode && activeEditor) {
+      if (!parsedDraft.plan) {
+        setErrorMessage(parsedDraft.errorMessage ?? 'Проверьте план сна');
+        return;
+      }
+
+      closeEditorWithoutSaving();
+      return;
+    }
+
     if (nameEditorMode === 'create') {
       const wasCreated = await createPlan(newPlanName);
 
@@ -2275,6 +2888,11 @@ export default function SleepPlanScreen() {
 
     if (!nextParsedDraft.plan) {
       setErrorMessage(nextParsedDraft.errorMessage ?? 'Проверьте план сна');
+      return;
+    }
+
+    if (isPresetManualMode) {
+      closeEditorWithoutSaving();
       return;
     }
 
@@ -2568,9 +3186,45 @@ export default function SleepPlanScreen() {
         <SafeAreaView edges={['bottom']} style={styles.safeArea}>
           {visibleErrorMessage ? <Text style={styles.errorText}>{visibleErrorMessage}</Text> : null}
 
-          {activePlan ? (
+          {isPresetFlowVisible ? (
+            <BasePlanPresetFlow
+              agePresetCatalog={agePresetCatalog}
+              canClose={activePlan !== null}
+              disabled={isLoading || isSaving}
+              flowMode={presetFlowMode}
+              hasBirthDate={childBirthDateValue !== null}
+              manualAgeBandId={manualAgeBandId}
+              manualDraft={draft}
+              manualPlan={parsedDraft.plan}
+              onBackToSelection={backToPresetSelection}
+              onClose={closePresetSelectionFlow}
+              onOpenEditor={openEditor}
+              onOpenProfile={() => router.push(PROFILE_ROUTE)}
+              onSelectManualAgeBand={setManualAgeBandId}
+              onSelectPreset={selectPresetForPreview}
+              onStartManualEdit={startPresetManualEdit}
+              onUseManualPlan={() => {
+                void useManualPresetPlan();
+              }}
+              onUsePreset={(preset) => {
+                void usePresetTemplate(preset);
+              }}
+              selectedPreset={selectedPresetForPreview}
+            />
+          ) : activePlan ? (
             <>
               <ActivePlanSummaryCard plan={activePlan} />
+              <Pressable
+                accessibilityRole="button"
+                disabled={isLoading || isSaving}
+                onPress={openPresetSelectionFlow}
+                style={({ pressed }) => [
+                  styles.changeTemplateButton,
+                  pressed && !isLoading && !isSaving ? styles.guidelineSecondaryButtonPressed : null,
+                  isLoading || isSaving ? styles.disabledCard : null,
+                ]}>
+                <Text style={styles.changeTemplateButtonText}>Сменить шаблон</Text>
+              </Pressable>
               <TodayModesSection
                 disabled={isLoading || isSaving || isTemporaryModeSaving}
                 isEarlyWakeEnabled={isEarlyWakeEnabled}
@@ -2594,138 +3248,140 @@ export default function SleepPlanScreen() {
             </>
           ) : null}
 
-          <View style={styles.section}>
-            <View style={styles.sectionTitleBlock}>
-              <Text style={styles.sectionTitle}>Проверка и расчёт</Text>
-              <Text style={styles.sectionCaption}>
-                Возрастные ориентиры можно раскрыть отдельно. Основной план и записи сна от этого
-                не меняются.
-              </Text>
-            </View>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ expanded: isChecksExpanded }}
-              onPress={() => setIsChecksExpanded((isExpanded) => !isExpanded)}
-              style={({ pressed }) => [
-                styles.checksToggleButton,
-                pressed ? styles.guidelineSecondaryButtonPressed : null,
-              ]}>
-              <Text style={styles.checksToggleButtonText}>
-                {isChecksExpanded ? 'Скрыть ориентиры' : 'Показать ориентиры'}
-              </Text>
-            </Pressable>
-
-            {isChecksExpanded ? (
-              <View style={styles.checksContent}>
-                <OfficialSleepGuidelineCard
-                  ageMonths={childAgeMonths}
-                  hasBirthDate={childBirthDateValue !== null}
-                  onOpenInfo={() => router.push(OFFICIAL_SLEEP_INFO_ROUTE)}
-                  plan={parsedDraft.plan}
-                />
-
-                <PracticalSleepPresetCard
-                  ageMonths={childAgeMonths}
-                  agePresetCatalog={agePresetCatalog}
-                  canApplyPreset={canApplyPracticalPreset}
-                  hasBirthDate={childBirthDateValue !== null}
-                  manualAgeBandId={manualAgeBandId}
-                  onApplyPracticalPreset={(preset) => {
-                    void applyPracticalPreset(preset);
-                  }}
-                  onApplyRecommendedTemplate={(preset) => {
-                    void applyPresetTemplate(preset);
-                  }}
-                  onOpenInfo={() => router.push(PRACTICAL_SLEEP_INFO_ROUTE)}
-                  onOpenProfile={() => router.push(PROFILE_ROUTE)}
-                  onSelectManualAgeBand={setManualAgeBandId}
-                  plan={parsedDraft.plan}
-                />
-
-                <WakeWindowGuidelineCard
-                  ageMonths={childAgeMonths}
-                  hasBirthDate={childBirthDateValue !== null}
-                  onOpenInfo={() => router.push(WAKE_WINDOW_INFO_ROUTE)}
-                  onOpenProfile={() => router.push(PROFILE_ROUTE)}
-                  plan={parsedDraft.plan}
-                />
-
+          {!isPresetFlowVisible ? (
+            <>
+              <View style={styles.section}>
+                <View style={styles.sectionTitleBlock}>
+                  <Text style={styles.sectionTitle}>Проверка и расчёт</Text>
+                  <Text style={styles.sectionCaption}>
+                    Возрастные ориентиры можно раскрыть отдельно. Основной план и записи сна от
+                    этого не меняются.
+                  </Text>
+                </View>
                 <Pressable
-                  accessibilityRole="link"
-                  hitSlop={8}
-                  onPress={() => router.push(SCIENTIFIC_EVIDENCE_INFO_ROUTE)}
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: isChecksExpanded }}
+                  onPress={() => setIsChecksExpanded((isExpanded) => !isExpanded)}
                   style={({ pressed }) => [
-                    styles.scientificEvidenceLink,
-                    pressed ? styles.scientificEvidenceLinkPressed : null,
+                    styles.checksToggleButton,
+                    pressed ? styles.guidelineSecondaryButtonPressed : null,
                   ]}>
-                  <Text style={styles.scientificEvidenceLinkText}>
-                    Почему ориентиры разные? Научная база модели: Уровень D
+                  <Text style={styles.checksToggleButtonText}>
+                    {isChecksExpanded ? 'Скрыть ориентиры' : 'Показать ориентиры'}
                   </Text>
                 </Pressable>
-              </View>
-            ) : null}
-          </View>
 
-          <View style={styles.planSection}>
-            <View style={styles.planSectionHeader}>
-              <View style={styles.planSectionTitleBlock}>
-                <Text style={styles.sectionTitle}>Управлять планами</Text>
-                <Text numberOfLines={1} style={styles.planSectionMeta}>
-                  Активный: {activePlanName}
-                </Text>
-              </View>
-              <Pressable
-                accessibilityRole="button"
-                disabled={isLoading || isSaving}
-                onPress={() => {
-                  openCreatePlanNamePrompt();
-                }}
-                style={({ pressed }) => [
-                  styles.newPlanButton,
-                  pressed && !isLoading && !isSaving ? styles.newPlanButtonPressed : null,
-                  isLoading || isSaving ? styles.disabledCard : null,
-                ]}>
-                <Text style={styles.newPlanButtonText}>+ Новый</Text>
-              </Pressable>
-            </View>
+                {isChecksExpanded ? (
+                  <View style={styles.checksContent}>
+                    <OfficialSleepGuidelineCard
+                      ageMonths={childAgeMonths}
+                      hasBirthDate={childBirthDateValue !== null}
+                      onOpenInfo={() => router.push(OFFICIAL_SLEEP_INFO_ROUTE)}
+                      plan={parsedDraft.plan}
+                    />
 
-            <ScrollView
-              horizontal
-              keyboardShouldPersistTaps="handled"
-              showsHorizontalScrollIndicator={false}
-              style={styles.planScroller}
-              contentContainerStyle={styles.planScrollerContent}>
-              {plans.length > 0 ? (
-                plans.map((plan) => (
-                  <PlanCard
-                    ageMonths={childAgeMonths}
+                    <PracticalSleepPresetCard
+                      ageMonths={childAgeMonths}
+                      agePresetCatalog={agePresetCatalog}
+                      canApplyPreset={canApplyPracticalPreset}
+                      hasBirthDate={childBirthDateValue !== null}
+                      manualAgeBandId={manualAgeBandId}
+                      onApplyPracticalPreset={(preset) => {
+                        void applyPracticalPreset(preset);
+                      }}
+                      onApplyRecommendedTemplate={(preset) => {
+                        void applyPresetTemplate(preset);
+                      }}
+                      onOpenInfo={() => router.push(PRACTICAL_SLEEP_INFO_ROUTE)}
+                      onOpenProfile={() => router.push(PROFILE_ROUTE)}
+                      onSelectManualAgeBand={setManualAgeBandId}
+                      plan={parsedDraft.plan}
+                    />
+
+                    <WakeWindowGuidelineCard
+                      ageMonths={childAgeMonths}
+                      hasBirthDate={childBirthDateValue !== null}
+                      onOpenInfo={() => router.push(WAKE_WINDOW_INFO_ROUTE)}
+                      onOpenProfile={() => router.push(PROFILE_ROUTE)}
+                      plan={parsedDraft.plan}
+                    />
+
+                    <Pressable
+                      accessibilityRole="link"
+                      hitSlop={8}
+                      onPress={() => router.push(SCIENTIFIC_EVIDENCE_INFO_ROUTE)}
+                      style={({ pressed }) => [
+                        styles.scientificEvidenceLink,
+                        pressed ? styles.scientificEvidenceLinkPressed : null,
+                      ]}>
+                      <Text style={styles.scientificEvidenceLinkText}>
+                        Почему ориентиры разные? Научная база модели: Уровень D
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+              </View>
+
+              <View style={styles.planSection}>
+                <View style={styles.planSectionHeader}>
+                  <View style={styles.planSectionTitleBlock}>
+                    <Text style={styles.sectionTitle}>Управлять планами</Text>
+                    <Text numberOfLines={1} style={styles.planSectionMeta}>
+                      Активный: {activePlanName}
+                    </Text>
+                  </View>
+                  <Pressable
+                    accessibilityRole="button"
                     disabled={isLoading || isSaving}
-                    isSelected={plan.id === selectedPlanId}
-                    key={plan.id}
-                    onPress={() => selectPlan(plan)}
-                    plan={plan}
-                  />
-                ))
-              ) : (
-                <Text style={styles.emptyScheduleText}>Загрузка планов</Text>
-              )}
-            </ScrollView>
+                    onPress={() => {
+                      openCreatePlanNamePrompt();
+                    }}
+                    style={({ pressed }) => [
+                      styles.newPlanButton,
+                      pressed && !isLoading && !isSaving ? styles.newPlanButtonPressed : null,
+                      isLoading || isSaving ? styles.disabledCard : null,
+                    ]}>
+                    <Text style={styles.newPlanButtonText}>+ Новый</Text>
+                  </Pressable>
+                </View>
 
-            {selectedPlan?.isActive ? null : (
-              <Pressable
-                accessibilityRole="button"
-                disabled={isEditingDisabled}
-                onPress={() => {
-                  void activateSelectedPlan();
-                }}
-                style={({ pressed }) => [
-                  styles.activatePlanButton,
-                  pressed && !isEditingDisabled ? styles.activatePlanButtonPressed : null,
-                  isEditingDisabled ? styles.disabledCard : null,
-                ]}>
-                <Text style={styles.activatePlanButtonText}>Сделать активным</Text>
-              </Pressable>
-            )}
+                <ScrollView
+                  horizontal
+                  keyboardShouldPersistTaps="handled"
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.planScroller}
+                  contentContainerStyle={styles.planScrollerContent}>
+                  {plans.length > 0 ? (
+                    plans.map((plan) => (
+                      <PlanCard
+                        ageMonths={childAgeMonths}
+                        disabled={isLoading || isSaving}
+                        isSelected={plan.id === selectedPlanId}
+                        key={plan.id}
+                        onPress={() => selectPlan(plan)}
+                        plan={plan}
+                      />
+                    ))
+                  ) : (
+                    <Text style={styles.emptyScheduleText}>Загрузка планов</Text>
+                  )}
+                </ScrollView>
+
+                {selectedPlan?.isActive ? null : (
+                  <Pressable
+                    accessibilityRole="button"
+                    disabled={isEditingDisabled}
+                    onPress={() => {
+                      void activateSelectedPlan();
+                    }}
+                    style={({ pressed }) => [
+                      styles.activatePlanButton,
+                      pressed && !isEditingDisabled ? styles.activatePlanButtonPressed : null,
+                      isEditingDisabled ? styles.disabledCard : null,
+                    ]}>
+                    <Text style={styles.activatePlanButtonText}>Сделать активным</Text>
+                  </Pressable>
+                )}
 
             <View style={[styles.hero, !selectedPlan?.isActive ? styles.heroCompact : null]}>
               <View style={styles.heroIcon}>
@@ -2825,6 +3481,8 @@ export default function SleepPlanScreen() {
               <Text style={styles.deletePlanButtonText}>Удалить выбранный план</Text>
             </Pressable>
           </View>
+            </>
+          ) : null}
 
         </SafeAreaView>
       </ScrollView>
@@ -2992,6 +3650,193 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     paddingBottom: spacing.xl,
+  },
+  presetFlow: {
+    gap: spacing.md,
+  },
+  presetFlowHeader: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  presetFlowTitle: {
+    color: colors.text,
+    fontSize: 24,
+    lineHeight: 29,
+    fontWeight: '900',
+  },
+  presetCloseButton: {
+    minHeight: 36,
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.primarySoft,
+  },
+  presetCloseButtonText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  presetBirthDateBlock: {
+    gap: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  presetList: {
+    gap: spacing.md,
+  },
+  presetTemplateCard: {
+    gap: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  presetTemplateCardRecommended: {
+    borderWidth: 2,
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  presetTemplateHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  presetTemplateTitle: {
+    flexShrink: 1,
+    color: colors.text,
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '900',
+  },
+  presetTemplateMeaning: {
+    color: colors.text,
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '800',
+  },
+  presetTemplateFacts: {
+    gap: spacing.xs,
+  },
+  presetTemplateFact: {
+    color: colors.textMuted,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '800',
+  },
+  presetWhyBlock: {
+    gap: 4,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.sm,
+    backgroundColor: colors.surface,
+  },
+  presetWhyTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  presetWhyText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  presetPrimaryButton: {
+    minHeight: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.primary,
+  },
+  presetPrimaryButtonText: {
+    color: colors.surface,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  presetSecondaryButton: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.primarySoft,
+  },
+  presetSecondaryButtonText: {
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  presetPlainButton: {
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.xs,
+  },
+  presetPlainButtonText: {
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  presetPreviewCard: {
+    gap: spacing.md,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  presetPreviewList: {
+    gap: spacing.xs,
+  },
+  presetPreviewRow: {
+    color: colors.text,
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '800',
+  },
+  presetActions: {
+    gap: spacing.sm,
+  },
+  presetEmptyText: {
+    color: colors.textMuted,
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '700',
+  },
+  presetErrorText: {
+    color: colors.danger,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+  },
+  changeTemplateButton: {
+    minHeight: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.primarySoft,
+  },
+  changeTemplateButtonText: {
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: '900',
   },
   activeSummaryCard: {
     gap: spacing.sm,

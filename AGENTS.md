@@ -294,6 +294,34 @@ Keep plan deletion off the main top surface. Prefer the bottom of `Управл�
 
 When smoke-testing Expo web and local SQLite throws `NoModificationAllowedError` from an existing origin lock, test on a fresh port/origin such as `localhost:19006` and stop any temporary server afterwards. Treat that as a web storage locking issue, not as a `/sleep-plan` UI regression.
 
+## Implementation lessons from `/sleep-plan` preset template selection flow
+
+The `/sleep-plan` preset selection flow is the first-run path for choosing a permanent base `target_day_plan`. It is not a temporary day mode and must not create `sleep_day_temporary_mode` rows.
+
+Keep the empty active-plan state reachable. `listTargetDayPlans` and other UI-facing reads that need the real plan list must not silently insert a default `target_day_plan`. Fallback helpers such as `getTargetDayPlan` / `getSleepDayPlan` may still return `DEFAULT_SLEEP_PLAN` for calculations when no plan exists, but they should not create a persistent row unless the user explicitly applies a plan.
+
+For age-based preset selection:
+- if `child_profile.birthDate` exists, derive the catalog from the profile age and ignore manual age band selection;
+- if birth date is missing, show `Указать дату рождения` plus manual age-band chips, and do not block plan selection without birth date;
+- manual age-band selection is screen-local and must not write to `child_profile`;
+- show only `recommendedPreset` and one `alternativePreset` on the first selection level;
+- highlight the recommended preset with `Рекомендуем`, but never auto-select or auto-save it;
+- require an explicit `Выбрать этот план`, then show `Ваш базовый план` preview;
+- create and activate a `target_day_plan` only after `Использовать этот план`;
+- use a readable preset name such as `4 сна · 5–6 мес`;
+- keep `eveningRulesMode: "auto"` for plans created directly from a preset template.
+
+The manual path starts from a selected/recommended preset, not an empty form. If the parent changes details before saving, create an active custom plan such as `Свой план · 5–6 мес`; do not mutate an existing active plan just because the user opened the manual flow.
+
+When changing this flow, cover at least:
+- no birth date: manual age group can reveal presets and save a plan;
+- birth date: profile age drives the recommended preset;
+- recommended preset is not selected before the user taps `Выбрать этот план`;
+- the first selection level has no more than two preset cards;
+- `Использовать этот план` creates an active `target_day_plan`;
+- returning to `/sleep-plan` shows the normal active state for the created plan;
+- TypeScript checks and unit tests pass.
+
 ## Implementation lessons from date-based UI work
 
 When adding date navigation or history screens, verify every date mode explicitly:
