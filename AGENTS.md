@@ -271,6 +271,53 @@ When changing effective-plan logic, cover at least:
 - combined mode order;
 - base `TargetDayPlan` is not mutated.
 
+## Implementation lessons from main screen effective-plan integration
+
+The main `/` screen must use the effective plan for today's calculations, but it must keep the base `SleepDayPlan` as the source of truth for plan name, source plan id, and temporary mode persistence.
+
+For today only, load `sleep_day_temporary_mode` by `sleepDayPlan.sleepDayDate`, not by the selected calendar date. This matters before `dayStartMinutes`, when the current sleep-day can still be yesterday.
+
+Use a pure helper such as `src/core/todayEffectiveSleepPlan.ts` to:
+- derive the actual wake time for early-wake mode from sleep records;
+- call `buildEffectiveSleepDayPlan(basePlan, temporaryModes, { actualWakeTime })`;
+- decide the temporary-mode badge label;
+- decide whether the early-wake suggestion should be shown.
+
+On the main screen, feed the effective `SleepPlanPreset` into:
+- `buildTodaySleepSnapshot`;
+- next sleep projection;
+- night projection;
+- recommendation scenarios;
+- current start/stop and manual-entry sleep kind inference for today.
+
+Do not use the effective plan to rename the active plan or overwrite `target_day_plan`, saved snapshots, history, schema, or export/import data. The effective plan is a one-day calculation result.
+
+When computing early-wake suggestion on `/`, use nearby sleep sessions around the current sleep-day, not only selected-day display rows. A completed night sleep ending at least `EARLY_WAKE_THRESHOLD_MINUTES` before `plan.wakeUpStartMinutes` can suggest `early_wake`; an active night sleep should suppress the suggestion until wake-up is known.
+
+The main screen may show only a compact temporary-mode badge near the scenario plan line:
+- `Сегодня мягкий день`;
+- `Сегодня ранний подъём`;
+- `Сегодня график скорректирован` when both modes are active.
+
+The badge should navigate to `/sleep-plan`. Do not add temporary-mode toggles for past or future days on `/`, and do not offer mode activation from `/` when the selected date is not today.
+
+For early-wake recommendation on `/`:
+- show one calm card only when `shouldSuggestEarlyWakeMode` is true;
+- never enable the mode automatically;
+- `Включить` writes `early_wake` for the current sleep-day and then reloads the screen;
+- `Не сейчас` writes dismissed state for the current sleep-day and suppresses the card until the next sleep-day;
+- require a persisted active/source plan id before enabling from `/`, so first-run fallback plans do not create confusing temporary mode rows.
+
+Do not add a separate total-awake-time or summed 24-hour wake card to the main screen. Today may show remaining awake time (`До цели бодрств.`), while detailed `Бодрствование за 24 часа (ВБ)` remains only in expanded `/sleep-plan` checks.
+
+When changing this integration, cover at least:
+- main screen snapshot uses effective plan under `soft_day`;
+- main screen next sleep projection uses effective plan under `early_wake`;
+- early-wake recommendation appears at the 30-minute threshold;
+- recommendation does not reappear after `Не сейчас` for the same sleep-day;
+- recommendation does not appear when `early_wake` is enabled;
+- today UI still has no standalone summed-WB card.
+
 ## Implementation lessons from `/sleep-plan` active state simplification
 
 The active state of `/sleep-plan` should stay a calm parent-facing overview before plan management. When an active plan exists, keep the first-level order:

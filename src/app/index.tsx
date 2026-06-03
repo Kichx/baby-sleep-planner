@@ -20,7 +20,7 @@ import { SleepDayTimeline } from '@/components/SleepDayTimeline';
 import { SleepSessionEditorModal } from '@/components/SleepSessionEditorModal';
 import { SummaryCard } from '@/components/SummaryCard';
 import { DEFAULT_BOTTLE_FEEDING_VOLUME_ML } from '@/constants/bottleFeeding';
-import { DEFAULT_CHILD_NAME, DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
+import { DEFAULT_CHILD_ID, DEFAULT_CHILD_NAME, DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
   addMinutes,
@@ -49,6 +49,11 @@ import {
   formatSleepDayDateKey,
 } from '@/core/sleepDay';
 import {
+  buildTodayEffectiveSleepPlan,
+  getTemporaryModeBadgeLabel,
+  shouldShowEarlyWakeModeSuggestion,
+} from '@/core/todayEffectiveSleepPlan';
+import {
   checkTotalSleepAgainstOfficialGuideline,
   formatDurationRangeShort,
   getAgeInCompletedMonths,
@@ -75,6 +80,8 @@ import {
   createSleepSession,
   deleteBottleFeeding,
   deleteSleepSession,
+  dismissSleepDayTemporaryModeSuggestion,
+  enableSleepDayTemporaryMode,
   ensureDefaultChildProfile,
   getLast24HoursBottleFeedingStats,
   getLatestBottleFeeding,
@@ -82,6 +89,7 @@ import {
   getTodayBottleFeedingStats,
   getLatestSleepSession,
   getSleepDayPlan,
+  listSleepDayTemporaryModes,
   listTargetDayPlans,
   listBottleFeedingsInRange,
   listSleepSessionsInRange,
@@ -94,6 +102,7 @@ import { syncSleepNotificationsFromDatabase } from '@/notifications/sleepNotific
 import type { BottleFeeding, BottleFeedingStats } from '@/types/bottleFeeding';
 import type {
   SleepDayPlan,
+  SleepDayTemporaryMode,
   SleepKind,
   SleepPlanPreset,
   SleepSession,
@@ -572,6 +581,18 @@ function sortSessionsNewestFirst(sessions: SleepSession[]): SleepSession[] {
   );
 }
 
+function buildTargetPlanFromSleepDayPlan(dayPlan: SleepDayPlan): TargetDayPlan {
+  return {
+    childId: dayPlan.childId,
+    eveningRulesMode: 'auto',
+    id: dayPlan.sourcePlanId ?? 'sleep-day-plan',
+    isActive: !dayPlan.isSnapshot,
+    name: dayPlan.sourcePlanName,
+    plan: dayPlan.plan,
+    updatedAt: '1970-01-01T00:00:00.000Z',
+  };
+}
+
 export default function TodaySleepScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
@@ -595,6 +616,10 @@ export default function TodaySleepScreen() {
   );
   const [sleepPlan, setSleepPlan] = useState(DEFAULT_SLEEP_PLAN);
   const [sleepDayPlan, setSleepDayPlan] = useState<SleepDayPlan | null>(null);
+  const [sleepDayTemporaryModes, setSleepDayTemporaryModes] = useState<
+    SleepDayTemporaryMode[]
+  >([]);
+  const [actualWakeTime, setActualWakeTime] = useState<Date | null>(null);
   const [availablePlans, setAvailablePlans] = useState<TargetDayPlan[]>([]);
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [now, setNow] = useState(() => new Date());
@@ -684,6 +709,29 @@ export default function TodaySleepScreen() {
         currentNow,
         loadedDayPlan.plan,
       );
+      let effectivePlan = loadedDayPlan.plan;
+      let actualWakeTimeForDay: Date | null = null;
+      let temporaryModes: SleepDayTemporaryMode[] = [];
+
+      if (getSelectedDayType(referenceDate, currentNow) === 'today') {
+        temporaryModes = await listSleepDayTemporaryModes(
+          db,
+          loadedDayPlan.childId,
+          loadedDayPlan.sleepDayDate,
+        );
+
+        const effectivePlanResult = buildTodayEffectiveSleepPlan({
+          basePlan: buildTargetPlanFromSleepDayPlan(loadedDayPlan),
+          now: currentNow,
+          sessions: loadedSessions.nearbySessions,
+          sleepDayDateKey: loadedDayPlan.sleepDayDate,
+          temporaryModes,
+        });
+
+        effectivePlan = effectivePlanResult.plan;
+        actualWakeTimeForDay = effectivePlanResult.actualWakeTime;
+      }
+
       const loadedBottleFeedings = await fetchBottleFeedingsForDate(
         referenceDate,
         currentNow,
@@ -691,9 +739,12 @@ export default function TodaySleepScreen() {
       );
 
       return {
+        actualWakeTime: actualWakeTimeForDay,
         bottleFeedings: loadedBottleFeedings,
         dayPlan: loadedDayPlan,
+        effectivePlan,
         sessions: loadedSessions,
+        temporaryModes,
       };
     },
     [bottleFeedingEnabled, db, fetchBottleFeedingsForDate, fetchSessionsForDate],
@@ -766,7 +817,9 @@ export default function TodaySleepScreen() {
         if (isMounted) {
           setNow(loadedAt);
           setSleepDayPlan(loadedData.dayPlan);
-          setSleepPlan(loadedData.dayPlan.plan);
+          setSleepPlan(loadedData.effectivePlan);
+          setSleepDayTemporaryModes(loadedData.temporaryModes);
+          setActualWakeTime(loadedData.actualWakeTime);
           setSessions(loadedData.sessions.selectedSessions);
           setNearbySessions(loadedData.sessions.nearbySessions);
           setBottleFeedings(loadedData.bottleFeedings.selectedFeedings);
@@ -796,6 +849,7 @@ export default function TodaySleepScreen() {
   }, [loadSelectedDayData, reloadVersion, selectedDate]);
 
   const dayType = useMemo(() => getSelectedDayType(selectedDate, now), [now, selectedDate]);
+  const isToday = dayType === 'today';
   const selectedDayTitle = useMemo(
     () => formatSelectedDayTitle(selectedDate, now),
     [now, selectedDate],
@@ -956,10 +1010,28 @@ export default function TodaySleepScreen() {
     snapshot.projectedRemainingDaySleepMinutes > 0
       ? `ещё сна днём ${formatDuration(snapshot.projectedRemainingDaySleepMinutes)}`
       : 'с учётом сна днём';
-  const isToday = dayType === 'today';
   const currentPlanName = sleepDayPlan?.sourcePlanName ?? 'Основной';
   const canChangeSleepDayPlan = dayType === 'past' && availablePlans.length > 0;
   const isSleeping = isToday && snapshot.state === 'sleeping';
+  const baseSleepPlan = sleepDayPlan?.plan ?? sleepPlan;
+  const hasPersistedCurrentPlan = useMemo(
+    () =>
+      sleepDayPlan?.sourcePlanId
+        ? availablePlans.some((plan) => plan.id === sleepDayPlan.sourcePlanId)
+        : false,
+    [availablePlans, sleepDayPlan?.sourcePlanId],
+  );
+  const temporaryModeBadgeLabel = isToday
+    ? getTemporaryModeBadgeLabel(sleepDayTemporaryModes)
+    : null;
+  const shouldShowEarlyWakeSuggestion =
+    isToday &&
+    hasPersistedCurrentPlan &&
+    shouldShowEarlyWakeModeSuggestion({
+      actualWakeTime,
+      basePlan: baseSleepPlan,
+      temporaryModes: sleepDayTemporaryModes,
+    });
   const activeSleepElapsedSeconds = isSleeping
     ? getElapsedSeconds(snapshot.statusStartedAt, now)
     : 0;
@@ -1096,7 +1168,9 @@ export default function TodaySleepScreen() {
 
     setNow(currentNow);
     setSleepDayPlan(loadedData.dayPlan);
-    setSleepPlan(loadedData.dayPlan.plan);
+    setSleepPlan(loadedData.effectivePlan);
+    setSleepDayTemporaryModes(loadedData.temporaryModes);
+    setActualWakeTime(loadedData.actualWakeTime);
     setSessions(loadedData.sessions.selectedSessions);
     setNearbySessions(loadedData.sessions.nearbySessions);
     setBottleFeedings(loadedData.bottleFeedings.selectedFeedings);
@@ -1321,6 +1395,66 @@ export default function TodaySleepScreen() {
       setErrorMessage('Не удалось сменить план дня');
     } finally {
       setIsChangingDayPlan(false);
+    }
+  }
+
+  async function handleEnableEarlyWakeMode() {
+    if (!isToday || !sleepDayPlan?.sourcePlanId || !hasPersistedCurrentPlan) {
+      return;
+    }
+
+    const actionAt = new Date();
+
+    setIsSaving(true);
+    setErrorMessage(null);
+    setNow(actionAt);
+
+    try {
+      await enableSleepDayTemporaryMode(
+        db,
+        sleepDayPlan.childId || DEFAULT_CHILD_ID,
+        sleepDayPlan.sleepDayDate,
+        'early_wake',
+        sleepDayPlan.sourcePlanId,
+      );
+
+      try {
+        await syncSleepNotificationsFromDatabase(db, actionAt);
+      } catch {
+        // Temporary mode changes should not block local sleep planning.
+      }
+
+      await reloadSelectedDay(selectedDate, actionAt);
+    } catch {
+      setErrorMessage('Не удалось включить ранний подъём');
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleDismissEarlyWakeSuggestion() {
+    if (!isToday || !sleepDayPlan || !hasPersistedCurrentPlan) {
+      return;
+    }
+
+    const actionAt = new Date();
+
+    setIsSaving(true);
+    setErrorMessage(null);
+    setNow(actionAt);
+
+    try {
+      await dismissSleepDayTemporaryModeSuggestion(
+        db,
+        sleepDayPlan.childId || DEFAULT_CHILD_ID,
+        sleepDayPlan.sleepDayDate,
+        'early_wake',
+      );
+      await reloadSelectedDay(selectedDate, actionAt);
+    } catch {
+      setErrorMessage('Не удалось скрыть подсказку раннего подъёма');
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -1634,6 +1768,20 @@ export default function TodaySleepScreen() {
                     <Text numberOfLines={1} style={styles.scenarioPlanLabel}>
                       Активный план: {currentPlanName}
                     </Text>
+                    {temporaryModeBadgeLabel ? (
+                      <Pressable
+                        accessibilityRole="button"
+                        hitSlop={4}
+                        onPress={openSleepPlan}
+                        style={({ pressed }) => [
+                          styles.temporaryModeBadge,
+                          pressed ? styles.temporaryModeBadgePressed : null,
+                        ]}>
+                        <Text numberOfLines={1} style={styles.temporaryModeBadgeText}>
+                          {temporaryModeBadgeLabel}
+                        </Text>
+                      </Pressable>
+                    ) : null}
                   </View>
                   <Pressable
                     accessibilityRole="button"
@@ -1650,6 +1798,32 @@ export default function TodaySleepScreen() {
                     </Text>
                   </Pressable>
                 </View>
+                {shouldShowEarlyWakeSuggestion ? (
+                  <View style={styles.earlyWakeSuggestionCard}>
+                    <Text style={styles.earlyWakeSuggestionText}>
+                      {
+                        'Похоже, день начался раньше обычного. Можно включить ранний подъём, чтобы первое бодрствование было мягче.'
+                      }
+                    </Text>
+                    <View style={styles.earlyWakeSuggestionActions}>
+                      <PrimaryButton
+                        compact
+                        disabled={isLoading || isSaving}
+                        label="Включить"
+                        onPress={handleEnableEarlyWakeMode}
+                        style={styles.earlyWakeSuggestionButton}
+                      />
+                      <PrimaryButton
+                        compact
+                        disabled={isLoading || isSaving}
+                        label="Не сейчас"
+                        onPress={handleDismissEarlyWakeSuggestion}
+                        style={styles.earlyWakeSuggestionButton}
+                        variant="secondary"
+                      />
+                    </View>
+                  </View>
+                ) : null}
                 <View style={styles.scenarioList}>
                   {snapshot.scenarios.map((scenario) => (
                     <View
@@ -2439,6 +2613,25 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
+  temporaryModeBadge: {
+    minHeight: 26,
+    maxWidth: '100%',
+    alignSelf: 'flex-start',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: spacing.sm,
+    backgroundColor: colors.primarySoft,
+  },
+  temporaryModeBadgePressed: {
+    backgroundColor: colors.surfaceMuted,
+  },
+  temporaryModeBadgeText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '900',
+  },
   sharePlanButton: {
     minHeight: 34,
     minWidth: 104,
@@ -2464,6 +2657,27 @@ const styles = StyleSheet.create({
   },
   scenarioList: {
     gap: spacing.sm,
+  },
+  earlyWakeSuggestionCard: {
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primarySoft,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+    gap: spacing.sm,
+  },
+  earlyWakeSuggestionText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 21,
+  },
+  earlyWakeSuggestionActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  earlyWakeSuggestionButton: {
+    flex: 1,
   },
   scenario: {
     borderRadius: radius.sm,
