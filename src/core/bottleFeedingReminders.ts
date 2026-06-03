@@ -16,6 +16,7 @@ export interface BottleFeedingReminderPlannerState {
 export interface BottleFeedingReminderDecision {
   triggerAt: Date;
   kind: 'schedule' | 'showNow' | 'suppressUntilWake';
+  suppressedDueToSleep: boolean;
   title: string;
   body: string;
   latestFeedingId: string;
@@ -93,6 +94,7 @@ function buildBottleFeedingReminderDetails(params: {
   latestFeeding: BottleFeeding;
   latestFeedingStartedAt: Date;
   reminderIntervalMinutes: number;
+  suppressedDueToSleep?: boolean;
   triggerAt: Date;
 }): BottleFeedingReminderDecision {
   const intervalText = formatReminderInterval(params.reminderIntervalMinutes);
@@ -103,6 +105,7 @@ function buildBottleFeedingReminderDetails(params: {
     kind: params.kind,
     latestFeedingId: params.latestFeeding.id,
     latestFeedingStartedAt: params.latestFeedingStartedAt,
+    suppressedDueToSleep: params.suppressedDueToSleep ?? false,
     title: `Прошло ${intervalText} с последнего кормления`,
     triggerAt: params.triggerAt,
     volumeMl: params.latestFeeding.volumeMl,
@@ -136,11 +139,12 @@ export function shouldSuppressBottleFeedingReminderPresentation(params: {
 
 export function resolveSuppressedBottleFeedingReminder(params: {
   latestFeeding: BottleFeeding | null;
+  now: Date;
   settings: BottleFeedingReminderSettings;
   state: BottleFeedingReminderPlannerState;
   isSleeping: boolean;
 }): BottleFeedingSuppressedReminderResolution {
-  const { latestFeeding, settings, state, isSleeping } = params;
+  const { latestFeeding, now, settings, state, isSleeping } = params;
 
   if (!state.suppressedDueToSleep || !state.suppressedReminderAt) {
     return {
@@ -151,6 +155,7 @@ export function resolveSuppressedBottleFeedingReminder(params: {
 
   if (
     Number.isNaN(state.suppressedReminderAt.getTime()) ||
+    Number.isNaN(now.getTime()) ||
     !areBottleFeedingReminderSettingsEnabled(settings) ||
     settings.notifyDuringSleep ||
     !latestFeeding
@@ -184,6 +189,13 @@ export function resolveSuppressedBottleFeedingReminder(params: {
     };
   }
 
+  if (state.suppressedReminderAt.getTime() > now.getTime()) {
+    return {
+      kind: 'clearSuppressed',
+      state: EMPTY_BOTTLE_FEEDING_REMINDER_PLANNER_STATE,
+    };
+  }
+
   return {
     kind: 'showSuppressedNow',
     reminder: buildBottleFeedingReminderDetails({
@@ -191,6 +203,7 @@ export function resolveSuppressedBottleFeedingReminder(params: {
       latestFeeding,
       latestFeedingStartedAt,
       reminderIntervalMinutes: settings.reminderIntervalMinutes,
+      suppressedDueToSleep: true,
       triggerAt: state.suppressedReminderAt,
     }),
     state: EMPTY_BOTTLE_FEEDING_REMINDER_PLANNER_STATE,
@@ -202,8 +215,9 @@ export function buildBottleFeedingReminder(params: {
   now: Date;
   settings: BottleFeedingReminderSettings;
   isSleeping: boolean;
+  allowOverdue?: boolean;
 }): BottleFeedingReminderDecision | null {
-  const { latestFeeding, now, settings, isSleeping } = params;
+  const { latestFeeding, now, settings, isSleeping, allowOverdue = false } = params;
 
   if (
     !areBottleFeedingReminderSettingsEnabled(settings) ||
@@ -227,10 +241,20 @@ export function buildBottleFeedingReminder(params: {
     return null;
   }
 
+  if (isSleeping && !settings.notifyDuringSleep) {
+    return buildBottleFeedingReminderDetails({
+      kind: 'suppressUntilWake',
+      latestFeeding,
+      latestFeedingStartedAt,
+      reminderIntervalMinutes: settings.reminderIntervalMinutes,
+      triggerAt,
+    });
+  }
+
   if (triggerAt.getTime() < now.getTime()) {
-    if (isSleeping && !settings.notifyDuringSleep) {
+    if (allowOverdue) {
       return buildBottleFeedingReminderDetails({
-        kind: 'suppressUntilWake',
+        kind: 'showNow',
         latestFeeding,
         latestFeedingStartedAt,
         reminderIntervalMinutes: settings.reminderIntervalMinutes,

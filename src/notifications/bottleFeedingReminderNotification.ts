@@ -142,7 +142,7 @@ async function scheduleBottleFeedingReminder(
         feedingId: reminder.latestFeedingId,
         feedingStartedAt: reminder.latestFeedingStartedAt.toISOString(),
         intervalMinutes: reminder.intervalMinutes,
-        suppressedDueToSleep: reminder.kind === 'showNow',
+        suppressedDueToSleep: reminder.suppressedDueToSleep,
         triggerAt: reminder.triggerAt.toISOString(),
         type: 'bottleFeedingReminder',
         volumeMl: reminder.volumeMl,
@@ -175,6 +175,9 @@ export async function hideBottleFeedingReminderNotification() {
 export async function syncBottleFeedingReminderNotificationFromDatabase(
   db: SQLiteDatabase,
   now = new Date(),
+  options: {
+    showOverdueReminder?: boolean;
+  } = {},
 ) {
   try {
     const [profile, latestFeeding, activeSleepSession] = await Promise.all([
@@ -210,6 +213,7 @@ export async function syncBottleFeedingReminderNotificationFromDatabase(
     const suppressedResolution = resolveSuppressedBottleFeedingReminder({
       isSleeping,
       latestFeeding,
+      now,
       settings,
       state: bottleFeedingReminderPlannerState,
     });
@@ -233,6 +237,7 @@ export async function syncBottleFeedingReminderNotificationFromDatabase(
     }
 
     const reminder = buildBottleFeedingReminder({
+      allowOverdue: options.showOverdueReminder === true,
       isSleeping,
       latestFeeding,
       now,

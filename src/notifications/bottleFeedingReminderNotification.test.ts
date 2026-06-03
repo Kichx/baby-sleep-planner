@@ -178,6 +178,54 @@ describe('bottle feeding reminder notification sync', () => {
     });
   });
 
+  it('does not show an overdue reminder during ordinary sync', async () => {
+    dbMocks.getChildProfile.mockResolvedValue(
+      profile({
+        bottleFeedingReminderIntervalMinutes: 1,
+      }),
+    );
+    const { syncBottleFeedingReminderNotificationFromDatabase } = await loadSubject();
+
+    await syncBottleFeedingReminderNotificationFromDatabase(
+      db,
+      new Date('2026-06-01T06:02:00.000Z'),
+    );
+
+    expect(
+      notificationMocks.Notifications.cancelScheduledNotificationAsync,
+    ).toHaveBeenCalledWith('bottle-feeding-reminder');
+    expect(notificationMocks.Notifications.scheduleNotificationAsync).not.toHaveBeenCalled();
+  });
+
+  it('shows an overdue reminder after an explicit reminder settings save', async () => {
+    dbMocks.getChildProfile.mockResolvedValue(
+      profile({
+        bottleFeedingReminderIntervalMinutes: 1,
+      }),
+    );
+    const { syncBottleFeedingReminderNotificationFromDatabase } = await loadSubject();
+
+    await syncBottleFeedingReminderNotificationFromDatabase(
+      db,
+      new Date('2026-06-01T06:02:00.000Z'),
+      { showOverdueReminder: true },
+    );
+
+    const payload = scheduledPayloadAt(0);
+
+    expect(payload).toMatchObject({
+      identifier: 'bottle-feeding-reminder',
+      trigger: null,
+    });
+    expect(payload?.content.data).toMatchObject({
+      feedingId: 'latest-feeding',
+      intervalMinutes: 1,
+      suppressedDueToSleep: false,
+      triggerAt: '2026-06-01T06:01:00.000Z',
+      type: 'bottleFeedingReminder',
+    });
+  });
+
   it('cancels the old scheduled reminder before scheduling from a newer feeding', async () => {
     let latestFeeding = feeding('first-feeding', '2026-06-01T06:00:00.000Z', 120);
 
@@ -289,6 +337,67 @@ describe('bottle feeding reminder notification sync', () => {
     });
   });
 
+  it('cancels a future reminder during sleep and reschedules it after early wake', async () => {
+    let activeSleep: SleepSession | null = null;
+
+    dbMocks.getChildProfile.mockResolvedValue(
+      profile({
+        bottleFeedingNotifyDuringSleep: false,
+      }),
+    );
+    dbMocks.getActiveSleepSession.mockImplementation(async () => activeSleep);
+    const { syncBottleFeedingReminderNotificationFromDatabase } = await loadSubject();
+
+    await syncBottleFeedingReminderNotificationFromDatabase(
+      db,
+      new Date('2026-06-01T08:00:00.000Z'),
+    );
+
+    expect(notificationMocks.Notifications.scheduleNotificationAsync).toHaveBeenCalledTimes(1);
+    expect(scheduledPayloadAt(0)).toMatchObject({
+      identifier: 'bottle-feeding-reminder',
+      trigger: {
+        channelId: 'bottle-feeding-reminders',
+        seconds: 3600,
+        type: 'TIME_INTERVAL',
+      },
+    });
+
+    activeSleep = activeSleepSession();
+
+    await syncBottleFeedingReminderNotificationFromDatabase(
+      db,
+      new Date('2026-06-01T08:15:00.000Z'),
+    );
+
+    expect(
+      notificationMocks.Notifications.cancelScheduledNotificationAsync,
+    ).toHaveBeenCalledTimes(2);
+    expect(notificationMocks.Notifications.scheduleNotificationAsync).toHaveBeenCalledTimes(1);
+
+    activeSleep = null;
+
+    await syncBottleFeedingReminderNotificationFromDatabase(
+      db,
+      new Date('2026-06-01T08:30:00.000Z'),
+    );
+
+    expect(notificationMocks.Notifications.scheduleNotificationAsync).toHaveBeenCalledTimes(2);
+    expect(scheduledPayloadAt(1)).toMatchObject({
+      identifier: 'bottle-feeding-reminder',
+      trigger: {
+        channelId: 'bottle-feeding-reminders',
+        seconds: 1800,
+        type: 'TIME_INTERVAL',
+      },
+    });
+    expect(scheduledPayloadAt(1)?.content.data).toMatchObject({
+      feedingId: 'latest-feeding',
+      suppressedDueToSleep: false,
+      triggerAt: '2026-06-01T09:00:00.000Z',
+    });
+  });
+
   it('does not show a suppressed reminder after a newer feeding during sleep', async () => {
     let activeSleep: SleepSession | null = activeSleepSession();
     let latestFeeding = feeding('before-sleep', '2026-06-01T06:00:00.000Z', 120);
@@ -321,7 +430,7 @@ describe('bottle feeding reminder notification sync', () => {
       new Date('2026-06-01T10:00:00.000Z'),
     );
 
-    expect(notificationMocks.Notifications.scheduleNotificationAsync).toHaveBeenCalledTimes(2);
+    expect(notificationMocks.Notifications.scheduleNotificationAsync).toHaveBeenCalledTimes(1);
     expect(
       notificationMocks.Notifications.scheduleNotificationAsync.mock.calls.some(
         ([payload]) => payload.trigger === null,

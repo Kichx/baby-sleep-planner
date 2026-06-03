@@ -108,7 +108,29 @@ describe('bottle feeding reminders', () => {
     ).toBeNull();
   });
 
-  it('keeps a future reminder scheduled during sleep so due-time can decide', () => {
+  it('can show an overdue reminder immediately after an explicit settings change', () => {
+    const reminder = buildBottleFeedingReminder({
+      allowOverdue: true,
+      isSleeping: false,
+      latestFeeding: feeding('2026-06-01T06:00:00.000Z', 'latest-feeding', 120),
+      now: new Date('2026-06-01T06:02:00.000Z'),
+      settings: {
+        bottleFeedingEnabled: true,
+        notifyDuringSleep: true,
+        reminderIntervalMinutes: 1,
+        remindersEnabled: true,
+      },
+    });
+
+    expect(reminder).toMatchObject({
+      kind: 'showNow',
+      latestFeedingId: 'latest-feeding',
+      suppressedDueToSleep: false,
+    });
+    expect(reminder?.triggerAt.toISOString()).toBe('2026-06-01T06:01:00.000Z');
+  });
+
+  it('suppresses a future reminder during sleep when sleep-time notifications are off', () => {
     const reminder = buildBottleFeedingReminder({
       isSleeping: true,
       latestFeeding: feeding('2026-06-01T06:00:00.000Z'),
@@ -122,7 +144,7 @@ describe('bottle feeding reminders', () => {
     });
 
     expect(reminder).toMatchObject({
-      kind: 'schedule',
+      kind: 'suppressUntilWake',
     });
     expect(reminder?.triggerAt.toISOString()).toBe('2026-06-01T09:00:00.000Z');
   });
@@ -195,6 +217,7 @@ describe('bottle feeding reminders', () => {
     const resolution = resolveSuppressedBottleFeedingReminder({
       isSleeping: false,
       latestFeeding: feeding('2026-06-01T06:00:00.000Z', 'feeding-before-sleep', 120),
+      now: new Date('2026-06-01T09:20:00.000Z'),
       settings: {
         bottleFeedingEnabled: true,
         notifyDuringSleep: false,
@@ -225,6 +248,7 @@ describe('bottle feeding reminders', () => {
     const resolution = resolveSuppressedBottleFeedingReminder({
       isSleeping: true,
       latestFeeding: feeding('2026-06-01T06:00:00.000Z'),
+      now: new Date('2026-06-01T09:15:00.000Z'),
       settings: {
         bottleFeedingEnabled: true,
         notifyDuringSleep: false,
@@ -240,10 +264,33 @@ describe('bottle feeding reminders', () => {
     });
   });
 
+  it('clears a future suppressed reminder after sleep ends so it can be rescheduled', () => {
+    const resolution = resolveSuppressedBottleFeedingReminder({
+      isSleeping: false,
+      latestFeeding: feeding('2026-06-01T06:00:00.000Z'),
+      now: new Date('2026-06-01T08:30:00.000Z'),
+      settings: {
+        bottleFeedingEnabled: true,
+        notifyDuringSleep: false,
+        reminderIntervalMinutes: 180,
+        remindersEnabled: true,
+      },
+      state: buildBottleFeedingReminderSuppressionState(
+        new Date('2026-06-01T09:00:00.000Z'),
+      ),
+    });
+
+    expect(resolution).toEqual({
+      kind: 'clearSuppressed',
+      state: EMPTY_BOTTLE_FEEDING_REMINDER_PLANNER_STATE,
+    });
+  });
+
   it('clears a suppressed reminder when a newer feeding happened after it was due', () => {
     const resolution = resolveSuppressedBottleFeedingReminder({
       isSleeping: false,
       latestFeeding: feeding('2026-06-01T09:30:00.000Z', 'new-feeding', 90),
+      now: new Date('2026-06-01T10:00:00.000Z'),
       settings: {
         bottleFeedingEnabled: true,
         notifyDuringSleep: false,
@@ -265,6 +312,7 @@ describe('bottle feeding reminders', () => {
     const resolution = resolveSuppressedBottleFeedingReminder({
       isSleeping: false,
       latestFeeding: feeding('2026-06-01T06:00:00.000Z'),
+      now: new Date('2026-06-01T10:00:00.000Z'),
       settings: {
         bottleFeedingEnabled: true,
         notifyDuringSleep: false,

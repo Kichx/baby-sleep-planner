@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Stack, type Href, useFocusEffect, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottleFeedingEditorModal } from '@/components/BottleFeedingEditorModal';
@@ -64,6 +73,11 @@ interface FeedingDayGroup {
   title: string;
 }
 
+interface TimeParts {
+  hours: number;
+  minutes: number;
+}
+
 const HOME_ROUTE = '/' as Href;
 const EMPTY_BOTTLE_FEEDING_STATS: BottleFeedingStats = {
   count: 0,
@@ -77,8 +91,72 @@ function sortFeedingsNewestFirst(feedings: BottleFeeding[]): BottleFeeding[] {
   );
 }
 
+function formatReminderIntervalInput(minutes: number): string {
+  const safeMinutes = Math.max(0, Math.floor(minutes));
+  const hours = Math.floor(safeMinutes / 60);
+  const restMinutes = safeMinutes % 60;
+
+  return `${hours}:${String(restMinutes).padStart(2, '0')}`;
+}
+
+function isValidReminderIntervalParts(hours: number, minutes: number): boolean {
+  return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
+}
+
 function normalizeReminderIntervalInput(value: string): string {
-  return value.replace(/\D/g, '').slice(0, 4);
+  const normalized = value.trim().replace(/[.,]/g, ':');
+
+  if (normalized.includes(':')) {
+    const [rawHours, ...rawMinuteParts] = normalized.split(':');
+    const hours = rawHours.replace(/\D/g, '').slice(0, 2);
+    const minutes = rawMinuteParts.join('').replace(/\D/g, '').slice(0, 2);
+
+    return `${hours}:${minutes}`;
+  }
+
+  const digits = normalized.replace(/\D/g, '').slice(0, 4);
+
+  if (digits.length <= 1) {
+    return digits;
+  }
+
+  if (digits.length <= 3) {
+    return `${Number(digits.slice(0, -2))}:${digits.slice(-2)}`;
+  }
+
+  return `${digits.slice(0, 2)}:${digits.slice(2)}`;
+}
+
+function parseReminderIntervalInput(value: string): number | null {
+  const trimmed = value.trim().replace(/[.,]/g, ':');
+  const colonMatch = /^(\d{1,2}):(\d{2})$/.exec(trimmed);
+  let parts: TimeParts | null = null;
+
+  if (colonMatch) {
+    parts = {
+      hours: Number(colonMatch[1]),
+      minutes: Number(colonMatch[2]),
+    };
+  } else {
+    const digits = trimmed.replace(/\D/g, '');
+
+    if (digits.length === 0 || digits.length > 4) {
+      return null;
+    }
+
+    parts = {
+      hours: digits.length <= 1 ? 0 : Number(digits.slice(0, -2)),
+      minutes: digits.length <= 1 ? Number(digits) : Number(digits.slice(-2)),
+    };
+  }
+
+  if (!isValidReminderIntervalParts(parts.hours, parts.minutes)) {
+    return null;
+  }
+
+  const minutes = parts.hours * 60 + parts.minutes;
+
+  return minutes > 0 ? minutes : null;
 }
 
 function isPresetReminderInterval(intervalMinutes: number): boolean {
@@ -127,9 +205,11 @@ export default function BottleFeedingScreen() {
     null,
   );
   const [customReminderIntervalText, setCustomReminderIntervalText] = useState(
-    String(DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES),
+    formatReminderIntervalInput(DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES),
   );
   const [isCustomReminderIntervalOpen, setIsCustomReminderIntervalOpen] = useState(false);
+  const [isCustomReminderSaveConfirmed, setIsCustomReminderSaveConfirmed] =
+    useState(false);
   const [now, setNow] = useState(() => new Date());
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -190,7 +270,9 @@ export default function BottleFeedingScreen() {
           setRemindersEnabled(profile.bottleFeedingRemindersEnabled);
           setReminderIntervalMinutes(profile.bottleFeedingReminderIntervalMinutes);
           setNotifyDuringSleep(profile.bottleFeedingNotifyDuringSleep);
-          setCustomReminderIntervalText(String(profile.bottleFeedingReminderIntervalMinutes));
+          setCustomReminderIntervalText(
+            formatReminderIntervalInput(profile.bottleFeedingReminderIntervalMinutes),
+          );
           setIsCustomReminderIntervalOpen(
             !isPresetReminderInterval(profile.bottleFeedingReminderIntervalMinutes),
           );
@@ -232,6 +314,20 @@ export default function BottleFeedingScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isCustomReminderSaveConfirmed) {
+      return undefined;
+    }
+
+    const timer = setTimeout(() => {
+      setIsCustomReminderSaveConfirmed(false);
+    }, 2200);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [isCustomReminderSaveConfirmed]);
+
   async function reloadCurrentPeriod(currentNow = new Date()) {
     await loadFeedings(currentNow, () => true);
   }
@@ -261,13 +357,15 @@ export default function BottleFeedingScreen() {
     remindersEnabled: boolean;
     reminderIntervalMinutes: number;
     notifyDuringSleep: boolean;
-  }) {
+  }): Promise<boolean> {
+    setIsCustomReminderSaveConfirmed(false);
+
     if (
       !Number.isInteger(input.reminderIntervalMinutes) ||
       input.reminderIntervalMinutes <= 0
     ) {
-      setErrorMessage('Введите интервал в минутах');
-      return;
+      setErrorMessage('Введите интервал как часы:минуты');
+      return false;
     }
 
     const previousSettings = {
@@ -281,22 +379,28 @@ export default function BottleFeedingScreen() {
     setRemindersEnabled(input.remindersEnabled);
     setReminderIntervalMinutes(input.reminderIntervalMinutes);
     setNotifyDuringSleep(input.notifyDuringSleep);
-    setCustomReminderIntervalText(String(input.reminderIntervalMinutes));
+    setCustomReminderIntervalText(formatReminderIntervalInput(input.reminderIntervalMinutes));
     setIsCustomReminderIntervalOpen(!isPresetReminderInterval(input.reminderIntervalMinutes));
     setIsSettingsSaving(true);
     setErrorMessage(null);
 
     try {
       await updateBottleFeedingReminderSettings(db, input);
-      await syncSleepNotificationsFromDatabase(db, actionAt);
+      await syncSleepNotificationsFromDatabase(db, actionAt, {
+        showOverdueBottleFeedingReminder: true,
+      });
       setNow(actionAt);
+      return true;
     } catch {
       setRemindersEnabled(previousSettings.remindersEnabled);
       setReminderIntervalMinutes(previousSettings.reminderIntervalMinutes);
       setNotifyDuringSleep(previousSettings.notifyDuringSleep);
-      setCustomReminderIntervalText(String(previousSettings.reminderIntervalMinutes));
+      setCustomReminderIntervalText(
+        formatReminderIntervalInput(previousSettings.reminderIntervalMinutes),
+      );
       setIsCustomReminderIntervalOpen(previousSettings.isCustomReminderIntervalOpen);
       setErrorMessage('Не удалось сохранить напоминания');
+      return false;
     } finally {
       setIsSettingsSaving(false);
     }
@@ -327,18 +431,29 @@ export default function BottleFeedingScreen() {
   }
 
   function openCustomReminderInterval() {
+    setIsCustomReminderSaveConfirmed(false);
     setIsCustomReminderIntervalOpen(true);
-    setCustomReminderIntervalText(String(reminderIntervalMinutes));
+    setCustomReminderIntervalText(formatReminderIntervalInput(reminderIntervalMinutes));
   }
 
-  function handleCustomReminderIntervalSave() {
-    const intervalMinutes = Number(customReminderIntervalText);
+  async function handleCustomReminderIntervalSave() {
+    const intervalMinutes = parseReminderIntervalInput(customReminderIntervalText);
 
-    void saveReminderSettings({
+    if (intervalMinutes === null) {
+      setIsCustomReminderSaveConfirmed(false);
+      setErrorMessage('Введите интервал как часы:минуты');
+      return;
+    }
+
+    const didSave = await saveReminderSettings({
       notifyDuringSleep,
       reminderIntervalMinutes: intervalMinutes,
       remindersEnabled,
     });
+
+    if (didSave) {
+      setIsCustomReminderSaveConfirmed(true);
+    }
   }
 
   function openCreateEditor() {
@@ -445,9 +560,16 @@ export default function BottleFeedingScreen() {
   return (
     <>
       <Stack.Screen options={{ title: 'Кормление' }} />
-      <ScrollView style={styles.screen} contentContainerStyle={styles.scrollContent}>
-        <SafeAreaView edges={['bottom']} style={styles.safeArea}>
-          {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardAvoider}>
+        <ScrollView
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
+          style={styles.screen}
+          contentContainerStyle={styles.scrollContent}>
+          <SafeAreaView edges={['bottom']} style={styles.safeArea}>
+            {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
           <View style={styles.latestBlock}>
             <Text style={styles.blockTitle}>Последнее кормление</Text>
@@ -668,33 +790,47 @@ export default function BottleFeedingScreen() {
                 </View>
 
                 {isCustomReminderIntervalOpen ? (
-                  <View style={styles.customIntervalRow}>
-                    <SelectAllTextInput
-                      accessibilityLabel="Свой интервал напоминания в минутах"
-                      editable={!areReminderOptionsDisabled}
-                      inputMode="numeric"
-                      keyboardType="number-pad"
-                      maxLength={4}
-                      normalizeText={normalizeReminderIntervalInput}
-                      onChangeText={(value) => {
-                        setCustomReminderIntervalText(value);
-                        setErrorMessage(null);
-                      }}
-                      placeholder="180"
-                      placeholderTextColor={colors.textMuted}
-                      returnKeyType="done"
-                      style={styles.customIntervalInput}
-                      value={customReminderIntervalText}
-                    />
-                    <PrimaryButton
-                      compact
-                      disabled={areReminderOptionsDisabled}
-                      label="Сохранить"
-                      onPress={handleCustomReminderIntervalSave}
-                      style={styles.customIntervalButton}
-                      textStyle={styles.customIntervalButtonText}
-                      variant="secondary"
-                    />
+                  <View style={styles.customIntervalBlock}>
+                    <View style={styles.customIntervalRow}>
+                      <View style={styles.customIntervalInputGroup}>
+                        <Text style={styles.compactLabel}>Интервал</Text>
+                        <SelectAllTextInput
+                          accessibilityLabel="Свой интервал напоминания в часах и минутах"
+                          editable={!areReminderOptionsDisabled}
+                          inputMode="numeric"
+                          keyboardType="number-pad"
+                          maxLength={5}
+                          normalizeText={normalizeReminderIntervalInput}
+                          onChangeText={(value) => {
+                            setCustomReminderIntervalText(value);
+                            setIsCustomReminderSaveConfirmed(false);
+                            setErrorMessage(null);
+                          }}
+                          placeholder="3:00"
+                          placeholderTextColor={colors.textMuted}
+                          returnKeyType="done"
+                          style={styles.customIntervalInput}
+                          underlineColorAndroid="transparent"
+                          value={customReminderIntervalText}
+                        />
+                      </View>
+                      <PrimaryButton
+                        compact
+                        disabled={areReminderOptionsDisabled}
+                        label="Сохранить"
+                        onPress={handleCustomReminderIntervalSave}
+                        style={styles.customIntervalButton}
+                        textStyle={styles.customIntervalButtonText}
+                        variant="secondary"
+                      />
+                    </View>
+                    {isCustomReminderSaveConfirmed ? (
+                      <Text
+                        accessibilityLiveRegion="polite"
+                        style={styles.customIntervalSavedText}>
+                        Сохранено
+                      </Text>
+                    ) : null}
                   </View>
                 ) : null}
 
@@ -724,8 +860,9 @@ export default function BottleFeedingScreen() {
               </>
             ) : null}
           </View>
-        </SafeAreaView>
-      </ScrollView>
+          </SafeAreaView>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       <BottleFeedingEditorModal
         defaultVolumeMl={defaultVolumeMl}
@@ -743,6 +880,9 @@ export default function BottleFeedingScreen() {
 }
 
 const styles = StyleSheet.create({
+  keyboardAvoider: {
+    flex: 1,
+  },
   screen: {
     flex: 1,
     backgroundColor: colors.background,
@@ -924,30 +1064,52 @@ const styles = StyleSheet.create({
   intervalButtonTextSelected: {
     color: colors.primary,
   },
+  customIntervalBlock: {
+    gap: spacing.xs,
+  },
   customIntervalRow: {
     flexDirection: 'row',
     gap: spacing.sm,
   },
-  customIntervalInput: {
-    minHeight: 48,
+  customIntervalInputGroup: {
+    minHeight: 66,
     flex: 1,
+    justifyContent: 'center',
+    gap: spacing.xs,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
     paddingHorizontal: spacing.md,
-    color: colors.text,
+    paddingVertical: spacing.sm,
     backgroundColor: colors.background,
-    fontSize: 18,
+  },
+  compactLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  customIntervalInput: {
+    minHeight: 30,
+    padding: 0,
+    color: colors.text,
+    backgroundColor: 'transparent',
+    fontSize: 22,
     fontWeight: '900',
   },
   customIntervalButton: {
     minWidth: 118,
-    minHeight: 48,
+    minHeight: 66,
     borderRadius: radius.sm,
     paddingHorizontal: spacing.sm,
   },
   customIntervalButtonText: {
     fontSize: 14,
+  },
+  customIntervalSavedText: {
+    paddingHorizontal: spacing.xs,
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '800',
   },
   feedList: {
     gap: spacing.lg,
