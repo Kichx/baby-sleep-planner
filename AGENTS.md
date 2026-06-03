@@ -1085,6 +1085,8 @@ If an EAS build stays in `IN_QUEUE`, do not start another build just to retry. A
 
 Before starting a build, run `git status --short --branch` and report any dirty files. EAS can upload uncommitted local changes; do not assume the finished APK exactly matches the latest Git commit if the working tree was dirty or changed while the build was running.
 
+If the build is intentionally started from a dirty tree, for example after bumping `expo.version` for a user-facing release, treat those local files as build input. In the release record, add a short note when EAS `gitCommitHash` points to the last commit but the uploaded archive also contained local uncommitted changes. Do not describe the APK as exactly matching that commit unless the tree was clean at upload time.
+
 Keep local workspace artifacts out of the EAS archive. `.easignore` and `.gitignore` should continue to exclude `.codex-remote-attachments/`, local logs, generated native folders, local credentials, and editor/cache folders.
 
 For important APKs, keep release information human-readable:
@@ -1110,6 +1112,7 @@ When the user asks to "собери новый билд", "собери APK", or
 8. Capture the build id from EAS output. Monitor only that build with `cmd /c npm run eas:build:view -- <build-id> --json`. If it stays in `IN_QUEUE`, keep waiting or report the queue status; do not start a duplicate build.
 9. After the build reaches a terminal status, use the JSON from `build:view` as the source of truth for release metadata: `id`, `status`, `artifacts.buildUrl` / `artifacts.applicationArchiveUrl`, `appVersion`, `appBuildVersion`, `gitCommitHash`, `createdAt`, and `completedAt`.
 10. Create a release record from `docs/releases/_template.md` at `docs/releases/YYYY-MM-DD-v<appVersion>-build-<appBuildVersion>.md`. Fill every known field. Use the EAS build page URL `https://expo.dev/accounts/kichx/projects/baby-sleep-planner/builds/<build-id>` even if the direct APK URL exists, because direct artifact URLs can expire.
+   - if the EAS archive included uncommitted local changes, add a `Примечание` that names the relevant files or reason, such as an `app.json` version bump.
 11. Fill "Что нового" and "Что проверить" in the release record from `CHANGELOG.md` and the build message. Mark preflight checks as passed if `npm run verify` passed. Mark Android smoke-check items as `not checked` unless the APK was actually installed and tested on Android during this turn.
 12. If the build failed or was canceled, still create a short release record with `Статус: failed` or `canceled`, no APK URL, the failed build URL, preflight status, and the known failure summary. Do not move `CHANGELOG.md` out of `Следующий релиз` for failed builds.
 13. If the build finished and it represents a real release, move the current `## Следующий релиз` content in `CHANGELOG.md` into a dated section named `## <appVersion> (<appBuildVersion>) — <YYYY-MM-DD>`, then recreate an empty `## Следующий релиз` section at the top with placeholders. For a technical rebuild, leave `CHANGELOG.md` as-is unless the user asked to record it there.
@@ -1258,6 +1261,8 @@ User-facing text in the app should be in Russian.
 Always assume that project text can contain Russian letters and words: UI labels, notifications, help articles, backups, SQLite values, test fixtures, scripts, and external API payloads. Use UTF-8 explicitly when reading, writing, serializing, importing, exporting, piping, or uploading text. Do not rely on Windows default encodings, ASCII-only assumptions, or shell code pages for Russian content.
 
 When a workflow writes or round-trips Russian text, configure the toolchain for UTF-8 up front where relevant, for example PowerShell console/output encoding, Node/file encoding, JSON serialization, SQLite text handling, HTTP headers, and document generation. After the write, verify that Russian text is still readable and not mojibake or `????` before considering the task complete.
+
+On Windows, when using `cmd /c` with `&&`, pipes, or redirection for UTF-8 verification, quote the whole command string so PowerShell does not parse shell operators first, for example `cmd /c "chcp 65001 >NUL && type CHANGELOG.md"`.
 
 Code, type names, and comments can be in English.
 
