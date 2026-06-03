@@ -7,17 +7,21 @@ import {
   MAX_BOTTLE_FEEDING_VOLUME_ML,
 } from '@/constants/bottleFeeding';
 import { DEFAULT_CHILD_ID, DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
-import { BOTTLE_FEEDINGS_STORAGE_SQL, DATABASE_VERSION } from '@/db/schema';
+import {
+  BOTTLE_FEEDINGS_STORAGE_SQL,
+  DATABASE_VERSION,
+  SLEEP_DAY_TEMPORARY_MODE_STORAGE_SQL,
+} from '@/db/schema';
 import {
   backfillMissingSleepDayPlanSnapshots,
   ensureDefaultChildProfile,
   ensureSleepDayPlanSnapshotStorage,
   getTargetDayPlan,
 } from '@/db/sleepRepository';
-import type { EveningSleepRulesMode, SleepKind } from '@/types/sleep';
+import type { EveningSleepRulesMode, SleepDayTemporaryModeType, SleepKind } from '@/types/sleep';
 
 export const APP_DATA_BACKUP_FORMAT = 'baby-sleep-planner-backup';
-export const APP_DATA_BACKUP_FORMAT_VERSION = 9;
+export const APP_DATA_BACKUP_FORMAT_VERSION = 10;
 export const APP_DATA_BACKUP_MIME_TYPE = 'application/json';
 const SUPPORTED_BACKUP_FORMAT_VERSIONS = new Set([
   1,
@@ -27,6 +31,7 @@ const SUPPORTED_BACKUP_FORMAT_VERSIONS = new Set([
   5,
   6,
   8,
+  9,
   APP_DATA_BACKUP_FORMAT_VERSION,
 ]);
 
@@ -60,6 +65,17 @@ interface BottleFeedingBackupRow {
   volume_ml: number;
   created_at: string;
   updated_at: string;
+}
+
+interface SleepDayTemporaryModeBackupRow {
+  id: string;
+  child_id: string;
+  sleep_day_date_key: string;
+  mode: SleepDayTemporaryModeType;
+  base_plan_id: string;
+  created_at: string;
+  disabled_at: string | null;
+  dismissed_at: string | null;
 }
 
 interface TargetDayPlanBackupRow {
@@ -117,6 +133,7 @@ export interface AppDataBackup {
   data: {
     bottleFeedings: BottleFeedingBackupRow[];
     childProfiles: ChildProfileBackupRow[];
+    sleepDayTemporaryModes: SleepDayTemporaryModeBackupRow[];
     sleepDayPlanSnapshots: SleepDayPlanSnapshotBackupRow[];
     sleepSessions: SleepSessionBackupRow[];
     targetDayPlans: TargetDayPlanBackupRow[];
@@ -126,6 +143,7 @@ export interface AppDataBackup {
 export interface AppDataRestoreSummary {
   bottleFeedings: number;
   childProfiles: number;
+  sleepDayTemporaryModes: number;
   sleepDayPlanSnapshots: number;
   sleepSessions: number;
   targetDayPlans: number;
@@ -258,6 +276,26 @@ function readSleepDayDate(row: Record<string, unknown>): string {
   return value;
 }
 
+function readSleepDayDateKey(row: Record<string, unknown>): string {
+  const value = readString(row, 'sleep_day_date_key');
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+  if (!match) {
+    failInvalidData('Invalid sleep day date key');
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    failInvalidData('Invalid sleep day date key');
+  }
+
+  return value;
+}
+
 function readSleepKind(row: Record<string, unknown>): SleepKind {
   const value = row.kind;
 
@@ -273,6 +311,16 @@ function readActiveFlag(row: Record<string, unknown>): number {
 
   if (value !== 0 && value !== 1) {
     failInvalidData('Invalid active plan flag');
+  }
+
+  return value;
+}
+
+function readSleepDayTemporaryMode(row: Record<string, unknown>): SleepDayTemporaryModeType {
+  const value = row.mode;
+
+  if (value !== 'soft_day' && value !== 'early_wake') {
+    failInvalidData('Invalid sleep day temporary mode');
   }
 
   return value;
@@ -348,6 +396,20 @@ function assertUniqueSleepDayPlanSnapshots(
 
     if (keys.has(key)) {
       failInvalidData('Duplicate sleep day plan snapshot');
+    }
+
+    keys.add(key);
+  }
+}
+
+function assertUniqueSleepDayTemporaryModes(rows: SleepDayTemporaryModeBackupRow[]): void {
+  const keys = new Set<string>();
+
+  for (const row of rows) {
+    const key = `${row.child_id}:${row.sleep_day_date_key}:${row.mode}`;
+
+    if (keys.has(key)) {
+      failInvalidData('Duplicate sleep day temporary mode');
     }
 
     keys.add(key);
@@ -474,6 +536,40 @@ function parseBottleFeedings(
   return rows;
 }
 
+function parseSleepDayTemporaryModes(
+  value: unknown,
+  childProfileIds: Set<string>,
+): SleepDayTemporaryModeBackupRow[] {
+  const rows = readOptionalRecordArray(value, 'sleepDayTemporaryModes').map((row) => {
+    const childId = readString(row, 'child_id');
+    const basePlanId = readString(row, 'base_plan_id');
+
+    if (!childProfileIds.has(childId)) {
+      failInvalidData('Sleep day temporary mode references an unknown child profile');
+    }
+
+    if (basePlanId.trim().length === 0) {
+      failInvalidData('Sleep day temporary mode base plan id must not be empty');
+    }
+
+    return {
+      base_plan_id: basePlanId,
+      child_id: childId,
+      created_at: readIsoDateString(row, 'created_at'),
+      disabled_at: readNullableIsoDateString(row, 'disabled_at'),
+      dismissed_at: readNullableIsoDateString(row, 'dismissed_at'),
+      id: readString(row, 'id'),
+      mode: readSleepDayTemporaryMode(row),
+      sleep_day_date_key: readSleepDayDateKey(row),
+    };
+  });
+
+  assertUniqueIds(rows, 'sleep day temporary mode');
+  assertUniqueSleepDayTemporaryModes(rows);
+
+  return rows;
+}
+
 function parseTargetDayPlans(
   value: unknown,
   childProfileIds: Set<string>,
@@ -593,6 +689,10 @@ function normalizeBackup(value: unknown): AppDataBackup {
   const childProfiles = parseChildProfiles(data.childProfiles);
   const childProfileIds = new Set(childProfiles.map((profile) => profile.id));
   const bottleFeedings = parseBottleFeedings(data.bottleFeedings, childProfileIds);
+  const sleepDayTemporaryModes = parseSleepDayTemporaryModes(
+    data.sleepDayTemporaryModes,
+    childProfileIds,
+  );
   const sleepSessions = parseSleepSessions(data.sleepSessions, childProfileIds);
   const targetDayPlans = parseTargetDayPlans(data.targetDayPlans, childProfileIds);
   const sleepDayPlanSnapshots = parseSleepDayPlanSnapshots(
@@ -604,6 +704,7 @@ function normalizeBackup(value: unknown): AppDataBackup {
     data: {
       bottleFeedings,
       childProfiles,
+      sleepDayTemporaryModes,
       sleepDayPlanSnapshots,
       sleepSessions,
       targetDayPlans,
@@ -673,6 +774,7 @@ export async function buildAppDataBackup(db: SQLiteDatabase): Promise<AppDataBac
   await getTargetDayPlan(db);
   await ensureSleepDayPlanSnapshotStorage(db);
   await db.execAsync(BOTTLE_FEEDINGS_STORAGE_SQL);
+  await db.execAsync(SLEEP_DAY_TEMPORARY_MODE_STORAGE_SQL);
 
   const childProfiles = await db.getAllAsync<ChildProfileBackupRow>(
     `
@@ -703,6 +805,21 @@ export async function buildAppDataBackup(db: SQLiteDatabase): Promise<AppDataBac
     SELECT id, child_id, started_at, volume_ml, created_at, updated_at
     FROM bottle_feedings
     ORDER BY started_at ASC, id ASC
+    `,
+  );
+  const sleepDayTemporaryModes = await db.getAllAsync<SleepDayTemporaryModeBackupRow>(
+    `
+    SELECT
+      id,
+      child_id,
+      sleep_day_date_key,
+      mode,
+      base_plan_id,
+      created_at,
+      disabled_at,
+      dismissed_at
+    FROM sleep_day_temporary_mode
+    ORDER BY sleep_day_date_key ASC, child_id ASC, mode ASC
     `,
   );
   const targetDayPlans = await db.getAllAsync<TargetDayPlanBackupRow>(
@@ -765,6 +882,7 @@ export async function buildAppDataBackup(db: SQLiteDatabase): Promise<AppDataBac
     data: {
       bottleFeedings,
       childProfiles,
+      sleepDayTemporaryModes,
       sleepDayPlanSnapshots,
       sleepSessions,
       targetDayPlans,
@@ -802,8 +920,10 @@ export async function restoreAppDataBackup(
   await getTargetDayPlan(db);
   await ensureSleepDayPlanSnapshotStorage(db);
   await db.execAsync(BOTTLE_FEEDINGS_STORAGE_SQL);
+  await db.execAsync(SLEEP_DAY_TEMPORARY_MODE_STORAGE_SQL);
 
   await db.withTransactionAsync(async () => {
+    await db.runAsync('DELETE FROM sleep_day_temporary_mode');
     await db.runAsync('DELETE FROM sleep_day_plan_snapshot');
     await db.runAsync('DELETE FROM target_day_plan');
     await db.runAsync('DELETE FROM bottle_feedings');
@@ -926,6 +1046,34 @@ export async function restoreAppDataBackup(
       );
     }
 
+    for (const temporaryMode of normalizedBackup.data.sleepDayTemporaryModes) {
+      await db.runAsync(
+        `
+        INSERT INTO sleep_day_temporary_mode (
+          id,
+          child_id,
+          sleep_day_date_key,
+          mode,
+          base_plan_id,
+          created_at,
+          disabled_at,
+          dismissed_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          temporaryMode.id,
+          temporaryMode.child_id,
+          temporaryMode.sleep_day_date_key,
+          temporaryMode.mode,
+          temporaryMode.base_plan_id,
+          temporaryMode.created_at,
+          temporaryMode.disabled_at,
+          temporaryMode.dismissed_at,
+        ],
+      );
+    }
+
     for (const snapshot of normalizedBackup.data.sleepDayPlanSnapshots) {
       await db.runAsync(
         `
@@ -996,6 +1144,7 @@ export async function restoreAppDataBackup(
   return {
     bottleFeedings: normalizedBackup.data.bottleFeedings.length,
     childProfiles: normalizedBackup.data.childProfiles.length,
+    sleepDayTemporaryModes: normalizedBackup.data.sleepDayTemporaryModes.length,
     sleepDayPlanSnapshots: snapshotCountRow?.count ?? 0,
     sleepSessions: normalizedBackup.data.sleepSessions.length,
     targetDayPlans: normalizedBackup.data.targetDayPlans.length,

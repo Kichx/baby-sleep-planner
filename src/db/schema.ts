@@ -1,6 +1,6 @@
 export const DATABASE_NAME = 'baby_sleep_planner.db';
 
-export const DATABASE_VERSION = 13;
+export const DATABASE_VERSION = 14;
 
 export const BOTTLE_FEEDINGS_STORAGE_SQL = `
 CREATE TABLE IF NOT EXISTS bottle_feedings (
@@ -15,6 +15,23 @@ CREATE TABLE IF NOT EXISTS bottle_feedings (
 
 CREATE INDEX IF NOT EXISTS bottle_feedings_child_started_idx
 ON bottle_feedings(child_id, started_at);
+`;
+
+export const SLEEP_DAY_TEMPORARY_MODE_STORAGE_SQL = `
+CREATE TABLE IF NOT EXISTS sleep_day_temporary_mode (
+  id TEXT PRIMARY KEY NOT NULL,
+  child_id TEXT NOT NULL,
+  sleep_day_date_key TEXT NOT NULL,
+  mode TEXT NOT NULL CHECK (mode IN ('soft_day', 'early_wake')),
+  base_plan_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  disabled_at TEXT,
+  dismissed_at TEXT,
+  FOREIGN KEY (child_id) REFERENCES child_profile(id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS sleep_day_temporary_mode_child_day_mode_idx
+ON sleep_day_temporary_mode(child_id, sleep_day_date_key, mode);
 `;
 
 export const INITIAL_SCHEMA_SQL = `
@@ -48,6 +65,8 @@ CREATE INDEX IF NOT EXISTS sleep_sessions_child_started_idx
 ON sleep_sessions(child_id, started_at);
 
 ${BOTTLE_FEEDINGS_STORAGE_SQL}
+
+${SLEEP_DAY_TEMPORARY_MODE_STORAGE_SQL}
 
 CREATE TABLE IF NOT EXISTS target_day_plan (
   id TEXT PRIMARY KEY NOT NULL,

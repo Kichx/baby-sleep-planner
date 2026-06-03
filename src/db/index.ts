@@ -23,6 +23,13 @@ export {
   updateBottleFeeding,
 } from '@/db/bottleFeedingRepository';
 export {
+  disableAllSleepDayTemporaryModes,
+  disableSleepDayTemporaryMode,
+  dismissSleepDayTemporaryModeSuggestion,
+  enableSleepDayTemporaryMode,
+  listSleepDayTemporaryModes,
+} from '@/db/sleepDayTemporaryModeRepository';
+export {
   activateTargetDayPlan,
   applyBottleFeedingPromptDecision,
   assignSleepDayPlanSnapshot,

@@ -6,6 +6,8 @@ export type SleepState = 'awake' | 'sleeping';
 
 export type EveningSleepRulesMode = 'auto' | 'custom';
 
+export type SleepDayTemporaryModeType = 'soft_day' | 'early_wake';
+
 export type RecommendationScenarioId =
   | 'normal'
   | 'microNap'
@@ -91,6 +93,17 @@ export interface SleepDayPlan {
   sourcePlanName: string;
   plan: SleepPlanPreset;
   isSnapshot: boolean;
+}
+
+export interface SleepDayTemporaryMode {
+  id: string;
+  childId: string;
+  sleepDayDateKey: string;
+  mode: SleepDayTemporaryModeType;
+  basePlanId: string;
+  createdAt: ISODateString;
+  disabledAt: ISODateString | null;
+  dismissedAt: ISODateString | null;
 }
 
 export interface RecommendationScenario {

@@ -70,6 +70,18 @@ const validBackup: AppDataBackup = {
         wake_up_start_minutes: 420,
       },
     ],
+    sleepDayTemporaryModes: [
+      {
+        base_plan_id: 'default-target-day-plan',
+        child_id: 'default-child',
+        created_at: '2026-05-26T05:00:00.000Z',
+        disabled_at: null,
+        dismissed_at: '2026-05-26T05:10:00.000Z',
+        id: 'temporary-mode-1',
+        mode: 'early_wake',
+        sleep_day_date_key: '2026-05-26',
+      },
+    ],
     targetDayPlans: [
       {
         bedtime_target_minutes: 1170,
@@ -114,6 +126,11 @@ describe('data transfer backup parsing', () => {
     expect(parsedBackup.data.bottleFeedings[0].volume_ml).toBe(120);
     expect(parsedBackup.data.sleepSessions).toHaveLength(1);
     expect(parsedBackup.data.sleepDayPlanSnapshots[0].sleep_day_date).toBe('2026-05-26');
+    expect(parsedBackup.data.sleepDayTemporaryModes[0]).toMatchObject({
+      dismissed_at: '2026-05-26T05:10:00.000Z',
+      mode: 'early_wake',
+      sleep_day_date_key: '2026-05-26',
+    });
     expect(parsedBackup.data.targetDayPlans[0].is_active).toBe(1);
   });
 
@@ -139,6 +156,7 @@ describe('data transfer backup parsing', () => {
     const parsedBackup = parseAppDataBackup(JSON.stringify(oldBackup));
 
     expect(parsedBackup.data.sleepDayPlanSnapshots).toEqual([]);
+    expect(parsedBackup.data.sleepDayTemporaryModes).toEqual([]);
     expect(parsedBackup.data.bottleFeedings).toEqual([]);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_enabled).toBe(0);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_prompt_dismissed).toBe(0);

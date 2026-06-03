@@ -8,7 +8,11 @@ import {
 import { DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import { getSleepDayDateKeysForInterval } from '@/core/sleepDay';
 import { buildSleepPlanPreset, deriveEveningSleepRulesForPlan } from '@/core/sleepPlan';
-import { DATABASE_VERSION, INITIAL_SCHEMA_SQL } from '@/db/schema';
+import {
+  DATABASE_VERSION,
+  INITIAL_SCHEMA_SQL,
+  SLEEP_DAY_TEMPORARY_MODE_STORAGE_SQL,
+} from '@/db/schema';
 import type { SleepPlanPreset } from '@/types/sleep';
 
 interface TableInfoRow {
@@ -164,6 +168,10 @@ async function ensureChildProfileColumns(db: SQLiteDatabase): Promise<void> {
 
 async function ensureSleepDayPlanSnapshotTable(db: SQLiteDatabase): Promise<void> {
   await db.execAsync(SLEEP_DAY_PLAN_SNAPSHOT_TABLE_SQL);
+}
+
+async function ensureSleepDayTemporaryModeTable(db: SQLiteDatabase): Promise<void> {
+  await db.execAsync(SLEEP_DAY_TEMPORARY_MODE_STORAGE_SQL);
 }
 
 function coalesceNumber(value: number | null | undefined, fallback: number): number {
@@ -426,6 +434,7 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
 
   await ensureChildProfileColumns(db);
   await ensureTargetDayPlanColumns(db);
+  await ensureSleepDayTemporaryModeTable(db);
   await ensureSleepDayPlanSnapshotTable(db);
   await normalizeTargetDayPlans(db);
   await backfillSleepDayPlanSnapshots(db);
