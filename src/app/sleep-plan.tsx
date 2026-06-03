@@ -41,12 +41,12 @@ import {
   type PracticalSleepPreset,
 } from '@/core/practicalSleepPresets';
 import {
-  buildIdealSleepPlanSegments,
+  buildEffectiveSleepDayPlan,
   buildSleepPlanPreset,
   calculatePlanBedtimeRange,
   deriveEveningSleepRulesForPlan,
-  type IdealSleepPlanSegment,
 } from '@/core/sleepPlan';
+import { getSleepDayDateKeyForDate } from '@/core/sleepDay';
 import {
   checkWakeWindowRangeAgainstGuideline,
   formatWakeWindowRangeShort,
@@ -58,12 +58,22 @@ import {
   activateTargetDayPlan,
   createTargetDayPlan,
   deleteTargetDayPlan,
+  disableSleepDayTemporaryMode,
+  enableSleepDayTemporaryMode,
   getChildProfile,
+  listSleepDayTemporaryModes,
   listTargetDayPlans,
   updateTargetDayPlan,
 } from '@/db';
 import { syncSleepNotificationsFromDatabase } from '@/notifications/sleepNotifications';
-import type { EveningSleepRulesMode, SleepPlanPreset, TargetDayPlan } from '@/types/sleep';
+import type {
+  EveningSleepRulesMode,
+  SleepDayTemporaryMode,
+  SleepDayTemporaryModeType,
+  SleepPlanPreset,
+  TargetDayPlan,
+  WakeWindowPreset,
+} from '@/types/sleep';
 
 type EditorType = 'wakeUp' | 'awake' | 'napCount' | 'daySleep' | 'evening';
 type NameEditorMode = 'create' | 'edit';
@@ -145,6 +155,47 @@ interface WakeWindowGuidelineCardProps {
   plan: SleepPlanPreset | null;
 }
 
+interface ActivePlanSummaryCardProps {
+  plan: TargetDayPlan;
+}
+
+interface TemporaryModeCardProps {
+  description: string;
+  disabled: boolean;
+  enabledText: string;
+  isEnabled: boolean;
+  onDisable: () => void;
+  onEnable: () => void;
+  title: string;
+}
+
+interface TodayModesSectionProps {
+  disabled: boolean;
+  isEarlyWakeEnabled: boolean;
+  isSoftDayEnabled: boolean;
+  onDisableMode: (mode: SleepDayTemporaryModeType) => void;
+  onEnableMode: (mode: SleepDayTemporaryModeType) => void;
+}
+
+interface TodayPlanPoint {
+  id: string;
+  caption: string | null;
+  timeLabel: string;
+  title: string;
+}
+
+interface TodayPlanWakeWindow {
+  id: string;
+  rangeLabel: string;
+  title: string;
+}
+
+interface TodayPlanSectionProps {
+  isWakeWindowsExpanded: boolean;
+  onToggleWakeWindows: () => void;
+  plan: SleepPlanPreset;
+}
+
 interface TimeParts {
   hours: number;
   minutes: number;
@@ -172,6 +223,7 @@ const PROFILE_ROUTE = '/profile' as Href;
 const PLAN_NAME_MAX_LENGTH = 40;
 const MAX_MICRO_NAP_MINUTES = 60;
 const MAX_EVENING_NAP_MINUTES = 120;
+const WAKE_UP_TOLERANCE_MINUTES = 10;
 
 function padTimePart(value: number): string {
   return value.toString().padStart(2, '0');
@@ -431,6 +483,142 @@ function formatClockRange(startMinutes: number, endMinutes: number): string {
   const end = formatClockMinutes(endMinutes);
 
   return start === end ? start : `${start} - ${end}`;
+}
+
+function getClockMidpointMinutes(startMinutes: number, endMinutes: number): number {
+  return Math.round((startMinutes + endMinutes) / 2);
+}
+
+function normalizePlanClockMinutes(minutes: number): number {
+  const dayMinutes = 24 * 60;
+
+  return ((minutes % dayMinutes) + dayMinutes) % dayMinutes;
+}
+
+function buildNapSleepDurations(plan: SleepPlanPreset): number[] {
+  const baseDuration = Math.floor(plan.targetDaySleepMinutes / plan.napCount);
+  const extraMinutes = plan.targetDaySleepMinutes - baseDuration * plan.napCount;
+
+  return Array.from({ length: plan.napCount }, (_, index) =>
+    baseDuration + (index < extraMinutes ? 1 : 0),
+  );
+}
+
+function getFallbackWakeWindowTarget(plan: SleepPlanPreset): number {
+  return Math.max(1, Math.round(plan.targetAwakeMinutes / (plan.napCount + 1)));
+}
+
+function getFinalWakeWindow(plan: SleepPlanPreset): WakeWindowPreset {
+  const wakeWindowTargetsTotal = plan.wakeWindows.reduce(
+    (total, wakeWindow) => total + wakeWindow.targetWakeMinutes,
+    0,
+  );
+  const wakeWindowMinTotal = plan.wakeWindows.reduce(
+    (total, wakeWindow) => total + wakeWindow.minWakeMinutes,
+    0,
+  );
+  const wakeWindowMaxTotal = plan.wakeWindows.reduce(
+    (total, wakeWindow) => total + wakeWindow.maxWakeMinutes,
+    0,
+  );
+  const minWakeMinutes = Math.max(1, plan.targetAwakeMinMinutes - wakeWindowMinTotal);
+  const maxWakeMinutes = Math.max(
+    minWakeMinutes,
+    plan.targetAwakeMaxMinutes - wakeWindowMaxTotal,
+  );
+  const targetWakeMinutes = Math.min(
+    Math.max(plan.targetAwakeMinutes - wakeWindowTargetsTotal, minWakeMinutes),
+    maxWakeMinutes,
+  );
+
+  return {
+    maxWakeMinutes,
+    minWakeMinutes,
+    napNumber: plan.napCount + 1,
+    targetWakeMinutes,
+  };
+}
+
+function getDisplayWakeWindow(plan: SleepPlanPreset, index: number): WakeWindowPreset {
+  return plan.wakeWindows[index] ?? {
+    maxWakeMinutes: getFallbackWakeWindowTarget(plan),
+    minWakeMinutes: getFallbackWakeWindowTarget(plan),
+    napNumber: index + 1,
+    targetWakeMinutes: getFallbackWakeWindowTarget(plan),
+  };
+}
+
+function buildTodayPlanPoints(plan: SleepPlanPreset): TodayPlanPoint[] {
+  const points: TodayPlanPoint[] = [
+    {
+      caption: null,
+      id: 'wake-up',
+      timeLabel: formatClockMinutes(getClockMidpointMinutes(
+        plan.wakeUpStartMinutes,
+        plan.wakeUpEndMinutes,
+      )),
+      title: 'Подъём',
+    },
+  ];
+  const sleepDurations = buildNapSleepDurations(plan);
+  let cursorMinutes = getClockMidpointMinutes(plan.wakeUpStartMinutes, plan.wakeUpEndMinutes);
+
+  for (let index = 0; index < plan.napCount; index += 1) {
+    const wakeWindow = getDisplayWakeWindow(plan, index);
+    const sleepDurationMinutes = sleepDurations[index] ?? 0;
+    const sleepStartMinutes = cursorMinutes + wakeWindow.targetWakeMinutes;
+    const sleepEndMinutes = sleepStartMinutes + sleepDurationMinutes;
+
+    points.push({
+      caption: `${formatClockRange(sleepStartMinutes, sleepEndMinutes)} · ${formatDuration(
+        sleepDurationMinutes,
+      )}`,
+      id: `nap-${index + 1}`,
+      timeLabel: formatClockMinutes(sleepStartMinutes),
+      title: `Сон ${index + 1}`,
+    });
+
+    cursorMinutes = sleepEndMinutes;
+  }
+
+  const finalWakeWindow = getFinalWakeWindow(plan);
+  const nightStartMinutes = normalizePlanClockMinutes(
+    cursorMinutes + finalWakeWindow.targetWakeMinutes,
+  );
+
+  points.push({
+    caption: null,
+    id: 'night',
+    timeLabel: formatClockMinutes(nightStartMinutes),
+    title: 'Ночь',
+  });
+
+  return points;
+}
+
+function buildTodayPlanWakeWindows(plan: SleepPlanPreset): TodayPlanWakeWindow[] {
+  const wakeWindows = [...plan.wakeWindows, getFinalWakeWindow(plan)];
+
+  return wakeWindows.map((wakeWindow, index) => ({
+    id: `wake-window-${index + 1}`,
+    rangeLabel: formatDurationRange(wakeWindow.minWakeMinutes, wakeWindow.maxWakeMinutes),
+    title: `ВБ ${index + 1}`,
+  }));
+}
+
+function getActiveTemporaryModes(
+  temporaryModes: SleepDayTemporaryMode[],
+): SleepDayTemporaryMode[] {
+  return temporaryModes.filter((temporaryMode) => temporaryMode.disabledAt === null);
+}
+
+function hasActiveTemporaryMode(
+  temporaryModes: SleepDayTemporaryMode[],
+  mode: SleepDayTemporaryModeType,
+): boolean {
+  return temporaryModes.some(
+    (temporaryMode) => temporaryMode.mode === mode && temporaryMode.disabledAt === null,
+  );
 }
 
 function createDraftFromPlan(plan: SleepPlanPreset, name = DEFAULT_PLAN_NAME): PlanDraft {
@@ -784,6 +972,190 @@ function PlanCard({ ageMonths, plan, isSelected, disabled, onPress }: PlanCardPr
         ) : null}
       </View>
     </Pressable>
+  );
+}
+
+function ActivePlanSummaryCard({ plan }: ActivePlanSummaryCardProps) {
+  const wakeUpAroundLabel = formatClockMinutes(
+    getClockMidpointMinutes(plan.plan.wakeUpStartMinutes, plan.plan.wakeUpEndMinutes),
+  );
+
+  return (
+    <View style={styles.activeSummaryCard}>
+      <View style={styles.activeSummaryHeader}>
+        <View style={styles.heroIcon}>
+          <SleepPlanIcon backgroundColor={colors.primarySoft} />
+        </View>
+        <View style={styles.activeSummaryTitleBlock}>
+          <Text numberOfLines={1} adjustsFontSizeToFit style={styles.activeSummaryTitle}>
+            {plan.name}
+          </Text>
+          <Text style={styles.activeSummaryMeta}>Подъём около {wakeUpAroundLabel}</Text>
+        </View>
+      </View>
+      <View style={styles.activeSummaryPills}>
+        <View style={styles.summaryPill}>
+          <Text style={styles.summaryPillText}>{formatPlanNapCount(plan.plan.napCount)}</Text>
+        </View>
+        <View style={[styles.summaryPill, styles.summaryPillActive]}>
+          <Text style={[styles.summaryPillText, styles.summaryPillActiveText]}>Активен</Text>
+        </View>
+      </View>
+      <Text style={styles.activeSummaryHint}>
+        Допуск ±{WAKE_UP_TOLERANCE_MINUTES} минут — нормально.
+      </Text>
+    </View>
+  );
+}
+
+function TemporaryModeCard({
+  description,
+  disabled,
+  enabledText,
+  isEnabled,
+  onDisable,
+  onEnable,
+  title,
+}: TemporaryModeCardProps) {
+  return (
+    <View style={styles.temporaryModeCard}>
+      <View style={styles.temporaryModeTextBlock}>
+        <Text style={styles.temporaryModeTitle}>{title}</Text>
+        <Text style={styles.temporaryModeDescription}>{description}</Text>
+        {isEnabled ? <Text style={styles.temporaryModeEnabledText}>{enabledText}</Text> : null}
+      </View>
+      <Pressable
+        accessibilityRole="button"
+        disabled={disabled}
+        onPress={isEnabled ? onDisable : onEnable}
+        style={({ pressed }) => [
+          isEnabled ? styles.temporaryModeSecondaryButton : styles.temporaryModePrimaryButton,
+          pressed && !disabled
+            ? isEnabled
+              ? styles.guidelineSecondaryButtonPressed
+              : styles.guidelinePrimaryButtonPressed
+            : null,
+          disabled ? styles.disabledCard : null,
+        ]}>
+        <Text
+          style={
+            isEnabled
+              ? styles.temporaryModeSecondaryButtonText
+              : styles.temporaryModePrimaryButtonText
+          }>
+          {isEnabled ? 'Выключить' : 'Включить на сегодня'}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function TodayModesSection({
+  disabled,
+  isEarlyWakeEnabled,
+  isSoftDayEnabled,
+  onDisableMode,
+  onEnableMode,
+}: TodayModesSectionProps) {
+  const isScheduleAdjusted = isEarlyWakeEnabled && isSoftDayEnabled;
+
+  return (
+    <View style={styles.section}>
+      <View style={styles.sectionTitleBlock}>
+        <Text style={styles.sectionTitle}>Сегодня</Text>
+        <Text style={styles.sectionCaption}>
+          Временные режимы меняют только сегодняшний день. Основной план не изменится.
+        </Text>
+      </View>
+
+      {isScheduleAdjusted ? (
+        <View style={styles.todayAdjustedBanner}>
+          <Text style={styles.todayAdjustedTitle}>Сегодня график скорректирован</Text>
+          <Text style={styles.todayAdjustedText}>
+            Похоже, сегодня нужен более мягкий расчёт: включены мягкий день и ранний подъём.
+          </Text>
+        </View>
+      ) : null}
+
+      <View style={styles.temporaryModeList}>
+        <TemporaryModeCard
+          description="Можно немного снизить цель бодрствования и спокойнее отнестись к дневному сну."
+          disabled={disabled}
+          enabledText="Сегодня включён мягкий день"
+          isEnabled={isSoftDayEnabled}
+          onDisable={() => onDisableMode('soft_day')}
+          onEnable={() => onEnableMode('soft_day')}
+          title="Мягкий день"
+        />
+        <TemporaryModeCard
+          description="Если день начался раньше обычного, можно бережно укоротить первое окно бодрствования."
+          disabled={disabled}
+          enabledText="Сегодня ранний подъём"
+          isEnabled={isEarlyWakeEnabled}
+          onDisable={() => onDisableMode('early_wake')}
+          onEnable={() => onEnableMode('early_wake')}
+          title="Ранний подъём"
+        />
+      </View>
+    </View>
+  );
+}
+
+function TodayPlanPointRow({ point }: { point: TodayPlanPoint }) {
+  return (
+    <View style={styles.todayPlanPointRow}>
+      <Text style={styles.todayPlanPointTime}>{point.timeLabel}</Text>
+      <View style={styles.todayPlanPointTextBlock}>
+        <Text style={styles.todayPlanPointTitle}>{point.title}</Text>
+        {point.caption ? (
+          <Text numberOfLines={2} style={styles.todayPlanPointCaption}>
+            {point.caption}
+          </Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function TodayPlanSection({
+  isWakeWindowsExpanded,
+  onToggleWakeWindows,
+  plan,
+}: TodayPlanSectionProps) {
+  const points = buildTodayPlanPoints(plan);
+  const wakeWindows = buildTodayPlanWakeWindows(plan);
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>План на сегодня</Text>
+      <View style={styles.todayPlanList}>
+        {points.map((point) => (
+          <TodayPlanPointRow key={point.id} point={point} />
+        ))}
+      </View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: isWakeWindowsExpanded }}
+        onPress={onToggleWakeWindows}
+        style={({ pressed }) => [
+          styles.wakeWindowsToggleButton,
+          pressed ? styles.guidelineSecondaryButtonPressed : null,
+        ]}>
+        <Text style={styles.wakeWindowsToggleButtonText}>
+          {isWakeWindowsExpanded ? 'Скрыть окна бодрствования' : 'Показать окна бодрствования'}
+        </Text>
+      </Pressable>
+      {isWakeWindowsExpanded ? (
+        <View style={styles.wakeWindowList}>
+          {wakeWindows.map((wakeWindow) => (
+            <View key={wakeWindow.id} style={styles.wakeWindowRow}>
+              <Text style={styles.wakeWindowTitle}>{wakeWindow.title}</Text>
+              <Text style={styles.wakeWindowRange}>{wakeWindow.rangeLabel}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -1307,29 +1679,6 @@ function WakeWindowGuidelineCard({
   );
 }
 
-function IdealScheduleRow({ segment }: { segment: IdealSleepPlanSegment }) {
-  const isSleep = segment.kind === 'sleep';
-
-  return (
-    <View style={styles.scheduleRow}>
-      <View style={[styles.scheduleBadge, isSleep ? styles.sleepBadge : styles.awakeBadge]}>
-        <Text style={[styles.scheduleBadgeText, isSleep ? styles.sleepBadgeText : null]}>
-          {isSleep ? 'Сон' : 'ВБ'}
-        </Text>
-      </View>
-      <View style={styles.scheduleTextBlock}>
-        <Text style={styles.scheduleTitle}>
-          {isSleep ? `Сон ${segment.order}` : `ВБ ${segment.order}`}
-        </Text>
-        <Text style={styles.scheduleCaption}>{formatDuration(segment.durationMinutes)}</Text>
-      </View>
-      <Text numberOfLines={1} adjustsFontSizeToFit style={styles.scheduleTime}>
-        {formatClockRange(segment.startMinutes, segment.endMinutes)}
-      </Text>
-    </View>
-  );
-}
-
 function RangeEditor({
   title,
   helper,
@@ -1395,8 +1744,12 @@ export default function SleepPlanScreen() {
   const [isDeleteConfirmVisible, setIsDeleteConfirmVisible] = useState(false);
   const [isNapDropdownOpen, setIsNapDropdownOpen] = useState(false);
   const [isEveningSettingsExpanded, setIsEveningSettingsExpanded] = useState(false);
+  const [isChecksExpanded, setIsChecksExpanded] = useState(false);
+  const [isWakeWindowsExpanded, setIsWakeWindowsExpanded] = useState(false);
+  const [temporaryModes, setTemporaryModes] = useState<SleepDayTemporaryMode[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isTemporaryModeSaving, setIsTemporaryModeSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1440,6 +1793,61 @@ export default function SleepPlanScreen() {
     () => plans.find((plan) => plan.id === selectedPlanId) ?? null,
     [plans, selectedPlanId],
   );
+  const activePlan = useMemo(() => plans.find((plan) => plan.isActive) ?? null, [plans]);
+  const todaySleepDayKey = useMemo(
+    () => (activePlan ? getSleepDayDateKeyForDate(new Date(), activePlan.plan) : null),
+    [activePlan],
+  );
+  const activeTemporaryModes = useMemo(
+    () => getActiveTemporaryModes(temporaryModes),
+    [temporaryModes],
+  );
+  const isSoftDayEnabled = hasActiveTemporaryMode(temporaryModes, 'soft_day');
+  const isEarlyWakeEnabled = hasActiveTemporaryMode(temporaryModes, 'early_wake');
+  const effectiveTodayPlan = useMemo(
+    () =>
+      activePlan
+        ? buildEffectiveSleepDayPlan(activePlan, activeTemporaryModes, {
+            actualWakeTime: null,
+          })
+        : null,
+    [activePlan, activeTemporaryModes],
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadTemporaryModesForToday() {
+      if (!activePlan || !todaySleepDayKey) {
+        setTemporaryModes([]);
+        return;
+      }
+
+      try {
+        const loadedTemporaryModes = await listSleepDayTemporaryModes(
+          db,
+          activePlan.childId,
+          todaySleepDayKey,
+        );
+
+        if (isMounted) {
+          setTemporaryModes(loadedTemporaryModes);
+        }
+      } catch {
+        if (isMounted) {
+          setTemporaryModes([]);
+          setErrorMessage('Не удалось загрузить режимы на сегодня');
+        }
+      }
+    }
+
+    loadTemporaryModesForToday();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activePlan, db, todaySleepDayKey]);
+
   const childBirthDateValue = useMemo(
     () => parseBirthDateValue(childBirthDate),
     [childBirthDate],
@@ -1458,8 +1866,8 @@ export default function SleepPlanScreen() {
     [childBirthDateValue, manualAgeBandId],
   );
   const activePlanName = useMemo(
-    () => plans.find((plan) => plan.isActive)?.name ?? DEFAULT_PLAN_NAME,
-    [plans],
+    () => activePlan?.name ?? DEFAULT_PLAN_NAME,
+    [activePlan],
   );
   const parsedDraft = useMemo(() => parsePlanDraft(draft), [draft]);
   const draftNameError = useMemo(() => getDraftNameError(draft), [draft]);
@@ -1483,10 +1891,6 @@ export default function SleepPlanScreen() {
 
     return calculatePlanBedtimeRange(parsedDraft.plan);
   }, [parsedDraft.plan]);
-  const idealScheduleSegments = useMemo(
-    () => (parsedDraft.plan ? buildIdealSleepPlanSegments(parsedDraft.plan) : []),
-    [parsedDraft.plan],
-  );
   const bedtimeLabel = bedtimeRange
     ? formatClockRange(bedtimeRange.startMinutes, bedtimeRange.endMinutes)
     : '--:--';
@@ -1595,6 +1999,63 @@ export default function SleepPlanScreen() {
     setIsDeleteConfirmVisible(false);
     setIsNapDropdownOpen(false);
     setErrorMessage(null);
+  }
+
+  async function reloadTodayTemporaryModes() {
+    if (!activePlan || !todaySleepDayKey) {
+      setTemporaryModes([]);
+      return;
+    }
+
+    const loadedTemporaryModes = await listSleepDayTemporaryModes(
+      db,
+      activePlan.childId,
+      todaySleepDayKey,
+    );
+
+    setTemporaryModes(loadedTemporaryModes);
+  }
+
+  async function updateTodayTemporaryMode(
+    mode: SleepDayTemporaryModeType,
+    shouldEnable: boolean,
+  ) {
+    if (!activePlan || !todaySleepDayKey || isTemporaryModeSaving) {
+      return;
+    }
+
+    setIsTemporaryModeSaving(true);
+    setErrorMessage(null);
+
+    try {
+      if (shouldEnable) {
+        await enableSleepDayTemporaryMode(
+          db,
+          activePlan.childId,
+          todaySleepDayKey,
+          mode,
+          activePlan.id,
+        );
+      } else {
+        await disableSleepDayTemporaryMode(db, activePlan.childId, todaySleepDayKey, mode);
+      }
+
+      await reloadTodayTemporaryModes();
+
+      try {
+        await syncSleepNotificationsFromDatabase(db);
+      } catch {
+        // Notification sync is best-effort; plan editing should stay local and usable.
+      }
+    } catch {
+      setErrorMessage(
+        shouldEnable
+          ? 'Не удалось включить режим на сегодня'
+          : 'Не удалось выключить режим на сегодня',
+      );
+    } finally {
+      setIsTemporaryModeSaving(false);
+    }
   }
 
   async function saveDraftPlan(nextDraft: PlanDraft, plan: SleepPlanPreset): Promise<boolean> {
@@ -2107,10 +2568,108 @@ export default function SleepPlanScreen() {
         <SafeAreaView edges={['bottom']} style={styles.safeArea}>
           {visibleErrorMessage ? <Text style={styles.errorText}>{visibleErrorMessage}</Text> : null}
 
+          {activePlan ? (
+            <>
+              <ActivePlanSummaryCard plan={activePlan} />
+              <TodayModesSection
+                disabled={isLoading || isSaving || isTemporaryModeSaving}
+                isEarlyWakeEnabled={isEarlyWakeEnabled}
+                isSoftDayEnabled={isSoftDayEnabled}
+                onDisableMode={(mode) => {
+                  void updateTodayTemporaryMode(mode, false);
+                }}
+                onEnableMode={(mode) => {
+                  void updateTodayTemporaryMode(mode, true);
+                }}
+              />
+              {effectiveTodayPlan ? (
+                <TodayPlanSection
+                  isWakeWindowsExpanded={isWakeWindowsExpanded}
+                  onToggleWakeWindows={() =>
+                    setIsWakeWindowsExpanded((isExpanded) => !isExpanded)
+                  }
+                  plan={effectiveTodayPlan.plan}
+                />
+              ) : null}
+            </>
+          ) : null}
+
+          <View style={styles.section}>
+            <View style={styles.sectionTitleBlock}>
+              <Text style={styles.sectionTitle}>Проверка и расчёт</Text>
+              <Text style={styles.sectionCaption}>
+                Возрастные ориентиры можно раскрыть отдельно. Основной план и записи сна от этого
+                не меняются.
+              </Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: isChecksExpanded }}
+              onPress={() => setIsChecksExpanded((isExpanded) => !isExpanded)}
+              style={({ pressed }) => [
+                styles.checksToggleButton,
+                pressed ? styles.guidelineSecondaryButtonPressed : null,
+              ]}>
+              <Text style={styles.checksToggleButtonText}>
+                {isChecksExpanded ? 'Скрыть ориентиры' : 'Показать ориентиры'}
+              </Text>
+            </Pressable>
+
+            {isChecksExpanded ? (
+              <View style={styles.checksContent}>
+                <OfficialSleepGuidelineCard
+                  ageMonths={childAgeMonths}
+                  hasBirthDate={childBirthDateValue !== null}
+                  onOpenInfo={() => router.push(OFFICIAL_SLEEP_INFO_ROUTE)}
+                  plan={parsedDraft.plan}
+                />
+
+                <PracticalSleepPresetCard
+                  ageMonths={childAgeMonths}
+                  agePresetCatalog={agePresetCatalog}
+                  canApplyPreset={canApplyPracticalPreset}
+                  hasBirthDate={childBirthDateValue !== null}
+                  manualAgeBandId={manualAgeBandId}
+                  onApplyPracticalPreset={(preset) => {
+                    void applyPracticalPreset(preset);
+                  }}
+                  onApplyRecommendedTemplate={(preset) => {
+                    void applyPresetTemplate(preset);
+                  }}
+                  onOpenInfo={() => router.push(PRACTICAL_SLEEP_INFO_ROUTE)}
+                  onOpenProfile={() => router.push(PROFILE_ROUTE)}
+                  onSelectManualAgeBand={setManualAgeBandId}
+                  plan={parsedDraft.plan}
+                />
+
+                <WakeWindowGuidelineCard
+                  ageMonths={childAgeMonths}
+                  hasBirthDate={childBirthDateValue !== null}
+                  onOpenInfo={() => router.push(WAKE_WINDOW_INFO_ROUTE)}
+                  onOpenProfile={() => router.push(PROFILE_ROUTE)}
+                  plan={parsedDraft.plan}
+                />
+
+                <Pressable
+                  accessibilityRole="link"
+                  hitSlop={8}
+                  onPress={() => router.push(SCIENTIFIC_EVIDENCE_INFO_ROUTE)}
+                  style={({ pressed }) => [
+                    styles.scientificEvidenceLink,
+                    pressed ? styles.scientificEvidenceLinkPressed : null,
+                  ]}>
+                  <Text style={styles.scientificEvidenceLinkText}>
+                    Почему ориентиры разные? Научная база модели: Уровень D
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
+          </View>
+
           <View style={styles.planSection}>
             <View style={styles.planSectionHeader}>
               <View style={styles.planSectionTitleBlock}>
-                <Text style={styles.sectionTitle}>Планы</Text>
+                <Text style={styles.sectionTitle}>Управлять планами</Text>
                 <Text numberOfLines={1} style={styles.planSectionMeta}>
                   Активный: {activePlanName}
                 </Text>
@@ -2167,164 +2726,105 @@ export default function SleepPlanScreen() {
                 <Text style={styles.activatePlanButtonText}>Сделать активным</Text>
               </Pressable>
             )}
-          </View>
 
-          <View style={[styles.hero, !selectedPlan?.isActive ? styles.heroCompact : null]}>
-            <View style={styles.heroIcon}>
-              <SleepPlanIcon backgroundColor={colors.primarySoft} />
-            </View>
-            <View style={styles.heroTextBlock}>
-              <Text numberOfLines={1} adjustsFontSizeToFit style={styles.heroTitle}>
-                {draft.name.trim() || 'План дня'}
-              </Text>
-              {selectedPlan?.isActive ? (
-                <Text numberOfLines={1} adjustsFontSizeToFit style={styles.heroText}>
-                  Расчёты и рекомендации сегодня
+            <View style={[styles.hero, !selectedPlan?.isActive ? styles.heroCompact : null]}>
+              <View style={styles.heroIcon}>
+                <SleepPlanIcon backgroundColor={colors.primarySoft} />
+              </View>
+              <View style={styles.heroTextBlock}>
+                <Text numberOfLines={1} adjustsFontSizeToFit style={styles.heroTitle}>
+                  {draft.name.trim() || 'План дня'}
                 </Text>
-              ) : null}
+                {selectedPlan?.isActive ? (
+                  <Text numberOfLines={1} adjustsFontSizeToFit style={styles.heroText}>
+                    Основной план
+                  </Text>
+                ) : null}
+              </View>
+              <Pressable
+                accessibilityLabel="Изменить название плана"
+                accessibilityRole="button"
+                disabled={isEditingDisabled}
+                hitSlop={8}
+                onPress={openNameEditor}
+                style={({ pressed }) => [
+                  styles.editNameButton,
+                  pressed && !isEditingDisabled ? styles.editNameButtonPressed : null,
+                  isEditingDisabled ? styles.disabledCard : null,
+                ]}>
+                <Text style={styles.editNameIcon}>✎</Text>
+              </Pressable>
             </View>
-            <Pressable
-              accessibilityLabel="Изменить название плана"
-              accessibilityRole="button"
+
+            <View style={styles.metricGrid}>
+              <MetricCard
+                caption="ориентир утра"
+                disabled={isEditingDisabled}
+                label="Подъем"
+                onPress={() => openEditor('wakeUp')}
+                value={`${draft.wakeUpStart} - ${draft.wakeUpEnd}`}
+              />
+              <MetricCard
+                caption={`Отбой ${bedtimeLabel}`}
+                disabled={isEditingDisabled}
+                label="Бодрствование"
+                onPress={() => openEditor('awake')}
+                value={
+                  parsedDraft.plan
+                    ? formatDurationRange(
+                        parsedDraft.plan.targetAwakeMinMinutes,
+                        parsedDraft.plan.targetAwakeMaxMinutes,
+                      )
+                    : `${draft.awakeStart} - ${draft.awakeEnd}`
+                }
+              />
+              <MetricCard
+                caption={getPracticalNapCountCaption(practicalNapCountStatus.status) ?? 'в день'}
+                disabled={isEditingDisabled}
+                label="Дневных снов"
+                onPress={() => openEditor('napCount')}
+                value={draft.napCount}
+              />
+              <MetricCard
+                caption={getPracticalDaySleepCaption(practicalPreset)}
+                disabled={isEditingDisabled}
+                label="Дневной сон"
+                onPress={() => openEditor('daySleep')}
+                value={
+                  parsedDraft.plan
+                    ? formatDurationRange(
+                        parsedDraft.plan.targetDaySleepMinMinutes,
+                        parsedDraft.plan.targetDaySleepMaxMinutes,
+                      )
+                    : `${draft.daySleepStart} - ${draft.daySleepEnd}`
+                }
+              />
+            </View>
+
+            <EveningSettingsCard
               disabled={isEditingDisabled}
-              hitSlop={8}
-              onPress={openNameEditor}
+              eveningRulesMode={draft.eveningRulesMode}
+              isExpanded={isEveningSettingsExpanded}
+              latestNapEndLabel={eveningLatestNapEndLabel}
+              maxNapLabel={eveningMaxNapLabel}
+              microNapLabel={eveningMicroNapLabel}
+              onOpenInfo={() => router.push(EVENING_SLEEP_INFO_ROUTE)}
+              onPress={() => openEditor('evening')}
+              onToggle={() => setIsEveningSettingsExpanded((isExpanded) => !isExpanded)}
+            />
+
+            <Pressable
+              accessibilityRole="button"
+              disabled={isPlanDeleteDisabled}
+              onPress={requestDeleteSelectedPlan}
               style={({ pressed }) => [
-                styles.editNameButton,
-                pressed && !isEditingDisabled ? styles.editNameButtonPressed : null,
-                isEditingDisabled ? styles.disabledCard : null,
+                styles.deletePlanButton,
+                pressed && !isPlanDeleteDisabled ? styles.deletePlanButtonPressed : null,
+                isPlanDeleteDisabled ? styles.disabledCard : null,
               ]}>
-              <Text style={styles.editNameIcon}>✎</Text>
+              <Text style={styles.deletePlanButtonText}>Удалить выбранный план</Text>
             </Pressable>
           </View>
-
-          <View style={styles.metricGrid}>
-            <MetricCard
-              caption="ориентир утра"
-              disabled={isEditingDisabled}
-              label="Подъем"
-              onPress={() => openEditor('wakeUp')}
-              value={`${draft.wakeUpStart} - ${draft.wakeUpEnd}`}
-            />
-            <MetricCard
-              caption={`Отбой ${bedtimeLabel}`}
-              disabled={isEditingDisabled}
-              label="Бодрствование"
-              onPress={() => openEditor('awake')}
-              value={
-                parsedDraft.plan
-                  ? formatDurationRange(
-                      parsedDraft.plan.targetAwakeMinMinutes,
-                      parsedDraft.plan.targetAwakeMaxMinutes,
-                    )
-                  : `${draft.awakeStart} - ${draft.awakeEnd}`
-              }
-            />
-            <MetricCard
-              caption={getPracticalNapCountCaption(practicalNapCountStatus.status) ?? 'в день'}
-              disabled={isEditingDisabled}
-              label="Дневных снов"
-              onPress={() => openEditor('napCount')}
-              value={draft.napCount}
-            />
-            <MetricCard
-              caption={getPracticalDaySleepCaption(practicalPreset)}
-              disabled={isEditingDisabled}
-              label="Дневной сон"
-              onPress={() => openEditor('daySleep')}
-              value={
-                parsedDraft.plan
-                  ? formatDurationRange(
-                      parsedDraft.plan.targetDaySleepMinMinutes,
-                      parsedDraft.plan.targetDaySleepMaxMinutes,
-                    )
-                  : `${draft.daySleepStart} - ${draft.daySleepEnd}`
-              }
-            />
-          </View>
-
-          <EveningSettingsCard
-            disabled={isEditingDisabled}
-            eveningRulesMode={draft.eveningRulesMode}
-            isExpanded={isEveningSettingsExpanded}
-            latestNapEndLabel={eveningLatestNapEndLabel}
-            maxNapLabel={eveningMaxNapLabel}
-            microNapLabel={eveningMicroNapLabel}
-            onOpenInfo={() => router.push(EVENING_SLEEP_INFO_ROUTE)}
-            onPress={() => openEditor('evening')}
-            onToggle={() => setIsEveningSettingsExpanded((isExpanded) => !isExpanded)}
-          />
-
-          <OfficialSleepGuidelineCard
-            ageMonths={childAgeMonths}
-            hasBirthDate={childBirthDateValue !== null}
-            onOpenInfo={() => router.push(OFFICIAL_SLEEP_INFO_ROUTE)}
-            plan={parsedDraft.plan}
-          />
-
-          <PracticalSleepPresetCard
-            ageMonths={childAgeMonths}
-            agePresetCatalog={agePresetCatalog}
-            canApplyPreset={canApplyPracticalPreset}
-            hasBirthDate={childBirthDateValue !== null}
-            manualAgeBandId={manualAgeBandId}
-            onApplyPracticalPreset={(preset) => {
-              void applyPracticalPreset(preset);
-            }}
-            onApplyRecommendedTemplate={(preset) => {
-              void applyPresetTemplate(preset);
-            }}
-            onOpenInfo={() => router.push(PRACTICAL_SLEEP_INFO_ROUTE)}
-            onOpenProfile={() => router.push(PROFILE_ROUTE)}
-            onSelectManualAgeBand={setManualAgeBandId}
-            plan={parsedDraft.plan}
-          />
-
-          <WakeWindowGuidelineCard
-            ageMonths={childAgeMonths}
-            hasBirthDate={childBirthDateValue !== null}
-            onOpenInfo={() => router.push(WAKE_WINDOW_INFO_ROUTE)}
-            onOpenProfile={() => router.push(PROFILE_ROUTE)}
-            plan={parsedDraft.plan}
-          />
-
-          <Pressable
-            accessibilityRole="link"
-            hitSlop={8}
-            onPress={() => router.push(SCIENTIFIC_EVIDENCE_INFO_ROUTE)}
-            style={({ pressed }) => [
-              styles.scientificEvidenceLink,
-              pressed ? styles.scientificEvidenceLinkPressed : null,
-            ]}>
-            <Text style={styles.scientificEvidenceLinkText}>
-              Почему ориентиры разные? Научная база модели: Уровень D
-            </Text>
-          </Pressable>
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Идеальный график</Text>
-            <View style={styles.scheduleList}>
-              {idealScheduleSegments.length > 0 ? (
-                idealScheduleSegments.map((segment) => (
-                  <IdealScheduleRow key={segment.id} segment={segment} />
-                ))
-              ) : (
-                <Text style={styles.emptyScheduleText}>Проверьте параметры плана</Text>
-              )}
-            </View>
-          </View>
-
-          <Pressable
-            accessibilityRole="button"
-            disabled={isPlanDeleteDisabled}
-            onPress={requestDeleteSelectedPlan}
-            style={({ pressed }) => [
-              styles.deletePlanButton,
-              pressed && !isPlanDeleteDisabled ? styles.deletePlanButtonPressed : null,
-              isPlanDeleteDisabled ? styles.disabledCard : null,
-            ]}>
-            <Text style={styles.deletePlanButtonText}>Удалить план</Text>
-          </Pressable>
 
         </SafeAreaView>
       </ScrollView>
@@ -2492,6 +2992,255 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     paddingBottom: spacing.xl,
+  },
+  activeSummaryCard: {
+    gap: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  activeSummaryHeader: {
+    minHeight: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  activeSummaryTitleBlock: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  activeSummaryTitle: {
+    color: colors.text,
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: '900',
+  },
+  activeSummaryMeta: {
+    color: colors.textMuted,
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: '800',
+  },
+  activeSummaryPills: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  summaryPill: {
+    minHeight: 28,
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+    backgroundColor: colors.surfaceMuted,
+  },
+  summaryPillActive: {
+    backgroundColor: colors.primarySoft,
+  },
+  summaryPillText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  summaryPillActiveText: {
+    color: colors.primary,
+  },
+  activeSummaryHint: {
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  sectionTitleBlock: {
+    gap: spacing.xs,
+  },
+  sectionCaption: {
+    color: colors.textMuted,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  todayAdjustedBanner: {
+    gap: 4,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    padding: spacing.md,
+    backgroundColor: colors.primarySoft,
+  },
+  todayAdjustedTitle: {
+    color: colors.primary,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  todayAdjustedText: {
+    color: colors.text,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  temporaryModeList: {
+    gap: spacing.sm,
+  },
+  temporaryModeCard: {
+    gap: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  temporaryModeTextBlock: {
+    gap: 4,
+  },
+  temporaryModeTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  temporaryModeDescription: {
+    color: colors.textMuted,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  temporaryModeEnabledText: {
+    color: colors.primary,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  temporaryModePrimaryButton: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.primary,
+  },
+  temporaryModePrimaryButtonText: {
+    color: colors.surface,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  temporaryModeSecondaryButton: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  temporaryModeSecondaryButtonText: {
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  todayPlanList: {
+    overflow: 'hidden',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  todayPlanPointRow: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  todayPlanPointTime: {
+    width: 56,
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  todayPlanPointTextBlock: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  todayPlanPointTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  todayPlanPointCaption: {
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  wakeWindowsToggleButton: {
+    minHeight: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.primarySoft,
+  },
+  wakeWindowsToggleButtonText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  wakeWindowList: {
+    overflow: 'hidden',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  wakeWindowRow: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  wakeWindowTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '900',
+  },
+  wakeWindowRange: {
+    flexShrink: 1,
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '800',
+    textAlign: 'right',
+  },
+  checksToggleButton: {
+    minHeight: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.primarySoft,
+  },
+  checksToggleButtonText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  checksContent: {
+    gap: spacing.sm,
   },
   planSection: {
     gap: spacing.sm,

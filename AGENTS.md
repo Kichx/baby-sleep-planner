@@ -271,6 +271,29 @@ When changing effective-plan logic, cover at least:
 - combined mode order;
 - base `TargetDayPlan` is not mutated.
 
+## Implementation lessons from `/sleep-plan` active state simplification
+
+The active state of `/sleep-plan` should stay a calm parent-facing overview before plan management. When an active plan exists, keep the first-level order:
+- active plan summary;
+- `Сегодня` temporary mode controls;
+- `План на сегодня`;
+- collapsed `Проверка и расчёт`;
+- `Управлять планами`.
+
+The active plan summary must describe the permanent active `target_day_plan`: plan name, nap count, active state, wake-up around time, and a soft tolerance note. Do not replace this summary with `effective_plan` values when `soft_day` or `early_wake` is enabled.
+
+The `План на сегодня` block must use the active temporary modes for the current sleep-day and call `buildEffectiveSleepDayPlan`. Temporary mode toggles on this screen must write only `sleep_day_temporary_mode`; they must not update `target_day_plan`, saved snapshots, history, export/import format, or schema unless a later task explicitly asks for that.
+
+For the compact daily preview, calculate nap and night points from the effective plan's `wakeWindows`. Do not revive `buildIdealSleepPlanSegments` or an equal-slot schedule preview for this top block: `early_wake` changes only the first wake window, so a preview that ignores `wakeWindows` can fail to visibly change after the mode is enabled.
+
+Wake windows on `/sleep-plan` are detail, not first-level content. Hide them by default behind `Показать окна бодрствования` and show `ВБ 1`, `ВБ 2`, etc. only after expansion.
+
+Keep A/B/C guideline cards inside the collapsed `Проверка и расчёт` block on `/sleep-plan`. The first level should not show large guideline cards, and the visible heading should not use `Идеальный график`.
+
+Keep plan deletion off the main top surface. Prefer the bottom of `Управлять планами` or an overflow action, so the active overview focuses on today's plan rather than destructive management.
+
+When smoke-testing Expo web and local SQLite throws `NoModificationAllowedError` from an existing origin lock, test on a fresh port/origin such as `localhost:19006` and stop any temporary server afterwards. Treat that as a web storage locking issue, not as a `/sleep-plan` UI regression.
+
 ## Implementation lessons from date-based UI work
 
 When adding date navigation or history screens, verify every date mode explicitly:
