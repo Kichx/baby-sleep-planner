@@ -2894,17 +2894,6 @@ export default function SleepPlanScreen() {
           ) : activePlan ? (
             <>
               <ActivePlanSummaryCard plan={activePlan} />
-              <Pressable
-                accessibilityRole="button"
-                disabled={isLoading || isSaving}
-                onPress={openPresetSelectionFlow}
-                style={({ pressed }) => [
-                  styles.changeTemplateButton,
-                  pressed && !isLoading && !isSaving ? styles.guidelineSecondaryButtonPressed : null,
-                  isLoading || isSaving ? styles.disabledCard : null,
-                ]}>
-                <Text style={styles.changeTemplateButtonText}>Сменить шаблон</Text>
-              </Pressable>
               <TodayModesSection
                 disabled={isLoading || isSaving || isTemporaryModeSaving}
                 isEarlyWakeEnabled={isEarlyWakeEnabled}
@@ -2985,6 +2974,18 @@ export default function SleepPlanScreen() {
                     <Text style={styles.emptyScheduleText}>Загрузка планов</Text>
                   )}
                 </ScrollView>
+
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={isLoading || isSaving}
+                  onPress={openPresetSelectionFlow}
+                  style={({ pressed }) => [
+                    styles.changeTemplateButton,
+                    pressed && !isLoading && !isSaving ? styles.guidelineSecondaryButtonPressed : null,
+                    isLoading || isSaving ? styles.disabledCard : null,
+                  ]}>
+                  <Text style={styles.changeTemplateButtonText}>Сменить шаблон</Text>
+                </Pressable>
 
                 {selectedPlan?.isActive ? null : (
                   <Pressable

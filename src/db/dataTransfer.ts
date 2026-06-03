@@ -616,10 +616,6 @@ function parseTargetDayPlans(
     };
   });
 
-  if (rows.length === 0) {
-    failInvalidData('Backup has no target day plan');
-  }
-
   assertUniqueIds(rows, 'target day plan');
 
   return rows;

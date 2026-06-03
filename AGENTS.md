@@ -354,6 +354,8 @@ Do not reintroduce `Применить к плану` or a similar primary CTA i
 
 Keep plan deletion off the main top surface. Prefer the bottom of `Управлять планами` or an overflow action, so the active overview focuses on today's plan rather than destructive management.
 
+Keep plan template switching off the first-level active overview as well. The `Сменить шаблон` action belongs inside the lower `Управлять планами` block, not between the active plan summary and `Сегодня`. It is plan management, not today's next step.
+
 When smoke-testing Expo web and local SQLite throws `NoModificationAllowedError` from an existing origin lock, test on a fresh port/origin such as `localhost:19006` and stop any temporary server afterwards. Treat that as a web storage locking issue, not as a `/sleep-plan` UI regression.
 
 ## Implementation lessons from `/sleep-plan` preset template selection flow
@@ -375,11 +377,14 @@ For age-based preset selection:
 
 The manual path starts from a selected/recommended preset, not an empty form. If the parent changes details before saving, create an active custom plan such as `Свой план · 5–6 мес`; do not mutate an existing active plan just because the user opened the manual flow.
 
+When an active plan already exists, the change-template entry point must live in `Управлять планами`. It should open the same explicit preset flow, but it must not become a top-level CTA in the calm active overview, must not create `sleep_day_temporary_mode`, and must not delete or mutate the current plan before the parent confirms a new preview with `Использовать этот план` or saves a custom plan.
+
 When changing this flow, cover at least:
 - no birth date: manual age group can reveal presets and save a plan;
 - birth date: profile age drives the recommended preset;
 - recommended preset is not selected before the user taps `Выбрать этот план`;
 - the first selection level has no more than two preset cards;
+- `Сменить шаблон` stays in `Управлять планами`, not between summary and `Сегодня`;
 - `Использовать этот план` creates an active `target_day_plan`;
 - returning to `/sleep-plan` shows the normal active state for the created plan;
 - TypeScript checks and unit tests pass.
@@ -705,7 +710,9 @@ Before considering an APK-affecting change ready, verify:
 
 For user-facing export/import, prefer a versioned JSON backup over copying or renaming the SQLite database file. Keep the backup format explicit with a stable app-specific marker, a format version, `databaseVersion`, `exportedAt`, and separate arrays for `child_profile`, `sleep_sessions`, and `target_day_plan` data. This lets future database migrations read old exports without changing `DATABASE_NAME`.
 
-Keep transfer code in `src/db` and keep the UI thin. Export should first ensure the default child profile and target day plan exist, then read the SQLite tables in stable order. Import should parse and validate unknown file content before writing anything: reject invalid JSON, unsupported format versions, missing default child profile, duplicate ids, unknown child references, invalid sleep kinds, invalid dates, and sleep sessions where `ended_at <= started_at`.
+Keep transfer code in `src/db` and keep the UI thin. Export should ensure storage is readable and the default child profile exists, then read SQLite tables in stable order. Do not create a persistent `target_day_plan` just because export/import ran: the first-run preset flow allows `targetDayPlans: []` until the parent explicitly chooses a base plan. Import should parse and validate unknown file content before writing anything: reject invalid JSON, unsupported format versions, missing default child profile, duplicate ids, unknown child references, invalid sleep kinds, invalid dates, and sleep sessions where `ended_at <= started_at`.
+
+Treat an empty `targetDayPlans` array as valid for first-run backups. Fallback helpers can still return `DEFAULT_SLEEP_PLAN` for calculations, but backup parsing and restore must not require a permanent plan row and must not insert one implicitly. Add or update tests whenever backup parsing, restore summary, or first-run plan persistence changes.
 
 Treat restore as a destructive replace of local app data unless the task explicitly asks for merge behavior. Always show a confirmation before opening the picker, run the delete/insert sequence inside a SQLite transaction, delete child-dependent tables before `child_profile`, and normalize active target plans after import so each child has exactly one active plan.
 
@@ -714,6 +721,7 @@ Use Expo SDK-versioned APIs for files. For SDK 56, use `expo-file-system` `File`
 When changing backup or restore logic, add focused tests for backup parsing/validation. Before considering the feature ready, verify:
 - TypeScript checks pass;
 - tests pass;
+- parsing accepts a first-run backup with `targetDayPlans: []`;
 - restoring rejects a malformed or unrelated JSON file;
 - restoring a valid file updates profile, plans, and sleep rows;
 - returning to the main screen uses restored profile, active plan, and sleep sessions;

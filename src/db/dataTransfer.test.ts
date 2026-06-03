@@ -187,6 +187,21 @@ describe('data transfer backup parsing', () => {
     });
   });
 
+  it('allows backups from first run before a target day plan is created', () => {
+    const firstRunBackup: AppDataBackup = {
+      ...validBackup,
+      data: {
+        ...validBackup.data,
+        sleepDayPlanSnapshots: [],
+        sleepDayTemporaryModes: [],
+        targetDayPlans: [],
+      },
+    };
+    const parsedBackup = parseAppDataBackup(serializeAppDataBackup(firstRunBackup));
+
+    expect(parsedBackup.data.targetDayPlans).toEqual([]);
+  });
+
   it('rejects files from another format', () => {
     expect(() => parseAppDataBackup(JSON.stringify({ format: 'other' }))).toThrow(
       DataTransferError,
