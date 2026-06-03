@@ -288,7 +288,15 @@ For the compact daily preview, calculate nap and night points from the effective
 
 Wake windows on `/sleep-plan` are detail, not first-level content. Hide them by default behind `Показать окна бодрствования` and show `ВБ 1`, `ВБ 2`, etc. only after expansion.
 
-Keep A/B/C guideline cards inside the collapsed `Проверка и расчёт` block on `/sleep-plan`. The first level should not show large guideline cards, and the visible heading should not use `Идеальный график`.
+Keep `/sleep-plan` guideline checks as a compact `Проверка и расчёт` block, not as three large A/B/C cards. The collapsed state should show only the title, three short statuses for 24-hour sleep, daytime sleep, and wake windows, plus `Подробнее о расчёте`. The expanded state can show Level A/B/C details and `i` links.
+
+Keep the compact check calculation in pure core code such as `src/core/sleepPlanChecks.ts`. UI should pass the current draft/effective plan into core and render returned labels/ranges; it should not duplicate A/B/C status math in React.
+
+For compact checks, Level A must continue to compare only total sleep over 24 hours against the official guideline. Level B compares practical daytime sleep, and Level C compares practical wake windows. Do not call Level B or Level C an official medical norm, and do not merge them into one combined "sleep norm" status.
+
+Show total awake time (`Бодрствование за 24 часа (ВБ)`) only inside expanded `Проверка и расчёт` on `/sleep-plan`. Do not show summed 24-hour awake time on the main "Сон сегодня" screen; the main screen may show remaining awake time, but not `всего ...` awake time. If temporary modes are active on `/sleep-plan`, the expanded awake-time detail should compare `Обычный план` and `Сегодня`.
+
+Do not reintroduce `Применить к плану` or a similar primary CTA into the first-level `Проверка и расчёт` block. If an apply/customization flow is needed later, put it in `Настроить вручную` or the preset/manual plan flow so guideline checks stay explanatory.
 
 Keep plan deletion off the main top surface. Prefer the bottom of `Управлять планами` or an overflow action, so the active overview focuses on today's plan rather than destructive management.
 
@@ -816,7 +824,7 @@ Before considering age-based preset templates done, verify:
 - TypeScript checks pass and core tests pass.
 
 Before considering practical daytime sleep guidance done, verify:
-- `/sleep-plan` shows Level A and Level B as separate blocks;
+- `/sleep-plan` shows Level A and Level B as separate details inside the compact `Проверка и расчёт` block;
 - `/info?article=practical-sleep-guidelines` opens directly and shows the table from `PRACTICAL_SLEEP_PRESETS`;
 - alternative nap-count labels cannot be read as a required transition direction;
 - source text is short and does not claim that WHO, CDC, or AASM define nap counts;
@@ -839,7 +847,7 @@ Keep `/info?article=wake-window-guidelines` compact. The article should explain 
 Do not add a large Level C card to the main "Сон сегодня" screen unless explicitly requested. That screen should stay focused on current state, next sleep, predicted bedtime, and simple day guidance. If Level C later affects recommendation scenarios, update core recommendation tests instead of only changing UI text.
 
 Before considering wake window guidance done, verify:
-- `/sleep-plan` shows Level C after Level B and before the ideal schedule;
+- `/sleep-plan` shows Level C as the `Окна бодрствования` detail inside the expanded compact `Проверка и расчёт` block;
 - missing birth date shows the profile prompt and does not crash;
 - unsupported ages outside the configured table show a calm "not set" state;
 - invalid draft plan shows a calm "check plan parameters" state;
@@ -871,7 +879,7 @@ Before considering scientific evidence guidance done, verify:
 - SQLite schema, `DATABASE_NAME`, `DATABASE_VERSION`, and `android.package` are unchanged;
 - TypeScript checks pass and core tests pass.
 
-When documenting Level A/B/C/D changes in Confluence, update both the conceptual and screen-level pages. The conceptual page is `Уровни доверия сна: A и B` or its successor if Level C/D has been added there. The screen pages that usually need updates are `Экран: План дня` for the cards/actions, `Экран: Справка` for help articles and deep links, and `Экран: Сон сегодня` when a guideline status appears on the main/past-day screen. This prevents Confluence from describing only the core principle while missing visible UI behavior.
+When documenting Level A/B/C/D changes in Confluence, update both the conceptual and screen-level pages. The current conceptual page is `Уровни доверия сна: A, B и C`. The screen pages that usually need updates are `Экран: План дня` for the compact checks/actions, `Экран: Справка` for help articles and deep links, `Экран: Сон сегодня` when a guideline or awake-time status affects the main screen, plus `Экраны приложения` and `Техническая информация` when routes or core modules change. This prevents Confluence from describing only the core principle while missing visible UI behavior and implementation boundaries.
 
 ## Implementation lessons from Help level-chain articles
 

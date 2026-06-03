@@ -1618,7 +1618,7 @@ export default function TodaySleepScreen() {
                 <SummaryCard
                   title="До цели бодрств."
                   value={formatDuration(snapshot.remainingAwakeMinutes)}
-                  caption={`всего ${formatDuration(snapshot.totalAwakeMinutes)}`}
+                  caption="до ориентира дня"
                 />
                 <SummaryCard
                   title="Сон днем"
