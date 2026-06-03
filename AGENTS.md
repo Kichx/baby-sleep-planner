@@ -846,6 +846,8 @@ For transparent React Native `Modal` windows on Android, especially bottom sheet
 
 Keep primary actions usable when the keyboard is open. For bottom sheets, keep Save/Delete actions outside the scrolling form when practical, and make only the field area scroll. For centered short dialogs with a `TextInput`, wrap the dialog in `KeyboardAvoidingView` even if the dialog looks small on a tall device.
 
+For full-screen `ScrollView` forms with inputs near the bottom, `KeyboardAvoidingView` can resize the screen without automatically scrolling the focused field into view on Android. Prefer a small local fix first: add a `ScrollView` ref and a delayed `scrollTo`/`scrollToEnd` from the input `onFocus` or `keyboardDidShow`. Do not add large fallback bottom insets that make the whole screen jump to the top.
+
 Do not put `selectTextOnFocus` directly on controlled `TextInput` fields that users are expected to replace quickly, especially Android numeric time fields. It can leave the old selection active after the first typed character, so the second character replaces the first one. Use the shared `SelectAllTextInput` component for "select all on focus" behavior; pass `normalizeText` for forgiving time inputs, and let the component collapse the selection after the first edit.
 
 Do not add `react-native-keyboard-controller`, change `android.softwareKeyboardLayoutMode`, or add another keyboard dependency for simple one-screen/modal input fixes unless the built-in approach fails. If changing Android app config is truly required, remember it only affects a new APK build and re-check `android.package`, the APK-producing `preview` profile, and `DATABASE_NAME`.

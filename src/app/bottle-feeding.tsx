@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Stack, type Href, useFocusEffect, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -105,26 +106,31 @@ function isValidReminderIntervalParts(hours: number, minutes: number): boolean {
 
 function normalizeReminderIntervalInput(value: string): string {
   const normalized = value.trim().replace(/[.,]/g, ':');
+  const compactDigits = normalized.replace(/\D/g, '').slice(0, 4);
 
   if (normalized.includes(':')) {
     const [rawHours, ...rawMinuteParts] = normalized.split(':');
+    const rawMinutes = rawMinuteParts.join('').replace(/\D/g, '');
+
+    if (rawMinutes.length > 2 && compactDigits.length === 4) {
+      return `${compactDigits.slice(0, 2)}:${compactDigits.slice(2)}`;
+    }
+
     const hours = rawHours.replace(/\D/g, '').slice(0, 2);
-    const minutes = rawMinuteParts.join('').replace(/\D/g, '').slice(0, 2);
+    const minutes = rawMinutes.slice(0, 2);
 
     return `${hours}:${minutes}`;
   }
 
-  const digits = normalized.replace(/\D/g, '').slice(0, 4);
-
-  if (digits.length <= 1) {
-    return digits;
+  if (compactDigits.length <= 2) {
+    return compactDigits;
   }
 
-  if (digits.length <= 3) {
-    return `${Number(digits.slice(0, -2))}:${digits.slice(-2)}`;
+  if (compactDigits.length === 3) {
+    return `${compactDigits.slice(0, 1)}:${compactDigits.slice(1)}`;
   }
 
-  return `${digits.slice(0, 2)}:${digits.slice(2)}`;
+  return `${compactDigits.slice(0, 2)}:${compactDigits.slice(2)}`;
 }
 
 function parseReminderIntervalInput(value: string): number | null {
@@ -185,6 +191,10 @@ function formatDateLabel(date: Date): string {
 export default function BottleFeedingScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
+  const scrollViewRef = useRef<ScrollView | null>(null);
+  const customReminderIntervalScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const [latestFeeding, setLatestFeeding] = useState<BottleFeeding | null>(null);
   const [todayStats, setTodayStats] =
     useState<BottleFeedingStats>(EMPTY_BOTTLE_FEEDING_STATS);
@@ -209,6 +219,8 @@ export default function BottleFeedingScreen() {
   );
   const [isCustomReminderIntervalOpen, setIsCustomReminderIntervalOpen] = useState(false);
   const [isCustomReminderSaveConfirmed, setIsCustomReminderSaveConfirmed] =
+    useState(false);
+  const [isCustomReminderIntervalFocused, setIsCustomReminderIntervalFocused] =
     useState(false);
   const [now, setNow] = useState(() => new Date());
   const [isLoading, setIsLoading] = useState(true);
@@ -304,6 +316,17 @@ export default function BottleFeedingScreen() {
     }, [loadFeedings]),
   );
 
+  const scrollCustomReminderIntervalIntoView = useCallback((delayMs = 0) => {
+    if (customReminderIntervalScrollTimerRef.current !== null) {
+      clearTimeout(customReminderIntervalScrollTimerRef.current);
+    }
+
+    customReminderIntervalScrollTimerRef.current = setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+      customReminderIntervalScrollTimerRef.current = null;
+    }, delayMs);
+  }, []);
+
   useEffect(() => {
     const timer = setInterval(() => {
       setNow(new Date());
@@ -327,6 +350,30 @@ export default function BottleFeedingScreen() {
       clearTimeout(timer);
     };
   }, [isCustomReminderSaveConfirmed]);
+
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener('keyboardDidShow', () => {
+      if (isCustomReminderIntervalFocused) {
+        scrollCustomReminderIntervalIntoView(60);
+      }
+    });
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      setIsCustomReminderIntervalFocused(false);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, [isCustomReminderIntervalFocused, scrollCustomReminderIntervalIntoView]);
+
+  useEffect(() => {
+    return () => {
+      if (customReminderIntervalScrollTimerRef.current !== null) {
+        clearTimeout(customReminderIntervalScrollTimerRef.current);
+      }
+    };
+  }, []);
 
   async function reloadCurrentPeriod(currentNow = new Date()) {
     await loadFeedings(currentNow, () => true);
@@ -564,6 +611,7 @@ export default function BottleFeedingScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardAvoider}>
         <ScrollView
+          ref={scrollViewRef}
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           style={styles.screen}
@@ -805,6 +853,15 @@ export default function BottleFeedingScreen() {
                             setCustomReminderIntervalText(value);
                             setIsCustomReminderSaveConfirmed(false);
                             setErrorMessage(null);
+                          }}
+                          onBlur={() => {
+                            setIsCustomReminderIntervalFocused(false);
+                          }}
+                          onFocus={() => {
+                            setIsCustomReminderIntervalFocused(true);
+                            scrollCustomReminderIntervalIntoView(
+                              Platform.OS === 'android' ? 320 : 80,
+                            );
                           }}
                           placeholder="3:00"
                           placeholderTextColor={colors.textMuted}
