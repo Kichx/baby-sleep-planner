@@ -364,7 +364,13 @@ Do not reintroduce `Применить к плану` or a similar primary CTA i
 
 Keep plan deletion off the main top surface. Prefer the bottom of `Управлять планами` or an overflow action, so the active overview focuses on today's plan rather than destructive management.
 
-Keep plan template switching off the first-level active overview as well. The `Сменить шаблон` action belongs inside the lower `Управлять планами` block, not between the active plan summary and `Сегодня`. It is plan management, not today's next step.
+Under the active plan summary on `/sleep-plan`, keep exactly two equal-width quick actions when an active plan exists:
+- `Сменить шаблон` opens the explicit preset/template flow;
+- `Редактировать график` scrolls to the selected-plan editor inside `Управлять планами`.
+
+Do not duplicate `Сменить шаблон` again inside the lower `Управлять планами` block. The quick action is allowed above `Сегодня` because it reduces hunting through the long screen, but it must still open the same explicit flow and must not auto-create plans, temporary modes, snapshots, or schema changes.
+
+When implementing scroll-to-section actions in React Native / React Native Web, remember that nested `onLayout` `layout.y` is relative to the parent, not a global scroll offset. For a target inside `Управлять планами`, store both the parent section `y` and the target local `y`, then scroll to `parentY + targetY` with a small top offset. A fallback `scrollToEnd` is acceptable only when the layout target has not been measured yet.
 
 When smoke-testing Expo web and local SQLite throws `NoModificationAllowedError` from an existing origin lock, test on a fresh port/origin such as `localhost:19006` and stop any temporary server afterwards. Treat that as a web storage locking issue, not as a `/sleep-plan` UI regression.
 
@@ -406,7 +412,9 @@ When changing this flow, cover at least:
 - the first selection level has no more than two preset cards;
 - change-template shows current-age templates first and keeps other age groups behind a dropdown;
 - selecting another age in change-template reveals only that age group's templates;
-- `Сменить шаблон` stays in `Управлять планами`, not between summary and `Сегодня`;
+- active state has the two quick actions under the summary: `Сменить шаблон` and `Редактировать график`;
+- `Сменить шаблон` is not duplicated inside lower `Управлять планами`;
+- `Редактировать график` scrolls to the selected-plan editor, not merely to the next visible block;
 - `Использовать этот план` creates an active `target_day_plan`;
 - returning to `/sleep-plan` shows the normal active state for the created plan;
 - TypeScript checks and unit tests pass.
