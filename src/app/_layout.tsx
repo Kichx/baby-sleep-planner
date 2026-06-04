@@ -56,6 +56,12 @@ export default function RootLayout() {
             }}
           />
           <Stack.Screen
+            name="bottle-feeding-settings"
+            options={{
+              title: 'Настройки кормления',
+            }}
+          />
+          <Stack.Screen
             name="info"
             options={{
               title: 'Справка',
