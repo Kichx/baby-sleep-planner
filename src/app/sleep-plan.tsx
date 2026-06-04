@@ -21,11 +21,14 @@ import {
   AGE_SLEEP_PLAN_PRESET_TEMPLATE_BANDS,
   formatAgeSleepPlanPresetCustomPlanName,
   formatAgeSleepPlanPresetTargetPlanName,
+  getAllAgeSleepPlanPresetTemplateOptions,
   getAgeSleepPlanPresetTemplateCatalogForProfile,
   getAgeSleepPlanPresetTemplateOptions,
   type AgeSleepPlanPresetTemplate,
+  type AgeSleepPlanPresetTemplateAgeBand,
   type AgeSleepPlanPresetTemplateAgeBandId,
   type AgeSleepPlanPresetTemplateCatalog,
+  type AgeSleepPlanPresetTemplateOption,
 } from '@/core/ageSleepPlanPresetTemplates';
 import {
   calculateTotalSleepRangeFromWakeRange,
@@ -156,8 +159,30 @@ interface BasePlanPresetFlowProps {
 interface PresetTemplateCardProps {
   catalog: AgeSleepPlanPresetTemplateCatalog;
   disabled: boolean;
+  isPrimaryRecommendation: boolean;
   onSelect: () => void;
   preset: AgeSleepPlanPresetTemplate;
+}
+
+interface PresetTemplateSectionProps {
+  caption?: string;
+  disabled: boolean;
+  highlightFirst: boolean;
+  options: AgeSleepPlanPresetTemplateOption[];
+  onSelectPreset: (preset: AgeSleepPlanPresetTemplate) => void;
+  title: string;
+}
+
+interface PresetAgeDropdownSectionProps {
+  ageBands: readonly AgeSleepPlanPresetTemplateAgeBand[];
+  disabled: boolean;
+  isOpen: boolean;
+  onSelectAgeBand: (ageBandId: AgeSleepPlanPresetTemplateAgeBandId) => void;
+  onSelectPreset: (preset: AgeSleepPlanPresetTemplate) => void;
+  onToggle: () => void;
+  options: AgeSleepPlanPresetTemplateOption[];
+  selectedAgeBand: AgeSleepPlanPresetTemplateAgeBand | null;
+  title: string;
 }
 
 interface PresetPreviewCardProps {
@@ -430,21 +455,33 @@ function formatPresetTemplateWakeUpAround(preset: AgeSleepPlanPresetTemplate): s
   return formatClockMinutes(preset.plan.wakeUpStartMinutes);
 }
 
-function getPresetTemplateMeaningText(preset: AgeSleepPlanPresetTemplate): string {
+function getPresetTemplateMeaningText(
+  preset: AgeSleepPlanPresetTemplate,
+  isPrimaryRecommendation: boolean,
+): string {
+  if (isPrimaryRecommendation) {
+    return 'Мягкий старт по текущему возрасту: больше дневных снов и короче промежутки бодрствования.';
+  }
+
   return preset.isRecommended
-    ? 'Мягкий старт: больше дневных снов и короче промежутки бодрствования.'
-    : 'Соседний вариант, если ребёнок уже спокойно бодрствует дольше.';
+    ? 'Мягкий вариант для этого возраста: больше дневных снов и короче промежутки бодрствования.'
+    : 'Вариант с более длинными промежутками бодрствования для этого возраста.';
 }
 
 function getPresetTemplateWhyText(
   catalog: AgeSleepPlanPresetTemplateCatalog,
   preset: AgeSleepPlanPresetTemplate,
+  isPrimaryRecommendation: boolean,
 ): string {
-  if (preset.isRecommended) {
+  if (isPrimaryRecommendation) {
     return catalog.whyRecommendedText;
   }
 
-  return 'Это близкий возрастной вариант. Он может подойти, если текущий режим уже устойчиво держится без перегруза.';
+  if (preset.isRecommended) {
+    return 'Это мягкий шаблон для выбранного возрастного диапазона. Его можно рассмотреть, если текущий режим ближе к этому возрасту.';
+  }
+
+  return 'Это соседний вариант для выбранного возрастного диапазона. Он может подойти, если ребёнок уже спокойно бодрствует дольше.';
 }
 
 function formatPlanNapCount(napCount: number): string {
@@ -1381,6 +1418,7 @@ function EveningSettingsCard({
 function PresetTemplateCard({
   catalog,
   disabled,
+  isPrimaryRecommendation,
   onSelect,
   preset,
 }: PresetTemplateCardProps) {
@@ -1388,18 +1426,20 @@ function PresetTemplateCard({
     <View
       style={[
         styles.presetTemplateCard,
-        preset.isRecommended ? styles.presetTemplateCardRecommended : null,
+        isPrimaryRecommendation ? styles.presetTemplateCardRecommended : null,
       ]}>
       <View style={styles.presetTemplateHeader}>
         <Text style={styles.presetTemplateTitle}>{preset.title}</Text>
-        {preset.isRecommended ? (
+        {isPrimaryRecommendation ? (
           <View style={styles.recommendedBadge}>
             <Text style={styles.recommendedBadgeText}>Рекомендуем</Text>
           </View>
         ) : null}
       </View>
 
-      <Text style={styles.presetTemplateMeaning}>{getPresetTemplateMeaningText(preset)}</Text>
+      <Text style={styles.presetTemplateMeaning}>
+        {getPresetTemplateMeaningText(preset, isPrimaryRecommendation)}
+      </Text>
 
       <View style={styles.presetTemplateFacts}>
         <Text style={styles.presetTemplateFact}>
@@ -1415,8 +1455,12 @@ function PresetTemplateCard({
       </View>
 
       <View style={styles.presetWhyBlock}>
-        <Text style={styles.presetWhyTitle}>Почему мы это советуем</Text>
-        <Text style={styles.presetWhyText}>{getPresetTemplateWhyText(catalog, preset)}</Text>
+        <Text style={styles.presetWhyTitle}>
+          {isPrimaryRecommendation ? 'Почему мы это советуем' : 'Когда рассматривать'}
+        </Text>
+        <Text style={styles.presetWhyText}>
+          {getPresetTemplateWhyText(catalog, preset, isPrimaryRecommendation)}
+        </Text>
       </View>
 
       <Pressable
@@ -1430,6 +1474,114 @@ function PresetTemplateCard({
         ]}>
         <Text style={styles.presetPrimaryButtonText}>Выбрать этот план</Text>
       </Pressable>
+    </View>
+  );
+}
+
+function PresetTemplateSection({
+  caption,
+  disabled,
+  highlightFirst,
+  onSelectPreset,
+  options,
+  title,
+}: PresetTemplateSectionProps) {
+  if (options.length === 0) {
+    return null;
+  }
+
+  return (
+    <View style={styles.presetTemplateSection}>
+      <Text style={styles.presetTemplateSectionTitle}>{title}</Text>
+      {caption ? <Text style={styles.presetTemplateSectionCaption}>{caption}</Text> : null}
+      <View style={styles.presetList}>
+        {options.map(({ catalog, preset }, index) => (
+          <PresetTemplateCard
+            catalog={catalog}
+            disabled={disabled}
+            isPrimaryRecommendation={highlightFirst && index === 0}
+            key={preset.id}
+            onSelect={() => onSelectPreset(preset)}
+            preset={preset}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function PresetAgeDropdownSection({
+  ageBands,
+  disabled,
+  isOpen,
+  onSelectAgeBand,
+  onSelectPreset,
+  onToggle,
+  options,
+  selectedAgeBand,
+  title,
+}: PresetAgeDropdownSectionProps) {
+  return (
+    <View style={styles.presetTemplateSection}>
+      <Text style={styles.presetTemplateSectionTitle}>{title}</Text>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: isOpen }}
+        disabled={disabled}
+        onPress={onToggle}
+        style={({ pressed }) => [
+          styles.presetAgeDropdownButton,
+          pressed && !disabled ? styles.guidelineSecondaryButtonPressed : null,
+          disabled ? styles.disabledCard : null,
+        ]}>
+        <Text style={styles.presetAgeDropdownButtonText}>
+          {selectedAgeBand ? selectedAgeBand.title : 'Выбрать возраст'}
+        </Text>
+        <Text style={styles.presetAgeDropdownButtonIcon}>{isOpen ? '⌃' : '⌄'}</Text>
+      </Pressable>
+
+      {isOpen ? (
+        <View style={styles.presetAgeDropdownMenu}>
+          {ageBands.map((ageBand) => {
+            const isSelected = selectedAgeBand?.id === ageBand.id;
+
+            return (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected: isSelected }}
+                disabled={disabled}
+                key={ageBand.id}
+                onPress={() => onSelectAgeBand(ageBand.id)}
+                style={({ pressed }) => [
+                  styles.presetAgeDropdownItem,
+                  isSelected ? styles.presetAgeDropdownItemSelected : null,
+                  pressed && !disabled ? styles.guidelineSecondaryButtonPressed : null,
+                  disabled ? styles.disabledCard : null,
+                ]}>
+                <Text
+                  style={[
+                    styles.presetAgeDropdownItemText,
+                    isSelected ? styles.presetAgeDropdownItemTextSelected : null,
+                  ]}>
+                  {ageBand.title}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+
+      {selectedAgeBand ? (
+        <PresetTemplateSection
+          disabled={disabled}
+          highlightFirst={false}
+          onSelectPreset={onSelectPreset}
+          options={options}
+          title={`Шаблоны ${selectedAgeBand.title}`}
+        />
+      ) : (
+        <Text style={styles.presetEmptyText}>Выберите возраст, чтобы увидеть шаблоны.</Text>
+      )}
     </View>
   );
 }
@@ -1615,7 +1767,23 @@ function BasePlanPresetFlow({
   onUsePreset,
   selectedPreset,
 }: BasePlanPresetFlowProps) {
+  const [isAgeDropdownOpen, setIsAgeDropdownOpen] = useState(false);
+  const [selectedDropdownAgeBandId, setSelectedDropdownAgeBandId] =
+    useState<AgeSleepPlanPresetTemplateAgeBandId | null>(null);
   const presetOptions = getAgeSleepPlanPresetTemplateOptions(agePresetCatalog);
+  const allPresetOptions = getAllAgeSleepPlanPresetTemplateOptions(agePresetCatalog);
+  const currentAgeBandId = agePresetCatalog?.ageBand.id ?? null;
+  const currentPresetOptions = currentAgeBandId
+    ? allPresetOptions.filter((option) => option.catalog.ageBand.id === currentAgeBandId)
+    : [];
+  const dropdownAgeBands = AGE_SLEEP_PLAN_PRESET_TEMPLATE_BANDS.filter(
+    (ageBand) => ageBand.id !== currentAgeBandId,
+  );
+  const selectedDropdownAgeBand =
+    dropdownAgeBands.find((ageBand) => ageBand.id === selectedDropdownAgeBandId) ?? null;
+  const selectedDropdownPresetOptions = selectedDropdownAgeBand
+    ? allPresetOptions.filter((option) => option.catalog.ageBand.id === selectedDropdownAgeBand.id)
+    : [];
   const recommendedPreset = agePresetCatalog?.recommendedPreset ?? null;
   const sourceText = hasBirthDate
     ? agePresetCatalog?.ageMonths !== null && agePresetCatalog?.ageMonths !== undefined
@@ -1648,7 +1816,7 @@ function BasePlanPresetFlow({
         ) : null}
       </View>
 
-      {!hasBirthDate ? (
+      {!hasBirthDate && !canClose ? (
         <View style={styles.presetBirthDateBlock}>
           <Pressable
             accessibilityRole="button"
@@ -1693,14 +1861,65 @@ function BasePlanPresetFlow({
         </View>
       ) : null}
 
+      {!hasBirthDate && canClose ? (
+        <View style={styles.presetBirthDateBlock}>
+          <Pressable
+            accessibilityRole="button"
+            disabled={disabled}
+            onPress={onOpenProfile}
+            style={({ pressed }) => [
+              styles.presetSecondaryButton,
+              pressed && !disabled ? styles.guidelineSecondaryButtonPressed : null,
+              disabled ? styles.disabledCard : null,
+            ]}>
+            <Text style={styles.presetSecondaryButtonText}>Указать дату рождения</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       {flowMode === 'select' ? (
         <>
-          {agePresetCatalog ? (
+          {canClose ? (
+            allPresetOptions.length > 0 ? (
+              <View style={styles.presetTemplateSections}>
+                {currentPresetOptions.length > 0 ? (
+                  <PresetTemplateSection
+                    caption="Первый вариант подсвечен по текущему возрасту. Ничего не применится без подтверждения."
+                    disabled={disabled}
+                    highlightFirst
+                    onSelectPreset={onSelectPreset}
+                    options={currentPresetOptions}
+                    title="Подходит сейчас"
+                  />
+                ) : null}
+
+                <PresetAgeDropdownSection
+                  ageBands={dropdownAgeBands}
+                  disabled={disabled}
+                  isOpen={isAgeDropdownOpen}
+                  onSelectAgeBand={(ageBandId) => {
+                    setSelectedDropdownAgeBandId(ageBandId);
+                    setIsAgeDropdownOpen(false);
+                  }}
+                  onSelectPreset={onSelectPreset}
+                  onToggle={() => setIsAgeDropdownOpen((isOpen) => !isOpen)}
+                  options={selectedDropdownPresetOptions}
+                  selectedAgeBand={selectedDropdownAgeBand}
+                  title={currentPresetOptions.length > 0 ? 'Другой возраст' : 'Выберите возраст'}
+                />
+              </View>
+            ) : (
+              <Text style={styles.presetEmptyText}>
+                Сейчас нет доступных базовых шаблонов.
+              </Text>
+            )
+          ) : agePresetCatalog ? (
             <View style={styles.presetList}>
-              {presetOptions.map((preset) => (
+              {presetOptions.map((preset, index) => (
                 <PresetTemplateCard
                   catalog={agePresetCatalog}
                   disabled={disabled}
+                  isPrimaryRecommendation={index === 0}
                   key={preset.id}
                   onSelect={() => onSelectPreset(preset)}
                   preset={preset}
@@ -3246,6 +3465,73 @@ const styles = StyleSheet.create({
   },
   presetList: {
     gap: spacing.md,
+  },
+  presetTemplateSections: {
+    gap: spacing.lg,
+  },
+  presetTemplateSection: {
+    gap: spacing.sm,
+  },
+  presetTemplateSectionTitle: {
+    color: colors.text,
+    fontSize: 18,
+    lineHeight: 23,
+    fontWeight: '900',
+  },
+  presetTemplateSectionCaption: {
+    color: colors.textMuted,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  presetAgeDropdownButton: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.primarySoft,
+  },
+  presetAgeDropdownButtonText: {
+    flexShrink: 1,
+    color: colors.primary,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  presetAgeDropdownButtonIcon: {
+    color: colors.primary,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  presetAgeDropdownMenu: {
+    overflow: 'hidden',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  presetAgeDropdownItem: {
+    minHeight: 44,
+    justifyContent: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingHorizontal: spacing.md,
+  },
+  presetAgeDropdownItemSelected: {
+    backgroundColor: colors.primarySoft,
+  },
+  presetAgeDropdownItemText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  presetAgeDropdownItemTextSelected: {
+    color: colors.primary,
+    fontWeight: '900',
   },
   presetTemplateCard: {
     gap: spacing.sm,

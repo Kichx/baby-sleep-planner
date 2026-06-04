@@ -4,6 +4,7 @@ import {
   AGE_SLEEP_PLAN_PRESET_TEMPLATE_BANDS,
   formatAgeSleepPlanPresetCustomPlanName,
   formatAgeSleepPlanPresetTargetPlanName,
+  getAllAgeSleepPlanPresetTemplateOptions,
   getAgeSleepPlanPresetTemplateCatalog,
   getAgeSleepPlanPresetTemplateCatalogForProfile,
   getAgeSleepPlanPresetTemplateOptions,
@@ -63,6 +64,27 @@ describe('getAgeSleepPlanPresetTemplateCatalog', () => {
     expect(options[0]).toBe(catalog?.recommendedPreset);
     expect(options[0].isAutomaticallySelected).toBe(false);
     expect(options[1]).toBe(catalog?.alternativePreset);
+  });
+
+  it('builds all preset options with the current age recommendation first', () => {
+    const catalog = getAgeSleepPlanPresetTemplateCatalog({ ageMonths: 5 });
+    const options = getAllAgeSleepPlanPresetTemplateOptions(catalog);
+
+    expect(options.length).toBeGreaterThan(AGE_SLEEP_PLAN_PRESET_TEMPLATE_BANDS.length);
+    expect(options[0].preset).toBe(catalog?.recommendedPreset);
+    expect(options[0].catalog).toBe(catalog);
+    expect(options[1].preset).toBe(catalog?.alternativePreset);
+    expect(options.slice(2).every((option) => option.catalog.ageBand.id !== catalog?.ageBand.id)).toBe(
+      true,
+    );
+  });
+
+  it('builds all preset options without duplicates when there is no current age catalog', () => {
+    const options = getAllAgeSleepPlanPresetTemplateOptions(null);
+    const uniqueIds = new Set(options.map((option) => option.preset.id));
+
+    expect(options.length).toBe(uniqueIds.size);
+    expect(options[0].catalog.ageBand.id).toBe(AGE_SLEEP_PLAN_PRESET_TEMPLATE_BANDS[0].id);
   });
 
   it('formats a clear target plan name from a preset template', () => {

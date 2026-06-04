@@ -381,11 +381,19 @@ The manual path starts from a selected/recommended preset, not an empty form. If
 
 When an active plan already exists, the change-template entry point must live in `Управлять планами`. It should open the same explicit preset flow, but it must not become a top-level CTA in the calm active overview, must not create `sleep_day_temporary_mode`, and must not delete or mutate the current plan before the parent confirms a new preview with `Использовать этот план` or saves a custom plan.
 
+For change-template with an active plan, keep the current-age recommendation first, but do not render every age template as one long card list. Show the current-age `recommendedPreset`/`alternativePreset` first under a calm `Подходит сейчас` section. Put all other age groups behind a simple dropdown/list control such as `Другой возраст` -> age band -> two templates for that age. This keeps the screen short, avoids forcing a tired parent to scan all variants, and still allows viewing any template.
+
+Keep the first-run state stricter than change-template: without an active plan, the first selection level should still show only the selected/recommended age band's two templates. Do not expose all other age templates on first-run unless a later product task explicitly asks for a broader onboarding flow.
+
+For all preset-template surfaces, only the first current-age recommendation should get the `Рекомендуем` emphasis. Recommended presets from other age bands can be selectable, but they should read as age-specific alternatives (`Когда рассматривать`), not as the app's primary recommendation for the current child.
+
 When changing this flow, cover at least:
 - no birth date: manual age group can reveal presets and save a plan;
 - birth date: profile age drives the recommended preset;
 - recommended preset is not selected before the user taps `Выбрать этот план`;
 - the first selection level has no more than two preset cards;
+- change-template shows current-age templates first and keeps other age groups behind a dropdown;
+- selecting another age in change-template reveals only that age group's templates;
 - `Сменить шаблон` stays in `Управлять планами`, not between summary and `Сегодня`;
 - `Использовать этот план` creates an active `target_day_plan`;
 - returning to `/sleep-plan` shows the normal active state for the created plan;

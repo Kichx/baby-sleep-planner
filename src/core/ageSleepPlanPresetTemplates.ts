@@ -62,6 +62,11 @@ export interface AgeSleepPlanPresetTemplateCatalog {
   whyRecommendedText: string;
 }
 
+export interface AgeSleepPlanPresetTemplateOption {
+  catalog: AgeSleepPlanPresetTemplateCatalog;
+  preset: AgeSleepPlanPresetTemplate;
+}
+
 const DAY_MINUTES = 24 * 60;
 const DEFAULT_WAKE_UP_START_MINUTES = 7 * 60;
 const DEFAULT_WAKE_UP_END_MINUTES = 7 * 60 + 30;
@@ -319,6 +324,32 @@ export function getAgeSleepPlanPresetTemplateOptions(
   return [catalog.recommendedPreset, catalog.alternativePreset].filter(
     (preset): preset is AgeSleepPlanPresetTemplate => preset !== null,
   );
+}
+
+export function getAllAgeSleepPlanPresetTemplateOptions(
+  currentCatalog: AgeSleepPlanPresetTemplateCatalog | null,
+): AgeSleepPlanPresetTemplateOption[] {
+  const currentAgeBandId = currentCatalog?.ageBand.id ?? null;
+  const currentOptions = getAgeSleepPlanPresetTemplateOptions(currentCatalog).map((preset) => ({
+    catalog: currentCatalog!,
+    preset,
+  }));
+  const otherOptions = AGE_SLEEP_PLAN_PRESET_TEMPLATE_BANDS.filter(
+    (ageBand) => ageBand.id !== currentAgeBandId,
+  ).flatMap((ageBand) => {
+    const catalog = buildPresetCatalog({
+      ageBand,
+      ageMonths: null,
+      source: 'manual_age_band',
+    });
+
+    return getAgeSleepPlanPresetTemplateOptions(catalog).map((preset) => ({
+      catalog,
+      preset,
+    }));
+  });
+
+  return [...currentOptions, ...otherOptions];
 }
 
 export function formatAgeSleepPlanPresetTargetPlanName(
