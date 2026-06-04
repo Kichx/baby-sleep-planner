@@ -114,13 +114,20 @@ describe('effective sleep day plan', () => {
     expect(softDayPlan.plan.wakeUpEndMinutes).toBe(baseTargetPlan.plan.wakeUpEndMinutes);
   });
 
-  it('softens the first wake window for an early wake day', () => {
+  it('starts an early wake day from the actual wake-up and softens the first wake window', () => {
     const baseTargetPlan = createTargetDayPlan();
+    const actualWakeMinutes = 6 * 60 + 15;
     const earlyWakePlan = deriveEarlyWakePlan(
       baseTargetPlan,
-      new Date('2026-06-03T06:15:00'),
+      new Date(2026, 5, 3, 6, 15),
     );
 
+    expect(earlyWakePlan.plan.dayStartMinutes).toBe(actualWakeMinutes);
+    expect(earlyWakePlan.plan.wakeUpStartMinutes).toBe(actualWakeMinutes);
+    expect(earlyWakePlan.plan.wakeUpEndMinutes).toBe(actualWakeMinutes);
+    expect(earlyWakePlan.plan.bedtimeTargetMinutes).toBe(
+      baseTargetPlan.plan.bedtimeTargetMinutes - 45,
+    );
     expect(earlyWakePlan.plan.wakeWindows[0]).toMatchObject({
       maxWakeMinutes: baseTargetPlan.plan.wakeWindows[0].maxWakeMinutes - 30,
       minWakeMinutes: baseTargetPlan.plan.wakeWindows[0].minWakeMinutes - 30,
@@ -128,6 +135,18 @@ describe('effective sleep day plan', () => {
     });
     expect(earlyWakePlan.plan.wakeWindows[1]).toEqual(baseTargetPlan.plan.wakeWindows[1]);
     expect(earlyWakePlan.plan.napCount).toBe(baseTargetPlan.plan.napCount);
+  });
+
+  it('keeps the base start when early wake mode has no actual wake-up time', () => {
+    const baseTargetPlan = createTargetDayPlan();
+    const earlyWakePlan = deriveEarlyWakePlan(baseTargetPlan, null);
+
+    expect(earlyWakePlan.plan.dayStartMinutes).toBe(baseTargetPlan.plan.dayStartMinutes);
+    expect(earlyWakePlan.plan.wakeUpStartMinutes).toBe(baseTargetPlan.plan.wakeUpStartMinutes);
+    expect(earlyWakePlan.plan.wakeUpEndMinutes).toBe(baseTargetPlan.plan.wakeUpEndMinutes);
+    expect(earlyWakePlan.plan.wakeWindows[0].targetWakeMinutes).toBe(
+      baseTargetPlan.plan.wakeWindows[0].targetWakeMinutes - 15,
+    );
   });
 
   it('suggests early wake mode when wake-up is 30 minutes or more before the plan', () => {
@@ -166,10 +185,11 @@ describe('effective sleep day plan', () => {
   it('builds effective plans in early wake then soft day then evening auto order', () => {
     const baseTargetPlan = createTargetDayPlan();
     const softOnlyPlan = deriveSoftDayPlan(baseTargetPlan);
+    const actualWakeMinutes = 6 * 60;
     const effectivePlan = buildEffectiveSleepDayPlan(
       baseTargetPlan,
       [createTemporaryMode('soft_day'), createTemporaryMode('early_wake')],
-      { actualWakeTime: new Date('2026-06-03T06:00:00') },
+      { actualWakeTime: new Date(2026, 5, 3, 6, 0) },
     );
     const expectedEveningRules = deriveEveningSleepRulesForPlan({
       napCount: softOnlyPlan.plan.napCount,
@@ -177,10 +197,13 @@ describe('effective sleep day plan', () => {
       targetAwakeMinMinutes: softOnlyPlan.plan.targetAwakeMinMinutes,
       targetDaySleepMaxMinutes: softOnlyPlan.plan.targetDaySleepMaxMinutes,
       targetDaySleepMinMinutes: softOnlyPlan.plan.targetDaySleepMinMinutes,
-      wakeUpEndMinutes: softOnlyPlan.plan.wakeUpEndMinutes,
-      wakeUpStartMinutes: softOnlyPlan.plan.wakeUpStartMinutes,
+      wakeUpEndMinutes: actualWakeMinutes,
+      wakeUpStartMinutes: actualWakeMinutes,
     });
 
+    expect(effectivePlan.plan.dayStartMinutes).toBe(actualWakeMinutes);
+    expect(effectivePlan.plan.wakeUpStartMinutes).toBe(actualWakeMinutes);
+    expect(effectivePlan.plan.wakeUpEndMinutes).toBe(actualWakeMinutes);
     expect(effectivePlan.plan.targetAwakeMinutes).toBe(softOnlyPlan.plan.targetAwakeMinutes);
     expect(effectivePlan.plan.targetDaySleepMaxMinutes).toBe(
       baseTargetPlan.plan.targetDaySleepMaxMinutes + 30,

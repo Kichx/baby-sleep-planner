@@ -117,6 +117,27 @@ function getPlanBaseInput(plan: SleepPlanPreset): EffectivePlanBaseInput {
   };
 }
 
+function getEarlyWakePlanBaseInput(
+  baseInput: EffectivePlanBaseInput,
+  actualWakeTime: Date | null,
+): EffectivePlanBaseInput {
+  if (!actualWakeTime) {
+    return baseInput;
+  }
+
+  const actualWakeMinutes = getLocalClockMinutes(actualWakeTime);
+
+  if (actualWakeMinutes >= baseInput.wakeUpStartMinutes) {
+    return baseInput;
+  }
+
+  return {
+    ...baseInput,
+    wakeUpEndMinutes: actualWakeMinutes,
+    wakeUpStartMinutes: actualWakeMinutes,
+  };
+}
+
 function getEarlyWakeFirstWindowReductionMinutes(
   basePlan: SleepPlanPreset,
   actualWakeTime: Date | null,
@@ -354,7 +375,7 @@ export function deriveEarlyWakePlan(
     actualWakeTime,
   );
   const plan = buildAutoDerivedPlanPreset(
-    getPlanBaseInput(basePlan.plan),
+    getEarlyWakePlanBaseInput(getPlanBaseInput(basePlan.plan), actualWakeTime),
     firstWakeWindowReductionMinutes,
   );
 
@@ -383,6 +404,10 @@ export function buildEffectiveSleepDayPlan(
   const firstWakeWindowReductionMinutes = hasEarlyWakeMode
     ? getEarlyWakeFirstWindowReductionMinutes(basePlan.plan, options.actualWakeTime ?? null)
     : 0;
+
+  if (hasEarlyWakeMode) {
+    planInput = getEarlyWakePlanBaseInput(planInput, options.actualWakeTime ?? null);
+  }
 
   if (hasSoftDayMode) {
     planInput = getSoftDayPlanBaseInput(planInput);

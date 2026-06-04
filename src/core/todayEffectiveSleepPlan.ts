@@ -75,15 +75,37 @@ function getWakeWindowEnd(sleepDayStart: Date, plan: SleepPlanPreset): Date {
   return wakeWindowEnd;
 }
 
+function getPlannedWakeWindowStartForEarlyWakeSearch(
+  sleepDayDateKey: string,
+  now: Date,
+  plan: SleepPlanPreset,
+): Date {
+  const sleepDayStart = getSleepDayStart(sleepDayDateKey, plan);
+  const wakeWindowEnd = getWakeWindowEnd(sleepDayStart, plan);
+
+  if (
+    now.getTime() > wakeWindowEnd.getTime() &&
+    getLocalMinutesFromMidnight(now) < plan.wakeUpStartMinutes
+  ) {
+    return addMinutes(sleepDayStart, DAY_MINUTES);
+  }
+
+  return sleepDayStart;
+}
+
 export function getActualWakeTimeForEarlyWakeMode(params: {
   now: Date;
   plan: SleepPlanPreset;
   sessions: SleepSession[];
   sleepDayDateKey: string;
 }): Date | null {
-  const sleepDayStart = getSleepDayStart(params.sleepDayDateKey, params.plan);
-  const searchStart = addMinutes(sleepDayStart, -DAY_MINUTES);
-  const wakeWindowEnd = getWakeWindowEnd(sleepDayStart, params.plan);
+  const plannedWakeWindowStart = getPlannedWakeWindowStartForEarlyWakeSearch(
+    params.sleepDayDateKey,
+    params.now,
+    params.plan,
+  );
+  const searchStart = addMinutes(plannedWakeWindowStart, -DAY_MINUTES);
+  const wakeWindowEnd = getWakeWindowEnd(plannedWakeWindowStart, params.plan);
   const searchEnd = new Date(Math.min(params.now.getTime(), wakeWindowEnd.getTime()));
   const hasActiveNightSleep = params.sessions.some((session) => {
     if (session.endedAt !== null) {

@@ -93,11 +93,14 @@ describe('today effective sleep plan for the main screen', () => {
     const earlyWakeSnapshot = buildTodaySleepSnapshot([], now, effective.plan);
 
     expect(effective.actualWakeTime?.getTime()).toBe(earlyWakeTime.getTime());
+    expect(effective.plan.dayStartMinutes).toBe(6 * 60 + 30);
+    expect(effective.plan.wakeUpStartMinutes).toBe(6 * 60 + 30);
+    expect(effective.plan.wakeUpEndMinutes).toBe(6 * 60 + 30);
     expect(effective.plan.wakeWindows[0].targetWakeMinutes).toBe(
       BASE_PLAN.plan.wakeWindows[0].targetWakeMinutes - 30,
     );
     expect(minutesBetween(earlyWakeSnapshot.nextSleepAt, baseSnapshot.nextSleepAt)).toBe(
-      30,
+      60,
     );
   });
 
@@ -111,6 +114,30 @@ describe('today effective sleep plan for the main screen', () => {
       temporaryModes: [],
     });
 
+    expect(
+      shouldShowEarlyWakeModeSuggestion({
+        actualWakeTime: effective.actualWakeTime,
+        basePlan: BASE_PLAN.plan,
+        temporaryModes: [],
+      }),
+    ).toBe(true);
+  });
+
+  it('uses the actual early wake-up before the normal day start when the sleep-day key is still yesterday', () => {
+    const now = new Date(2026, 5, 3, 6, 45);
+    const earlyWakeTime = new Date(2026, 5, 3, 6, 30);
+    const effective = buildTodayEffectiveSleepPlan({
+      basePlan: BASE_PLAN,
+      now,
+      sessions: [createNightSleepWakeUp(earlyWakeTime)],
+      sleepDayDateKey: '2026-06-02',
+      temporaryModes: [createTemporaryMode('early_wake')],
+    });
+    const snapshot = buildTodaySleepSnapshot([], now, effective.plan);
+
+    expect(effective.actualWakeTime?.getTime()).toBe(earlyWakeTime.getTime());
+    expect(effective.plan.dayStartMinutes).toBe(6 * 60 + 30);
+    expect(snapshot.currentDurationMinutes).toBe(15);
     expect(
       shouldShowEarlyWakeModeSuggestion({
         actualWakeTime: effective.actualWakeTime,

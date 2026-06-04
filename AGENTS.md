@@ -267,13 +267,15 @@ For `soft_day` MVP:
 For `early_wake` MVP:
 - keep the permanent plan unchanged and never enable the mode automatically;
 - suggest it only when actual wake-up is at least `EARLY_WAKE_THRESHOLD_MINUTES` before `plan.wakeUpStartMinutes`, unless already enabled or dismissed;
-- make only the first wake window softer by 15-30 minutes; do not change `napCount`, wake-up range, or total awake target;
+- make the one-day effective plan start from the actual early wake-up when `actualWakeTime` is earlier than `plan.wakeUpStartMinutes`: collapse only the effective `dayStartMinutes`, `wakeUpStartMinutes`, and `wakeUpEndMinutes` to that local clock time, then make the first wake window softer by 15-30 minutes;
+- do not change `napCount` or total awake target for `early_wake`;
 - treat `actualWakeTime` as local clock time when deriving the one-day adjustment.
 
 When changing effective-plan logic, cover at least:
 - soft day reduces total awake time by 30 minutes;
 - soft day keeps `napCount` and wake-up range;
-- early wake softens the first wake window only;
+- early wake starts the effective day from actual wake-up and softens the first wake window;
+- early wake before the normal `dayStartMinutes` still finds the completed night wake-up and counts awake time from that fact;
 - suggestion true/false cases for threshold, enabled, and dismissed states;
 - combined mode order;
 - base `TargetDayPlan` is not mutated.
@@ -300,6 +302,8 @@ On the main screen, feed the effective `SleepPlanPreset` into:
 Do not use the effective plan to rename the active plan or overwrite `target_day_plan`, saved snapshots, history, schema, or export/import data. The effective plan is a one-day calculation result.
 
 When computing early-wake suggestion on `/`, use nearby sleep sessions around the current sleep-day, not only selected-day display rows. A completed night sleep ending at least `EARLY_WAKE_THRESHOLD_MINUTES` before `plan.wakeUpStartMinutes` can suggest `early_wake`; an active night sleep should suppress the suggestion until wake-up is known.
+
+Before the base `dayStartMinutes`, the current sleep-day key can still point to yesterday even though the child has already woken for today. `getActualWakeTimeForEarlyWakeMode` must handle this by searching the nearest morning wake window, so a 06:30 wake-up before a 07:00 plan can still drive the current effective plan and `buildTodaySleepSnapshot` counts awake time from 06:30.
 
 The main screen may show only a compact temporary-mode badge near the scenario plan line:
 - `Сегодня мягкий день`;
@@ -338,9 +342,13 @@ The active plan summary must describe the permanent active `target_day_plan`: pl
 
 The `План на сегодня` block must use the active temporary modes for the current sleep-day and call `buildEffectiveSleepDayPlan`. Temporary mode toggles on this screen must write only `sleep_day_temporary_mode`; they must not update `target_day_plan`, saved snapshots, history, export/import format, or schema unless a later task explicitly asks for that.
 
+For `early_wake`, `/sleep-plan` must not call `buildEffectiveSleepDayPlan(..., { actualWakeTime: null })` when today's sleep sessions are available. Load nearby sleep sessions for the current morning, derive `actualWakeTime` with the same pure helper used by `/`, and pass it into the effective plan so `План на сегодня` starts from the real wake-up instead of the permanent wake-up range.
+
 For the compact daily preview, calculate the full planned sequence from the effective plan's `wakeWindows`. Use a pure core helper such as `buildSleepPlanTimelineItems` in `src/core/sleepPlanTimeline.ts`; UI should only format labels, badges, and row layout. Do not revive `buildIdealSleepPlanSegments` or an equal-slot schedule preview for this top block: `early_wake` changes only the first wake window, so a preview that ignores `wakeWindows` can fail to visibly change after the mode is enabled.
 
 The `План на сегодня` block on `/sleep-plan` is a full planned timeline, visually close to the main screen timeline: show `Подъём`, every planned `ВБ`, every daytime `Сон`, the final `ВБ`, and `Ночь` inline in one list. Do not hide planned wake windows behind `Показать окна бодрствования` here. Each `ВБ` row should show the target duration and calm min/max range so the parent can see the next step without opening another detail layer.
+
+When `early_wake` shifts the effective start, the `Подъём` row should show the actual start as fact and keep the permanent range secondary, for example `факт · обычно 07:00 - 07:30`. Do not label the actual early wake-up as a changed permanent plan.
 
 Do not confuse planned `ВБ` rows in the `/sleep-plan` timeline with summed 24-hour awake time. Inline planned `ВБ` belongs to the daily sequence. Summed `Бодрствование за 24 часа (ВБ)` remains detail content inside expanded `Проверка и расчёт` and must not become a standalone first-level card on `/` or `/sleep-plan`.
 

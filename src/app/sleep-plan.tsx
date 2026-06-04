@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { Stack, type Href, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -51,6 +51,7 @@ import {
   calculatePlanBedtimeRange,
   deriveEveningSleepRulesForPlan,
 } from '@/core/sleepPlan';
+import { addMinutes, dateAtMinutes } from '@/core/sleepCalculations';
 import {
   PLAN_CHECK_AWAKE_DESCRIPTION,
   buildSleepPlanChecks,
@@ -63,7 +64,8 @@ import {
   buildSleepPlanTimelineItems,
   type SleepPlanTimelineItem,
 } from '@/core/sleepPlanTimeline';
-import { getSleepDayDateKeyForDate } from '@/core/sleepDay';
+import { dateFromSleepDayDateKey, getSleepDayDateKeyForDate } from '@/core/sleepDay';
+import { getActualWakeTimeForEarlyWakeMode } from '@/core/todayEffectiveSleepPlan';
 import {
   activateTargetDayPlan,
   createTargetDayPlan,
@@ -72,6 +74,7 @@ import {
   enableSleepDayTemporaryMode,
   getChildProfile,
   listSleepDayTemporaryModes,
+  listSleepSessionsInRange,
   listTargetDayPlans,
   updateChildProfile,
   updateTargetDayPlan,
@@ -88,6 +91,8 @@ import type {
 type EditorType = 'wakeUp' | 'awake' | 'napCount' | 'daySleep' | 'evening';
 type NameEditorMode = 'create' | 'edit';
 type PresetFlowMode = 'select' | 'preview' | 'manual';
+
+const DAY_MINUTES = 24 * 60;
 
 interface PlanDraft {
   name: string;
@@ -228,6 +233,8 @@ interface TodayModesSectionProps {
 }
 
 interface TodayPlanSectionProps {
+  basePlan: SleepPlanPreset | null;
+  isEarlyWakeAdjusted: boolean;
   plan: SleepPlanPreset;
 }
 
@@ -616,9 +623,19 @@ function getTodayPlanTimelineTitle(item: SleepPlanTimelineItem): string {
   }
 }
 
-function getTodayPlanTimelineCaption(item: SleepPlanTimelineItem): string | null {
+function getTodayPlanTimelineCaption(
+  item: SleepPlanTimelineItem,
+  baseWakeUpRange: { endMinutes: number; startMinutes: number } | null = null,
+): string | null {
   switch (item.kind) {
     case 'wakeUp':
+      if (baseWakeUpRange) {
+        return `факт · обычно ${formatClockRange(
+          baseWakeUpRange.startMinutes,
+          baseWakeUpRange.endMinutes,
+        )}`;
+      }
+
       return item.rangeStartMinutes !== null && item.rangeEndMinutes !== null
         ? `план ${formatClockRange(item.rangeStartMinutes, item.rangeEndMinutes)}`
         : null;
@@ -1140,14 +1157,19 @@ function TodayModesSection({
 }
 
 function TodayPlanTimelineRow({
+  baseWakeUpRange,
   isLast,
   item,
 }: {
+  baseWakeUpRange: { endMinutes: number; startMinutes: number } | null;
   isLast: boolean;
   item: SleepPlanTimelineItem;
 }) {
   const badgeLabel = getTodayPlanTimelineBadgeLabel(item);
-  const caption = getTodayPlanTimelineCaption(item);
+  const caption = getTodayPlanTimelineCaption(
+    item,
+    item.kind === 'wakeUp' ? baseWakeUpRange : null,
+  );
   const detailLabel = getTodayPlanTimelineDetail(item);
   const title = getTodayPlanTimelineTitle(item);
   const timeLabel = formatClockMinutes(item.startMinutes);
@@ -1195,8 +1217,15 @@ function TodayPlanTimelineRow({
   );
 }
 
-function TodayPlanSection({ plan }: TodayPlanSectionProps) {
+function TodayPlanSection({ basePlan, isEarlyWakeAdjusted, plan }: TodayPlanSectionProps) {
   const timelineItems = buildSleepPlanTimelineItems(plan);
+  const baseWakeUpRange =
+    isEarlyWakeAdjusted && basePlan
+      ? {
+          endMinutes: basePlan.wakeUpEndMinutes,
+          startMinutes: basePlan.wakeUpStartMinutes,
+        }
+      : null;
 
   return (
     <View style={styles.section}>
@@ -1204,6 +1233,7 @@ function TodayPlanSection({ plan }: TodayPlanSectionProps) {
       <View style={styles.todayPlanTimeline}>
         {timelineItems.map((item, index) => (
           <TodayPlanTimelineRow
+            baseWakeUpRange={baseWakeUpRange}
             isLast={index === timelineItems.length - 1}
             item={item}
             key={item.id}
@@ -2208,6 +2238,9 @@ function ChildProfilePromptModal({
 export default function SleepPlanScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
+  const scrollViewRef = useRef<ScrollView | null>(null);
+  const planSectionYRef = useRef<number | null>(null);
+  const planEditorYRef = useRef<number | null>(null);
   const [plans, setPlans] = useState<TargetDayPlan[]>([]);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [draft, setDraft] = useState<PlanDraft>(() => createDraftFromPlan(DEFAULT_SLEEP_PLAN));
@@ -2231,6 +2264,7 @@ export default function SleepPlanScreen() {
   const [isEveningSettingsExpanded, setIsEveningSettingsExpanded] = useState(false);
   const [isChecksExpanded, setIsChecksExpanded] = useState(false);
   const [temporaryModes, setTemporaryModes] = useState<SleepDayTemporaryMode[]>([]);
+  const [todayActualWakeTime, setTodayActualWakeTime] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isProfilePromptSaving, setIsProfilePromptSaving] = useState(false);
@@ -2299,40 +2333,75 @@ export default function SleepPlanScreen() {
     () =>
       activePlan
         ? buildEffectiveSleepDayPlan(activePlan, activeTemporaryModes, {
-            actualWakeTime: null,
+            actualWakeTime: todayActualWakeTime,
           })
         : null,
-    [activePlan, activeTemporaryModes],
+    [activePlan, activeTemporaryModes, todayActualWakeTime],
   );
+  const isEarlyWakeAdjusted =
+    isEarlyWakeEnabled &&
+    todayActualWakeTime !== null &&
+    effectiveTodayPlan !== null &&
+    activePlan !== null &&
+    effectiveTodayPlan.plan.dayStartMinutes !== activePlan.plan.dayStartMinutes;
+
+  async function loadTodayTemporaryModeContext() {
+    if (!activePlan || !todaySleepDayKey) {
+      return {
+        actualWakeTime: null,
+        temporaryModes: [],
+      };
+    }
+
+    const loadedAt = new Date();
+    const loadedTemporaryModes = await listSleepDayTemporaryModes(
+      db,
+      activePlan.childId,
+      todaySleepDayKey,
+    );
+    const sleepDayStart = dateAtMinutes(
+      dateFromSleepDayDateKey(todaySleepDayKey),
+      activePlan.plan.dayStartMinutes,
+    );
+    const loadedSessions = await listSleepSessionsInRange(
+      db,
+      addMinutes(sleepDayStart, -DAY_MINUTES),
+      addMinutes(sleepDayStart, DAY_MINUTES),
+      activePlan.childId,
+    );
+
+    return {
+      actualWakeTime: getActualWakeTimeForEarlyWakeMode({
+        now: loadedAt,
+        plan: activePlan.plan,
+        sessions: loadedSessions,
+        sleepDayDateKey: todaySleepDayKey,
+      }),
+      temporaryModes: loadedTemporaryModes,
+    };
+  }
 
   useEffect(() => {
     let isMounted = true;
 
-    async function loadTemporaryModesForToday() {
-      if (!activePlan || !todaySleepDayKey) {
-        setTemporaryModes([]);
-        return;
-      }
-
+    async function loadTemporaryModeContextForToday() {
       try {
-        const loadedTemporaryModes = await listSleepDayTemporaryModes(
-          db,
-          activePlan.childId,
-          todaySleepDayKey,
-        );
+        const loadedContext = await loadTodayTemporaryModeContext();
 
         if (isMounted) {
-          setTemporaryModes(loadedTemporaryModes);
+          setTemporaryModes(loadedContext.temporaryModes);
+          setTodayActualWakeTime(loadedContext.actualWakeTime);
         }
       } catch {
         if (isMounted) {
           setTemporaryModes([]);
+          setTodayActualWakeTime(null);
           setErrorMessage('Не удалось загрузить режимы на сегодня');
         }
       }
     }
 
-    loadTemporaryModesForToday();
+    loadTemporaryModeContextForToday();
 
     return () => {
       isMounted = false;
@@ -2381,7 +2450,7 @@ export default function SleepPlanScreen() {
       },
       activeTemporaryModes,
       {
-        actualWakeTime: null,
+        actualWakeTime: todayActualWakeTime,
       },
     );
   }, [
@@ -2390,6 +2459,7 @@ export default function SleepPlanScreen() {
     checksUseActivePlanDraft,
     hasActiveTemporaryModes,
     parsedDraft.plan,
+    todayActualWakeTime,
   ]);
   const planForChecks = effectiveDraftPlanForChecks?.plan ?? parsedDraft.plan;
   const planChecks = useMemo(
@@ -2644,6 +2714,21 @@ export default function SleepPlanScreen() {
     setErrorMessage(null);
   }
 
+  function scrollToPlanEditor() {
+    const sectionY = planSectionYRef.current;
+    const editorY = planEditorYRef.current;
+
+    if (sectionY === null || editorY === null) {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+      return;
+    }
+
+    scrollViewRef.current?.scrollTo({
+      animated: true,
+      y: Math.max(sectionY + editorY - spacing.md, 0),
+    });
+  }
+
   function closePresetSelectionFlow() {
     if (!activePlan || isSaving) {
       return;
@@ -2779,18 +2864,10 @@ export default function SleepPlanScreen() {
   }
 
   async function reloadTodayTemporaryModes() {
-    if (!activePlan || !todaySleepDayKey) {
-      setTemporaryModes([]);
-      return;
-    }
+    const loadedContext = await loadTodayTemporaryModeContext();
 
-    const loadedTemporaryModes = await listSleepDayTemporaryModes(
-      db,
-      activePlan.childId,
-      todaySleepDayKey,
-    );
-
-    setTemporaryModes(loadedTemporaryModes);
+    setTemporaryModes(loadedContext.temporaryModes);
+    setTodayActualWakeTime(loadedContext.actualWakeTime);
   }
 
   async function updateTodayTemporaryMode(
@@ -3311,6 +3388,7 @@ export default function SleepPlanScreen() {
       <Stack.Screen options={{ title: 'План дня' }} />
       <ScrollView
         keyboardShouldPersistTaps="handled"
+        ref={scrollViewRef}
         style={styles.screen}
         contentContainerStyle={styles.scrollContent}>
         <SafeAreaView edges={['bottom']} style={styles.safeArea}>
@@ -3344,6 +3422,42 @@ export default function SleepPlanScreen() {
           ) : activePlan ? (
             <>
               <ActivePlanSummaryCard plan={activePlan} />
+              <View style={styles.activeSummaryActions}>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={isLoading || isSaving}
+                  onPress={openPresetSelectionFlow}
+                  style={({ pressed }) => [
+                    styles.activeSummaryActionButton,
+                    pressed && !isLoading && !isSaving
+                      ? styles.activeSummaryActionButtonPressed
+                      : null,
+                    isLoading || isSaving ? styles.disabledCard : null,
+                  ]}>
+                  <Text
+                    adjustsFontSizeToFit
+                    numberOfLines={1}
+                    style={styles.activeSummaryActionButtonText}>
+                    Сменить шаблон
+                  </Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={isLoading}
+                  onPress={scrollToPlanEditor}
+                  style={({ pressed }) => [
+                    styles.activeSummaryActionButton,
+                    pressed && !isLoading ? styles.activeSummaryActionButtonPressed : null,
+                    isLoading ? styles.disabledCard : null,
+                  ]}>
+                  <Text
+                    adjustsFontSizeToFit
+                    numberOfLines={1}
+                    style={styles.activeSummaryActionButtonText}>
+                    Редактировать график
+                  </Text>
+                </Pressable>
+              </View>
               <TodayModesSection
                 disabled={isLoading || isSaving || isTemporaryModeSaving}
                 isEarlyWakeEnabled={isEarlyWakeEnabled}
@@ -3356,7 +3470,11 @@ export default function SleepPlanScreen() {
                 }}
               />
               {effectiveTodayPlan ? (
-                <TodayPlanSection plan={effectiveTodayPlan.plan} />
+                <TodayPlanSection
+                  basePlan={activePlan.plan}
+                  isEarlyWakeAdjusted={isEarlyWakeAdjusted}
+                  plan={effectiveTodayPlan.plan}
+                />
               ) : null}
             </>
           ) : null}
@@ -3374,7 +3492,11 @@ export default function SleepPlanScreen() {
                 todayAwakeRange={todayAwakeRangeForChecks}
               />
 
-              <View style={styles.planSection}>
+              <View
+                onLayout={(event) => {
+                  planSectionYRef.current = event.nativeEvent.layout.y;
+                }}
+                style={styles.planSection}>
                 <View style={styles.planSectionHeader}>
                   <View style={styles.planSectionTitleBlock}>
                     <Text style={styles.sectionTitle}>Управлять планами</Text>
@@ -3419,18 +3541,6 @@ export default function SleepPlanScreen() {
                   )}
                 </ScrollView>
 
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={isLoading || isSaving}
-                  onPress={openPresetSelectionFlow}
-                  style={({ pressed }) => [
-                    styles.changeTemplateButton,
-                    pressed && !isLoading && !isSaving ? styles.guidelineSecondaryButtonPressed : null,
-                    isLoading || isSaving ? styles.disabledCard : null,
-                  ]}>
-                  <Text style={styles.changeTemplateButtonText}>Сменить шаблон</Text>
-                </Pressable>
-
                 {selectedPlan?.isActive ? null : (
                   <Pressable
                     accessibilityRole="button"
@@ -3447,7 +3557,11 @@ export default function SleepPlanScreen() {
                   </Pressable>
                 )}
 
-            <View style={[styles.hero, !selectedPlan?.isActive ? styles.heroCompact : null]}>
+            <View
+              onLayout={(event) => {
+                planEditorYRef.current = event.nativeEvent.layout.y;
+              }}
+              style={[styles.hero, !selectedPlan?.isActive ? styles.heroCompact : null]}>
               <View style={styles.heroIcon}>
                 <SleepPlanIcon backgroundColor={colors.primarySoft} />
               </View>
@@ -3973,21 +4087,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '800',
   },
-  changeTemplateButton: {
-    minHeight: 42,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    paddingHorizontal: spacing.md,
-    backgroundColor: colors.primarySoft,
-  },
-  changeTemplateButtonText: {
-    color: colors.primary,
-    fontSize: 15,
-    fontWeight: '900',
-  },
   activeSummaryCard: {
     gap: spacing.sm,
     borderRadius: radius.sm,
@@ -4047,6 +4146,31 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '700',
+  },
+  activeSummaryActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  activeSummaryActionButton: {
+    minHeight: 44,
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: spacing.sm,
+    backgroundColor: colors.primarySoft,
+  },
+  activeSummaryActionButtonPressed: {
+    backgroundColor: colors.surfaceMuted,
+  },
+  activeSummaryActionButtonText: {
+    color: colors.primary,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '900',
+    textAlign: 'center',
   },
   sectionTitleBlock: {
     gap: spacing.xs,
