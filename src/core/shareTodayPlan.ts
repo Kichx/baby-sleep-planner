@@ -11,11 +11,24 @@ import {
   getLocalCalendarDayDiff,
   isSameLocalCalendarDay,
 } from '@/core/localDateTime';
+import {
+  calculateBottleFeedingStats,
+  filterBottleFeedingsInCalendarDay,
+  formatBottleFeedingElapsed,
+  formatBottleFeedingRecordLine,
+  formatBottleFeedingStatsLine,
+  formatTodayBottleFeedingStatsWithTopUpsLine,
+  isBottleFeedingTopUp,
+} from '@/core/bottleFeeding';
+import type { BottleFeeding } from '@/types/bottleFeeding';
 import type { SleepKind, SleepPlanPreset, SleepSession } from '@/types/sleep';
 
 interface TodayPlanShareInput {
+  bottleFeedingTopUpThresholdMl?: number;
+  bottleFeedings?: BottleFeeding[];
   childName: string;
   generatedAt: Date;
+  latestBottleFeeding?: BottleFeeding | null;
   plan: SleepPlanPreset;
   planName: string;
   sessions: SleepSession[];
@@ -206,6 +219,86 @@ function formatNapRows(rows: ShareSessionRow[]): string[] {
 
     return `• ${index + 1}-й сон: ${row.rangeLabel}, ${durationLabel}`;
   });
+}
+
+function sortBottleFeedingsByStart(feedings: BottleFeeding[]): BottleFeeding[] {
+  return [...feedings].sort(
+    (first, second) =>
+      new Date(first.startedAt).getTime() - new Date(second.startedAt).getTime(),
+  );
+}
+
+function hasValidTopUpThreshold(threshold: number | undefined): threshold is number {
+  return typeof threshold === 'number' && Number.isInteger(threshold) && threshold > 0;
+}
+
+function formatTodayBottleFeedingSummary(
+  feedings: BottleFeeding[],
+  topUpThresholdMl: number | undefined,
+): string {
+  if (hasValidTopUpThreshold(topUpThresholdMl)) {
+    return formatTodayBottleFeedingStatsWithTopUpsLine(feedings, topUpThresholdMl);
+  }
+
+  const stats = calculateBottleFeedingStats(feedings);
+
+  if (stats.count === 0) {
+    return 'Сегодня: пока нет записей';
+  }
+
+  return `Сегодня: ${formatBottleFeedingStatsLine(stats)}`;
+}
+
+function formatLatestBottleFeedingShareLine(
+  feeding: BottleFeeding | null | undefined,
+  referenceDate: Date,
+): string {
+  if (!feeding) {
+    return '• Последнее кормление: записей пока нет';
+  }
+
+  const startedAt = new Date(feeding.startedAt);
+  const elapsedLabel = formatBottleFeedingElapsed(startedAt, referenceDate);
+  const clockLabel = formatTodayClock(startedAt, referenceDate);
+
+  return `• Последнее кормление: ${elapsedLabel}, ${feeding.volumeMl} мл в ${clockLabel}`;
+}
+
+function formatBottleFeedingRows(
+  feedings: BottleFeeding[],
+  topUpThresholdMl: number | undefined,
+): string[] {
+  if (feedings.length === 0) {
+    return ['• Записей сегодня пока нет'];
+  }
+
+  return sortBottleFeedingsByStart(feedings).map((feeding) => {
+    const topUpLabel =
+      hasValidTopUpThreshold(topUpThresholdMl) && isBottleFeedingTopUp(feeding, topUpThresholdMl)
+        ? ' · доешка'
+        : '';
+
+    return `• ${formatBottleFeedingRecordLine(feeding)}${topUpLabel}`;
+  });
+}
+
+function buildBottleFeedingShareSection(input: TodayPlanShareInput): string[] {
+  if (!input.bottleFeedings) {
+    return [];
+  }
+
+  const todayFeedings = filterBottleFeedingsInCalendarDay(
+    input.bottleFeedings,
+    input.generatedAt,
+  );
+
+  return [
+    '',
+    'Кормления сегодня:',
+    `• ${formatTodayBottleFeedingSummary(todayFeedings, input.bottleFeedingTopUpThresholdMl)}`,
+    formatLatestBottleFeedingShareLine(input.latestBottleFeeding, input.generatedAt),
+    ...formatBottleFeedingRows(todayFeedings, input.bottleFeedingTopUpThresholdMl),
+  ];
 }
 
 function getTargetNapMinutes(plan: SleepPlanPreset): number {
@@ -487,6 +580,7 @@ export function buildTodayPlanShareText(input: TodayPlanShareInput): string {
     '',
     'Сны уже были:',
     ...formatNapRows(sessionRows),
+    ...buildBottleFeedingShareSection(input),
     '',
     'Дальше сегодня:',
     ...formatFutureSleepRows(futureRows, existingNapCount, input.generatedAt),

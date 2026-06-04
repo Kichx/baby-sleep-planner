@@ -1484,8 +1484,11 @@ export default function TodaySleepScreen() {
 
     const shareAt = new Date();
     const message = buildTodayPlanShareText({
+      bottleFeedingTopUpThresholdMl,
+      bottleFeedings: bottleFeedingEnabled ? todayBottleFeedings : undefined,
       childName,
       generatedAt: shareAt,
+      latestBottleFeeding: bottleFeedingEnabled ? latestBottleFeeding : null,
       plan: sleepPlan,
       planName: currentPlanName,
       sessions,

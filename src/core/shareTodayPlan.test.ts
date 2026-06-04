@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import { buildTodayPlanShareText } from '@/core/shareTodayPlan';
+import type { BottleFeeding } from '@/types/bottleFeeding';
 import type { SleepKind, SleepSession } from '@/types/sleep';
 
 const CHILD_ID = 'default-child';
@@ -56,6 +57,25 @@ function sleepSessionWithDayOffsets(
     id,
     kind,
     startedAt: atDay(startDayOffset, startHour, startMinute).toISOString(),
+  };
+}
+
+function bottleFeeding(
+  id: string,
+  dayOffset: number,
+  hour: number,
+  minute: number,
+  volumeMl: number,
+): BottleFeeding {
+  const startedAt = atDay(dayOffset, hour, minute).toISOString();
+
+  return {
+    childId: CHILD_ID,
+    createdAt: startedAt,
+    id,
+    startedAt,
+    updatedAt: startedAt,
+    volumeMl,
   };
 }
 
@@ -120,5 +140,53 @@ describe('buildTodayPlanShareText', () => {
     expect(message).toContain('• 2-й сон: 13:13-14:18');
     expect(message).toContain('• 3-й сон: 16:52-17:57');
     expect(message).toContain('• Отбой: 20:30');
+  });
+
+  it('includes today bottle feedings and elapsed time since the latest feeding', () => {
+    const latestFeeding = bottleFeeding('feeding-3', 0, 12, 40, 150);
+    const message = buildTodayPlanShareText({
+      bottleFeedingTopUpThresholdMl: 30,
+      bottleFeedings: [
+        bottleFeeding('feeding-1', 0, 8, 10, 180),
+        bottleFeeding('top-up', 0, 11, 45, 20),
+        latestFeeding,
+        bottleFeeding('tomorrow', 1, 7, 0, 180),
+      ],
+      childName: 'Миша',
+      generatedAt: at(13, 8),
+      latestBottleFeeding: latestFeeding,
+      plan: DEFAULT_SLEEP_PLAN,
+      planName: 'Основной',
+      sessions: [],
+    });
+
+    expect(message).toContain('Кормления сегодня:');
+    expect(message).toContain('• Сегодня: 350 мл · 2 кормления и 1 доешка');
+    expect(message).toContain('• Последнее кормление: 28 мин назад, 150 мл в 12:40');
+    expect(message).toContain('• 08:10 · 180 мл');
+    expect(message).toContain('• 11:45 · 20 мл · доешка');
+    expect(message).toContain('• 12:40 · 150 мл');
+    expect(message).not.toContain('• 07:00 · 180 мл');
+  });
+
+  it('keeps latest feeding elapsed time visible when today has no feedings', () => {
+    const latestFeeding = bottleFeeding('yesterday-feeding', -1, 22, 0, 180);
+    const message = buildTodayPlanShareText({
+      bottleFeedingTopUpThresholdMl: 30,
+      bottleFeedings: [],
+      childName: 'Миша',
+      generatedAt: at(13, 8),
+      latestBottleFeeding: latestFeeding,
+      plan: DEFAULT_SLEEP_PLAN,
+      planName: 'Основной',
+      sessions: [],
+    });
+
+    expect(message).toContain('Кормления сегодня:');
+    expect(message).toContain('• Сегодня: пока нет записей');
+    expect(message).toContain(
+      '• Последнее кормление: 15 ч 8 мин назад, 180 мл в 22:00 вчера',
+    );
+    expect(message).toContain('• Записей сегодня пока нет');
   });
 });
