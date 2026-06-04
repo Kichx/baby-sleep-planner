@@ -19,7 +19,10 @@ import { SleepRetrospectiveIcon } from '@/components/SleepRetrospectiveIcon';
 import { SleepDayTimeline } from '@/components/SleepDayTimeline';
 import { SleepSessionEditorModal } from '@/components/SleepSessionEditorModal';
 import { SummaryCard } from '@/components/SummaryCard';
-import { DEFAULT_BOTTLE_FEEDING_VOLUME_ML } from '@/constants/bottleFeeding';
+import {
+  DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML,
+  DEFAULT_BOTTLE_FEEDING_VOLUME_ML,
+} from '@/constants/bottleFeeding';
 import { DEFAULT_CHILD_ID, DEFAULT_CHILD_NAME, DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
@@ -65,8 +68,9 @@ import {
   filterBottleFeedingsInCalendarDay,
   formatBottleFeedingRecordLine,
   formatLatestBottleFeedingLine,
-  formatTodayBottleFeedingStatsLine,
+  formatTodayBottleFeedingStatsWithTopUpsLine,
   getBottleFeedingCalendarDayRange,
+  isBottleFeedingTopUp,
 } from '@/core/bottleFeeding';
 import {
   buildDayFeedItems,
@@ -86,7 +90,6 @@ import {
   getLast24HoursBottleFeedingStats,
   getLatestBottleFeeding,
   getChildProfile,
-  getTodayBottleFeedingStats,
   getLatestSleepSession,
   getSleepDayPlan,
   listSleepDayTemporaryModes,
@@ -146,7 +149,7 @@ interface LoadedBottleFeedingsForDate {
   latestBottleFeeding: BottleFeeding | null;
   selectedFeedings: BottleFeeding[];
   nearbyFeedings: BottleFeeding[];
-  todayStats: BottleFeedingStats;
+  todayFeedings: BottleFeeding[];
 }
 
 interface SessionDayGroup {
@@ -602,8 +605,7 @@ export default function TodaySleepScreen() {
   const [bottleFeedings, setBottleFeedings] = useState<BottleFeeding[]>([]);
   const [nearbyBottleFeedings, setNearbyBottleFeedings] = useState<BottleFeeding[]>([]);
   const [latestBottleFeeding, setLatestBottleFeeding] = useState<BottleFeeding | null>(null);
-  const [todayBottleFeedingStats, setTodayBottleFeedingStats] =
-    useState<BottleFeedingStats>(EMPTY_BOTTLE_FEEDING_STATS);
+  const [todayBottleFeedings, setTodayBottleFeedings] = useState<BottleFeeding[]>([]);
   const [, setLast24HoursBottleFeedingStats] =
     useState<BottleFeedingStats>(EMPTY_BOTTLE_FEEDING_STATS);
   const [latestSleepSessionId, setLatestSleepSessionId] = useState<string | null>(null);
@@ -613,6 +615,9 @@ export default function TodaySleepScreen() {
   const [bottleFeedingEnabled, setBottleFeedingEnabled] = useState(false);
   const [bottleFeedingDefaultVolumeMl, setBottleFeedingDefaultVolumeMl] = useState(
     DEFAULT_BOTTLE_FEEDING_VOLUME_ML,
+  );
+  const [bottleFeedingTopUpThresholdMl, setBottleFeedingTopUpThresholdMl] = useState(
+    DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML,
   );
   const [sleepPlan, setSleepPlan] = useState(DEFAULT_SLEEP_PLAN);
   const [sleepDayPlan, setSleepDayPlan] = useState<SleepDayPlan | null>(null);
@@ -673,29 +678,33 @@ export default function TodaySleepScreen() {
           latestBottleFeeding: null,
           nearbyFeedings: [],
           selectedFeedings: [],
-          todayStats: EMPTY_BOTTLE_FEEDING_STATS,
+          todayFeedings: [],
         };
       }
 
       const selectedFeedingRange = getBottleFeedingCalendarDayRange(referenceDate);
+      const todayFeedingRange = getBottleFeedingCalendarDayRange(currentNow);
       const previousFeedingRange = getBottleFeedingCalendarDayRange(
         addCalendarDays(referenceDate, -1),
       );
-      const loadedFeedings = await listBottleFeedingsInRange(
-        db,
-        previousFeedingRange.start,
-        selectedFeedingRange.end,
-      );
-      const latestFeeding = await getLatestBottleFeeding(db);
-      const todayStats = await getTodayBottleFeedingStats(db, currentNow);
-      const last24HoursStats = await getLast24HoursBottleFeedingStats(db, currentNow);
+      const [loadedFeedings, todayFeedings, latestFeeding, last24HoursStats] =
+        await Promise.all([
+          listBottleFeedingsInRange(
+            db,
+            previousFeedingRange.start,
+            selectedFeedingRange.end,
+          ),
+          listBottleFeedingsInRange(db, todayFeedingRange.start, todayFeedingRange.end),
+          getLatestBottleFeeding(db),
+          getLast24HoursBottleFeedingStats(db, currentNow),
+        ]);
 
       return {
         last24HoursStats,
         latestBottleFeeding: latestFeeding,
         nearbyFeedings: loadedFeedings,
         selectedFeedings: filterBottleFeedingsInCalendarDay(loadedFeedings, referenceDate),
-        todayStats,
+        todayFeedings,
       };
     },
     [db],
@@ -761,6 +770,7 @@ export default function TodaySleepScreen() {
           if (isActive) {
             setBottleFeedingEnabled(profile.bottleFeedingEnabled);
             setBottleFeedingDefaultVolumeMl(profile.bottleFeedingDefaultVolumeMl);
+            setBottleFeedingTopUpThresholdMl(profile.bottleFeedingTopUpThresholdMl);
             setChildBirthDate(profile.birthDate);
             setChildName(profile.name);
             setChildPhotoUri(profile.photoUri);
@@ -769,6 +779,7 @@ export default function TodaySleepScreen() {
           if (isActive) {
             setBottleFeedingEnabled(false);
             setBottleFeedingDefaultVolumeMl(DEFAULT_BOTTLE_FEEDING_VOLUME_ML);
+            setBottleFeedingTopUpThresholdMl(DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML);
             setChildBirthDate(null);
             setChildName(DEFAULT_CHILD_NAME);
             setChildPhotoUri(null);
@@ -825,7 +836,7 @@ export default function TodaySleepScreen() {
           setBottleFeedings(loadedData.bottleFeedings.selectedFeedings);
           setNearbyBottleFeedings(loadedData.bottleFeedings.nearbyFeedings);
           setLatestBottleFeeding(loadedData.bottleFeedings.latestBottleFeeding);
-          setTodayBottleFeedingStats(loadedData.bottleFeedings.todayStats);
+          setTodayBottleFeedings(loadedData.bottleFeedings.todayFeedings);
           setLast24HoursBottleFeedingStats(loadedData.bottleFeedings.last24HoursStats);
           setLatestSleepSessionId(loadedData.sessions.latestSleepSessionId);
           setErrorMessage(null);
@@ -850,6 +861,14 @@ export default function TodaySleepScreen() {
 
   const dayType = useMemo(() => getSelectedDayType(selectedDate, now), [now, selectedDate]);
   const isToday = dayType === 'today';
+  const todayBottleFeedingStatsLine = useMemo(
+    () =>
+      formatTodayBottleFeedingStatsWithTopUpsLine(
+        todayBottleFeedings,
+        bottleFeedingTopUpThresholdMl,
+      ),
+    [bottleFeedingTopUpThresholdMl, todayBottleFeedings],
+  );
   const selectedDayTitle = useMemo(
     () => formatSelectedDayTitle(selectedDate, now),
     [now, selectedDate],
@@ -1176,7 +1195,7 @@ export default function TodaySleepScreen() {
     setBottleFeedings(loadedData.bottleFeedings.selectedFeedings);
     setNearbyBottleFeedings(loadedData.bottleFeedings.nearbyFeedings);
     setLatestBottleFeeding(loadedData.bottleFeedings.latestBottleFeeding);
-    setTodayBottleFeedingStats(loadedData.bottleFeedings.todayStats);
+    setTodayBottleFeedings(loadedData.bottleFeedings.todayFeedings);
     setLast24HoursBottleFeedingStats(loadedData.bottleFeedings.last24HoursStats);
     setLatestSleepSessionId(loadedData.sessions.latestSleepSessionId);
   }
@@ -1699,8 +1718,8 @@ export default function TodaySleepScreen() {
                       style={styles.bottleFeedingValue}>
                       {formatLatestBottleFeedingLine(latestBottleFeeding, now)}
                     </Text>
-                    <Text numberOfLines={1} style={styles.bottleFeedingCaption}>
-                      {formatTodayBottleFeedingStatsLine(todayBottleFeedingStats)}
+                    <Text numberOfLines={2} style={styles.bottleFeedingCaption}>
+                      {todayBottleFeedingStatsLine}
                     </Text>
                   </Pressable>
                   <PrimaryButton
@@ -1992,12 +2011,18 @@ export default function TodaySleepScreen() {
                   ) : (
                     group.items.map((item) => {
                       if (item.type === 'bottleFeeding') {
+                        const recordLine = formatBottleFeedingRecordLine(item.feeding);
+                        const isTopUp = isBottleFeedingTopUp(
+                          item.feeding,
+                          bottleFeedingTopUpThresholdMl,
+                        );
+
                         return (
                           <Pressable
                             accessibilityRole="button"
-                            accessibilityLabel={`Редактировать кормление ${formatBottleFeedingRecordLine(
-                              item.feeding,
-                            )}`}
+                            accessibilityLabel={`Редактировать кормление ${recordLine}${
+                              isTopUp ? ', доешка' : ''
+                            }`}
                             key={item.id}
                             onPress={() => openEditBottleFeedingEditor(item.feeding)}
                             style={({ pressed }) => [
@@ -2010,8 +2035,9 @@ export default function TodaySleepScreen() {
                             <Text
                               numberOfLines={1}
                               style={[styles.sessionTitle, styles.bottleFeedingLine]}>
-                              {formatBottleFeedingRecordLine(item.feeding)}
+                              {recordLine}
                             </Text>
+                            {isTopUp ? <Text style={styles.timelineTopUpBadge}>Доешка</Text> : null}
                           </Pressable>
                         );
                       }
@@ -2063,25 +2089,36 @@ export default function TodaySleepScreen() {
                             </Pressable>
 
                             <View style={styles.sleepFeedingList}>
-                              {sleepFeedings.map((feeding) => (
-                                <Pressable
-                                  accessibilityRole="button"
-                                  accessibilityLabel={`Редактировать кормление во время сна ${formatBottleFeedingRecordLine(
-                                    feeding,
-                                  )}`}
-                                  key={feeding.id}
-                                  onPress={() => openEditBottleFeedingEditor(feeding)}
-                                  style={({ pressed }) => [
-                                    styles.sleepFeedingRow,
-                                    pressed ? styles.sleepFeedingRowPressed : null,
-                                  ]}>
-                                  <EventTypeBadge kind="bottleFeeding" quiet />
-                                  <Text numberOfLines={1} style={styles.sleepFeedingLine}>
-                                    {formatBottleFeedingRecordLine(feeding)}
-                                  </Text>
-                                  <Text style={styles.sleepFeedingAction}>Изменить</Text>
-                                </Pressable>
-                              ))}
+                              {sleepFeedings.map((feeding) => {
+                                const recordLine = formatBottleFeedingRecordLine(feeding);
+                                const isTopUp = isBottleFeedingTopUp(
+                                  feeding,
+                                  bottleFeedingTopUpThresholdMl,
+                                );
+
+                                return (
+                                  <Pressable
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Редактировать кормление во время сна ${recordLine}${
+                                      isTopUp ? ', доешка' : ''
+                                    }`}
+                                    key={feeding.id}
+                                    onPress={() => openEditBottleFeedingEditor(feeding)}
+                                    style={({ pressed }) => [
+                                      styles.sleepFeedingRow,
+                                      pressed ? styles.sleepFeedingRowPressed : null,
+                                    ]}>
+                                    <EventTypeBadge kind="bottleFeeding" quiet />
+                                    <Text numberOfLines={1} style={styles.sleepFeedingLine}>
+                                      {recordLine}
+                                    </Text>
+                                    {isTopUp ? (
+                                      <Text style={styles.timelineTopUpBadge}>Доешка</Text>
+                                    ) : null}
+                                    <Text style={styles.sleepFeedingAction}>Изменить</Text>
+                                  </Pressable>
+                                );
+                              })}
                             </View>
                           </View>
                         );
@@ -2485,13 +2522,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   bottleFeedingCard: {
-    minHeight: 76,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
+    minHeight: 84,
+    justifyContent: 'center',
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
+    position: 'relative',
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     backgroundColor: colors.surface,
@@ -2516,6 +2552,7 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 18,
     fontWeight: '900',
+    paddingRight: 108,
   },
   bottleFeedingCaption: {
     color: colors.textMuted,
@@ -2524,6 +2561,9 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   bottleFeedingButton: {
+    position: 'absolute',
+    top: spacing.sm,
+    right: spacing.md,
     minWidth: 96,
     minHeight: 36,
     borderRadius: radius.sm,
@@ -2806,6 +2846,17 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 14,
     fontWeight: '800',
+  },
+  timelineTopUpBadge: {
+    flexShrink: 0,
+    overflow: 'hidden',
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 3,
+    color: colors.primary,
+    backgroundColor: colors.primarySoft,
+    fontSize: 12,
+    fontWeight: '900',
   },
   sleepFeedingList: {
     borderTopWidth: 1,

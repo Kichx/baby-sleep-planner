@@ -8,7 +8,8 @@ import {
 
 describe('database schema', () => {
   it('contains the sleep day temporary mode table and unique index in the fresh schema', () => {
-    expect(DATABASE_VERSION).toBe(14);
+    expect(DATABASE_VERSION).toBe(15);
+    expect(INITIAL_SCHEMA_SQL).toContain('bottle_feeding_top_up_threshold_ml INTEGER NOT NULL DEFAULT 30');
     expect(INITIAL_SCHEMA_SQL).toContain('CREATE TABLE IF NOT EXISTS sleep_day_temporary_mode');
     expect(INITIAL_SCHEMA_SQL).toContain('sleep_day_date_key TEXT NOT NULL');
     expect(INITIAL_SCHEMA_SQL).toContain("mode TEXT NOT NULL CHECK (mode IN ('soft_day', 'early_wake'))");

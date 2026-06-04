@@ -50,6 +50,7 @@ export {
   stopActiveSleepSession,
   updateBottleFeedingDefaultVolume,
   updateBottleFeedingReminderSettings,
+  updateBottleFeedingTopUpThreshold,
   updateChildBottleFeedingEnabled,
   updateChildProfile,
   updateChildProfileName,

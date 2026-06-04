@@ -20,10 +20,13 @@ import { PrimaryButton } from '@/components/PrimaryButton';
 import { SelectAllTextInput } from '@/components/SelectAllTextInput';
 import {
   BOTTLE_FEEDING_DEFAULT_VOLUME_OPTIONS,
-  DEFAULT_BOTTLE_FEEDING_VOLUME_ML,
   BOTTLE_FEEDING_REMINDER_INTERVAL_OPTIONS,
+  BOTTLE_FEEDING_TOP_UP_THRESHOLD_OPTIONS,
   DEFAULT_BOTTLE_FEEDING_NOTIFY_DURING_SLEEP,
   DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
+  DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML,
+  DEFAULT_BOTTLE_FEEDING_VOLUME_ML,
+  MAX_BOTTLE_FEEDING_VOLUME_ML,
 } from '@/constants/bottleFeeding';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
@@ -33,9 +36,11 @@ import {
   formatBottleFeedingRecordLine,
   formatBottleFeedingReminderStatusLine,
   formatBottleFeedingStatsLine,
+  formatBottleFeedingTopUpThresholdLine,
   formatLatestBottleFeedingLine,
   getLast24HoursBottleFeedingRange,
   getTodayBottleFeedingRange,
+  isBottleFeedingTopUp,
 } from '@/core/bottleFeeding';
 import {
   addLocalCalendarDays,
@@ -50,6 +55,7 @@ import {
   listBottleFeedingsInRange,
   updateBottleFeedingDefaultVolume,
   updateBottleFeedingReminderSettings,
+  updateBottleFeedingTopUpThreshold,
   updateBottleFeeding,
 } from '@/db';
 import { syncSleepNotificationsFromDatabase } from '@/notifications/sleepNotifications';
@@ -98,6 +104,22 @@ function formatReminderIntervalInput(minutes: number): string {
   const restMinutes = safeMinutes % 60;
 
   return `${hours}:${String(restMinutes).padStart(2, '0')}`;
+}
+
+function normalizeVolumeMlInput(value: string): string {
+  return value.replace(/\D/g, '').slice(0, 4);
+}
+
+function parseVolumeMlInput(value: string): number | null {
+  if (!/^\d+$/.test(value)) {
+    return null;
+  }
+
+  const volumeMl = Number(value);
+
+  return Number.isInteger(volumeMl) && volumeMl > 0 && volumeMl <= MAX_BOTTLE_FEEDING_VOLUME_ML
+    ? volumeMl
+    : null;
 }
 
 function isValidReminderIntervalParts(hours: number, minutes: number): boolean {
@@ -171,6 +193,12 @@ function isPresetReminderInterval(intervalMinutes: number): boolean {
   );
 }
 
+function isPresetTopUpThreshold(thresholdMl: number): boolean {
+  return BOTTLE_FEEDING_TOP_UP_THRESHOLD_OPTIONS.some(
+    (option) => option === thresholdMl,
+  );
+}
+
 function bottleFeedingStartsInRange(
   feeding: BottleFeeding,
   rangeStart: Date,
@@ -204,6 +232,9 @@ export default function BottleFeedingScreen() {
   const [yesterdayFeedings, setYesterdayFeedings] = useState<BottleFeeding[]>([]);
   const [timelineReferenceDate, setTimelineReferenceDate] = useState(() => new Date());
   const [defaultVolumeMl, setDefaultVolumeMl] = useState(DEFAULT_BOTTLE_FEEDING_VOLUME_ML);
+  const [topUpThresholdMl, setTopUpThresholdMl] = useState(
+    DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML,
+  );
   const [remindersEnabled, setRemindersEnabled] = useState(false);
   const [reminderIntervalMinutes, setReminderIntervalMinutes] = useState(
     DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
@@ -217,6 +248,12 @@ export default function BottleFeedingScreen() {
   const [customReminderIntervalText, setCustomReminderIntervalText] = useState(
     formatReminderIntervalInput(DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES),
   );
+  const [customTopUpThresholdText, setCustomTopUpThresholdText] = useState(
+    String(DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML),
+  );
+  const [isCustomTopUpThresholdOpen, setIsCustomTopUpThresholdOpen] = useState(false);
+  const [isCustomTopUpThresholdSaveConfirmed, setIsCustomTopUpThresholdSaveConfirmed] =
+    useState(false);
   const [isCustomReminderIntervalOpen, setIsCustomReminderIntervalOpen] = useState(false);
   const [isCustomReminderSaveConfirmed, setIsCustomReminderSaveConfirmed] =
     useState(false);
@@ -245,6 +282,9 @@ export default function BottleFeedingScreen() {
             setTodayFeedings([]);
             setYesterdayFeedings([]);
             setDefaultVolumeMl(DEFAULT_BOTTLE_FEEDING_VOLUME_ML);
+            setTopUpThresholdMl(DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML);
+            setCustomTopUpThresholdText(String(DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML));
+            setIsCustomTopUpThresholdOpen(false);
             router.replace(HOME_ROUTE);
           }
 
@@ -279,6 +319,11 @@ export default function BottleFeedingScreen() {
           setYesterdayFeedings(sortFeedingsNewestFirst(loadedYesterdayFeedings));
           setTimelineReferenceDate(loadedAt);
           setDefaultVolumeMl(profile.bottleFeedingDefaultVolumeMl);
+          setTopUpThresholdMl(profile.bottleFeedingTopUpThresholdMl);
+          setCustomTopUpThresholdText(String(profile.bottleFeedingTopUpThresholdMl));
+          setIsCustomTopUpThresholdOpen(
+            !isPresetTopUpThreshold(profile.bottleFeedingTopUpThresholdMl),
+          );
           setRemindersEnabled(profile.bottleFeedingRemindersEnabled);
           setReminderIntervalMinutes(profile.bottleFeedingReminderIntervalMinutes);
           setNotifyDuringSleep(profile.bottleFeedingNotifyDuringSleep);
@@ -352,6 +397,20 @@ export default function BottleFeedingScreen() {
   }, [isCustomReminderSaveConfirmed]);
 
   useEffect(() => {
+    if (!isCustomTopUpThresholdSaveConfirmed) {
+      return undefined;
+    }
+
+    const timer = setTimeout(() => {
+      setIsCustomTopUpThresholdSaveConfirmed(false);
+    }, 2200);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [isCustomTopUpThresholdSaveConfirmed]);
+
+  useEffect(() => {
     const showSubscription = Keyboard.addListener('keyboardDidShow', () => {
       if (isCustomReminderIntervalFocused) {
         scrollCustomReminderIntervalIntoView(60);
@@ -397,6 +456,78 @@ export default function BottleFeedingScreen() {
       setErrorMessage('Не удалось сохранить объём по умолчанию');
     } finally {
       setIsSettingsSaving(false);
+    }
+  }
+
+  async function saveTopUpThreshold(nextThresholdMl: number): Promise<boolean> {
+    setIsCustomTopUpThresholdSaveConfirmed(false);
+
+    if (
+      !Number.isInteger(nextThresholdMl) ||
+      nextThresholdMl <= 0 ||
+      nextThresholdMl > MAX_BOTTLE_FEEDING_VOLUME_ML
+    ) {
+      setErrorMessage('Введите порог доешки в мл');
+      return false;
+    }
+
+    const previousSettings = {
+      customTopUpThresholdText,
+      isCustomTopUpThresholdOpen,
+      topUpThresholdMl,
+    };
+
+    setTopUpThresholdMl(nextThresholdMl);
+    setCustomTopUpThresholdText(String(nextThresholdMl));
+    setIsCustomTopUpThresholdOpen(!isPresetTopUpThreshold(nextThresholdMl));
+    setIsSettingsSaving(true);
+    setErrorMessage(null);
+
+    try {
+      await updateBottleFeedingTopUpThreshold(db, nextThresholdMl);
+      return true;
+    } catch {
+      setTopUpThresholdMl(previousSettings.topUpThresholdMl);
+      setCustomTopUpThresholdText(previousSettings.customTopUpThresholdText);
+      setIsCustomTopUpThresholdOpen(previousSettings.isCustomTopUpThresholdOpen);
+      setErrorMessage('Не удалось сохранить порог доешки');
+      return false;
+    } finally {
+      setIsSettingsSaving(false);
+    }
+  }
+
+  function handleTopUpThresholdSelect(thresholdMl: number) {
+    if (isSettingsSaving) {
+      return;
+    }
+
+    if (thresholdMl === topUpThresholdMl && !isCustomTopUpThresholdOpen) {
+      return;
+    }
+
+    void saveTopUpThreshold(thresholdMl);
+  }
+
+  function openCustomTopUpThreshold() {
+    setIsCustomTopUpThresholdSaveConfirmed(false);
+    setIsCustomTopUpThresholdOpen(true);
+    setCustomTopUpThresholdText(String(topUpThresholdMl));
+  }
+
+  async function handleCustomTopUpThresholdSave() {
+    const thresholdMl = parseVolumeMlInput(customTopUpThresholdText);
+
+    if (thresholdMl === null) {
+      setIsCustomTopUpThresholdSaveConfirmed(false);
+      setErrorMessage('Введите порог доешки в мл');
+      return;
+    }
+
+    const didSave = await saveTopUpThreshold(thresholdMl);
+
+    if (didSave) {
+      setIsCustomTopUpThresholdSaveConfirmed(true);
     }
   }
 
@@ -597,6 +728,7 @@ export default function BottleFeedingScreen() {
     reminderIntervalMinutes,
     remindersEnabled,
   });
+  const topUpThresholdLine = formatBottleFeedingTopUpThresholdLine(topUpThresholdMl);
   const isSettingsDisabled = isLoading || isSaving || isSettingsSaving;
   const areReminderOptionsDisabled = isSettingsDisabled || !remindersEnabled;
 
@@ -686,26 +818,32 @@ export default function BottleFeedingScreen() {
                   {group.feedings.length === 0 ? (
                     <Text style={styles.emptyList}>{BOTTLE_FEEDING_EMPTY_TEXT}</Text>
                   ) : (
-                    group.feedings.map((feeding) => (
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={`Редактировать кормление ${formatBottleFeedingRecordLine(
-                          feeding,
-                        )}`}
-                        key={feeding.id}
-                        onPress={() => openEditEditor(feeding)}
-                        style={({ pressed }) => [
-                          styles.feedRow,
-                          group.key === 'yesterday' ? styles.yesterdayFeedRow : null,
-                          pressed ? styles.feedRowPressed : null,
-                        ]}>
-                        <EventTypeBadge kind="bottleFeeding" quiet />
-                        <Text numberOfLines={1} style={styles.feedRowText}>
-                          {formatBottleFeedingRecordLine(feeding)}
-                        </Text>
-                        <Text style={styles.feedRowAction}>Изменить</Text>
-                      </Pressable>
-                    ))
+                    group.feedings.map((feeding) => {
+                      const recordLine = formatBottleFeedingRecordLine(feeding);
+                      const isTopUp = isBottleFeedingTopUp(feeding, topUpThresholdMl);
+
+                      return (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Редактировать кормление ${recordLine}${
+                            isTopUp ? ', доешка' : ''
+                          }`}
+                          key={feeding.id}
+                          onPress={() => openEditEditor(feeding)}
+                          style={({ pressed }) => [
+                            styles.feedRow,
+                            group.key === 'yesterday' ? styles.yesterdayFeedRow : null,
+                            pressed ? styles.feedRowPressed : null,
+                          ]}>
+                          <EventTypeBadge kind="bottleFeeding" quiet />
+                          <Text numberOfLines={1} style={styles.feedRowText}>
+                            {recordLine}
+                          </Text>
+                          {isTopUp ? <Text style={styles.topUpBadge}>Доешка</Text> : null}
+                          <Text style={styles.feedRowAction}>Изменить</Text>
+                        </Pressable>
+                      );
+                    })
                   )}
                 </View>
               ))}
@@ -750,6 +888,108 @@ export default function BottleFeedingScreen() {
                 );
               })}
             </View>
+          </View>
+
+          <View style={styles.defaultVolumeBlock}>
+            <View style={styles.reminderTextBlock}>
+              <Text style={styles.reminderTitle}>Доешка</Text>
+              <Text style={styles.reminderDescription}>
+                {topUpThresholdLine}. Пометка появится в таймлайне.
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.intervalOptions,
+                isSettingsDisabled ? styles.settingOptionsDisabled : null,
+              ]}>
+              {BOTTLE_FEEDING_TOP_UP_THRESHOLD_OPTIONS.map((thresholdMl) => {
+                const isSelected =
+                  !isCustomTopUpThresholdOpen && topUpThresholdMl === thresholdMl;
+
+                return (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: isSelected }}
+                    disabled={isSettingsDisabled}
+                    key={thresholdMl}
+                    onPress={() => handleTopUpThresholdSelect(thresholdMl)}
+                    style={({ pressed }) => [
+                      styles.intervalButton,
+                      isSelected ? styles.intervalButtonSelected : null,
+                      pressed && !isSettingsDisabled ? styles.intervalButtonPressed : null,
+                    ]}>
+                    <Text
+                      style={[
+                        styles.intervalButtonText,
+                        isSelected ? styles.intervalButtonTextSelected : null,
+                      ]}>
+                      до {thresholdMl} мл
+                    </Text>
+                  </Pressable>
+                );
+              })}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected: isCustomTopUpThresholdOpen }}
+                disabled={isSettingsDisabled}
+                onPress={openCustomTopUpThreshold}
+                style={({ pressed }) => [
+                  styles.intervalButton,
+                  isCustomTopUpThresholdOpen ? styles.intervalButtonSelected : null,
+                  pressed && !isSettingsDisabled ? styles.intervalButtonPressed : null,
+                ]}>
+                <Text
+                  style={[
+                    styles.intervalButtonText,
+                    isCustomTopUpThresholdOpen ? styles.intervalButtonTextSelected : null,
+                  ]}>
+                  Свой
+                </Text>
+              </Pressable>
+            </View>
+
+            {isCustomTopUpThresholdOpen ? (
+              <View style={styles.customIntervalBlock}>
+                <View style={styles.customIntervalRow}>
+                  <View style={styles.customIntervalInputGroup}>
+                    <Text style={styles.compactLabel}>Порог, мл</Text>
+                    <SelectAllTextInput
+                      accessibilityLabel="Свой порог доешки в миллилитрах"
+                      editable={!isSettingsDisabled}
+                      inputMode="numeric"
+                      keyboardType="number-pad"
+                      maxLength={4}
+                      normalizeText={normalizeVolumeMlInput}
+                      onChangeText={(value) => {
+                        setCustomTopUpThresholdText(value);
+                        setIsCustomTopUpThresholdSaveConfirmed(false);
+                        setErrorMessage(null);
+                      }}
+                      placeholder={String(DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML)}
+                      placeholderTextColor={colors.textMuted}
+                      returnKeyType="done"
+                      style={styles.customIntervalInput}
+                      underlineColorAndroid="transparent"
+                      value={customTopUpThresholdText}
+                    />
+                  </View>
+                  <PrimaryButton
+                    compact
+                    disabled={isSettingsDisabled}
+                    label="Сохранить"
+                    onPress={handleCustomTopUpThresholdSave}
+                    style={styles.customIntervalButton}
+                    textStyle={styles.customIntervalButtonText}
+                    variant="secondary"
+                  />
+                </View>
+                {isCustomTopUpThresholdSaveConfirmed ? (
+                  <Text accessibilityLiveRegion="polite" style={styles.customIntervalSavedText}>
+                    Сохранено
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
           </View>
 
           <View style={styles.reminderBlock}>
@@ -1239,6 +1479,17 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 14,
     fontWeight: '800',
+  },
+  topUpBadge: {
+    flexShrink: 0,
+    overflow: 'hidden',
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 3,
+    color: colors.primary,
+    backgroundColor: colors.primarySoft,
+    fontSize: 12,
+    fontWeight: '900',
   },
   feedRowAction: {
     color: colors.primary,

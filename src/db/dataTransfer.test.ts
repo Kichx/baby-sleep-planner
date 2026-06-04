@@ -27,6 +27,7 @@ const validBackup: AppDataBackup = {
         bottle_feeding_enabled: 1,
         bottle_feeding_prompt_dismissed: 1,
         bottle_feeding_default_volume_ml: 180,
+        bottle_feeding_top_up_threshold_ml: 30,
         bottle_feeding_reminder_interval_minutes: 180,
         bottle_feeding_reminders_enabled: 1,
         bottle_feeding_notify_during_sleep: 1,
@@ -120,6 +121,7 @@ describe('data transfer backup parsing', () => {
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_enabled).toBe(1);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_prompt_dismissed).toBe(1);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_default_volume_ml).toBe(180);
+    expect(parsedBackup.data.childProfiles[0].bottle_feeding_top_up_threshold_ml).toBe(30);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_reminders_enabled).toBe(1);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_reminder_interval_minutes).toBe(180);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_notify_during_sleep).toBe(1);
@@ -138,6 +140,7 @@ describe('data transfer backup parsing', () => {
     const {
       bottle_feeding_enabled,
       bottle_feeding_default_volume_ml,
+      bottle_feeding_top_up_threshold_ml,
       bottle_feeding_notify_during_sleep,
       bottle_feeding_prompt_dismissed,
       bottle_feeding_reminder_interval_minutes,
@@ -161,6 +164,7 @@ describe('data transfer backup parsing', () => {
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_enabled).toBe(0);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_prompt_dismissed).toBe(0);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_default_volume_ml).toBe(180);
+    expect(parsedBackup.data.childProfiles[0].bottle_feeding_top_up_threshold_ml).toBe(30);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_reminders_enabled).toBe(0);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_reminder_interval_minutes).toBe(180);
     expect(parsedBackup.data.childProfiles[0].bottle_feeding_notify_during_sleep).toBe(1);

@@ -25,6 +25,7 @@ export interface ChildProfile {
   bottleFeedingEnabled: boolean;
   bottleFeedingPromptDismissed: boolean;
   bottleFeedingDefaultVolumeMl: number;
+  bottleFeedingTopUpThresholdMl: number;
   bottleFeedingRemindersEnabled: boolean;
   bottleFeedingReminderIntervalMinutes: number;
   bottleFeedingNotifyDuringSleep: boolean;

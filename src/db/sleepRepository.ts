@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import {
+  DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML,
   DEFAULT_BOTTLE_FEEDING_VOLUME_ML,
   DEFAULT_BOTTLE_FEEDING_NOTIFY_DURING_SLEEP,
   DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
@@ -46,6 +47,7 @@ interface ChildProfileRow {
   bottle_feeding_enabled: number | null;
   bottle_feeding_prompt_dismissed: number | null;
   bottle_feeding_default_volume_ml: number | null;
+  bottle_feeding_top_up_threshold_ml: number | null;
   bottle_feeding_reminders_enabled: number | null;
   bottle_feeding_reminder_interval_minutes: number | null;
   bottle_feeding_notify_during_sleep: number | null;
@@ -195,6 +197,10 @@ const CHILD_PROFILE_COLUMNS = [
     name: 'bottle_feeding_default_volume_ml',
   },
   {
+    definition: `bottle_feeding_top_up_threshold_ml INTEGER NOT NULL DEFAULT ${DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML}`,
+    name: 'bottle_feeding_top_up_threshold_ml',
+  },
+  {
     definition: 'bottle_feeding_reminders_enabled INTEGER NOT NULL DEFAULT 0',
     name: 'bottle_feeding_reminders_enabled',
   },
@@ -237,6 +243,9 @@ function mapChildProfileRow(row: ChildProfileRow): ChildProfile {
     bottleFeedingDefaultVolumeMl: coalesceBottleFeedingVolume(
       row.bottle_feeding_default_volume_ml,
     ),
+    bottleFeedingTopUpThresholdMl: coalesceBottleFeedingTopUpThreshold(
+      row.bottle_feeding_top_up_threshold_ml,
+    ),
     bottleFeedingReminderIntervalMinutes: coalesceNumber(
       row.bottle_feeding_reminder_interval_minutes,
       DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
@@ -261,6 +270,15 @@ function coalesceBottleFeedingVolume(value: number | null | undefined): number {
     value <= MAX_BOTTLE_FEEDING_VOLUME_ML
     ? value
     : DEFAULT_BOTTLE_FEEDING_VOLUME_ML;
+}
+
+function coalesceBottleFeedingTopUpThreshold(value: number | null | undefined): number {
+  return typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value > 0 &&
+    value <= MAX_BOTTLE_FEEDING_VOLUME_ML
+    ? value
+    : DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML;
 }
 
 function normalizeEveningRulesMode(value: string | null | undefined): EveningSleepRulesMode {
@@ -1177,6 +1195,7 @@ export async function getChildProfile(
       bottle_feeding_enabled,
       bottle_feeding_prompt_dismissed,
       bottle_feeding_default_volume_ml,
+      bottle_feeding_top_up_threshold_ml,
       bottle_feeding_reminders_enabled,
       bottle_feeding_reminder_interval_minutes,
       bottle_feeding_notify_during_sleep,
@@ -1197,6 +1216,7 @@ export async function getChildProfile(
     bottleFeedingNotifyDuringSleep: DEFAULT_BOTTLE_FEEDING_NOTIFY_DURING_SLEEP,
     bottleFeedingPromptDismissed: false,
     bottleFeedingDefaultVolumeMl: DEFAULT_BOTTLE_FEEDING_VOLUME_ML,
+    bottleFeedingTopUpThresholdMl: DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML,
     bottleFeedingReminderIntervalMinutes: DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
     bottleFeedingRemindersEnabled: false,
     id: childId,
@@ -1258,6 +1278,31 @@ export async function updateBottleFeedingDefaultVolume(
     WHERE id = ?
     `,
     [defaultVolumeMl, childId],
+  );
+}
+
+export async function updateBottleFeedingTopUpThreshold(
+  db: SQLiteDatabase,
+  topUpThresholdMl: number,
+  childId = DEFAULT_CHILD_ID,
+): Promise<void> {
+  await ensureDefaultChildProfile(db);
+
+  if (
+    !Number.isInteger(topUpThresholdMl) ||
+    topUpThresholdMl <= 0 ||
+    topUpThresholdMl > MAX_BOTTLE_FEEDING_VOLUME_ML
+  ) {
+    throw new Error('Bottle feeding top-up threshold must be a positive integer');
+  }
+
+  await db.runAsync(
+    `
+    UPDATE child_profile
+    SET bottle_feeding_top_up_threshold_ml = ?
+    WHERE id = ?
+    `,
+    [topUpThresholdMl, childId],
   );
 }
 

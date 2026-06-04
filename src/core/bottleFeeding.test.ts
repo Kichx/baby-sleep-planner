@@ -4,6 +4,7 @@ import {
   BOTTLE_FEEDING_EMPTY_TEXT,
   calculateBottleFeedingStats,
   calculateBottleFeedingStatsInRange,
+  calculateBottleFeedingTopUpStats,
   filterBottleFeedingsInCalendarDay,
   formatBottleFeedingCount,
   formatBottleFeedingElapsed,
@@ -11,12 +12,17 @@ import {
   formatBottleFeedingReminderBody,
   formatBottleFeedingReminderInterval,
   formatBottleFeedingReminderStatusLine,
+  formatBottleFeedingTopUpThresholdLine,
+  formatBottleFeedingTopUpCount,
   formatBottleFeedingStatsLine,
   formatLatestBottleFeedingLine,
   formatTodayBottleFeedingStatsLine,
+  formatTodayBottleFeedingStatsWithTopUpsLine,
   getBottleFeedingCalendarDayRange,
   getLast24HoursBottleFeedingRange,
   getTodayBottleFeedingRange,
+  isBottleFeedingTopUp,
+  isBottleFeedingTopUpVolume,
 } from '@/core/bottleFeeding';
 import {
   formatLocalClock,
@@ -190,6 +196,9 @@ describe('bottle feeding calculations', () => {
     expect(formatBottleFeedingCount(2)).toBe('2 кормления');
     expect(formatBottleFeedingCount(5)).toBe('5 кормлений');
     expect(formatBottleFeedingCount(21)).toBe('21 кормление');
+    expect(formatBottleFeedingTopUpCount(1)).toBe('1 доешка');
+    expect(formatBottleFeedingTopUpCount(2)).toBe('2 доешки');
+    expect(formatBottleFeedingTopUpCount(5)).toBe('5 доешек');
   });
 
   it('formats the latest feeding for today, yesterday, older days, and empty state', () => {
@@ -236,6 +245,44 @@ describe('bottle feeding calculations', () => {
     );
   });
 
+  it('marks top-up feedings inclusively by threshold volume', () => {
+    expect(isBottleFeedingTopUpVolume(30, 30)).toBe(true);
+    expect(isBottleFeedingTopUpVolume(31, 30)).toBe(false);
+    expect(isBottleFeedingTopUp(feeding('small', '2026-05-31T06:00:00.000Z', 60), 60)).toBe(
+      true,
+    );
+    expect(isBottleFeedingTopUp(feeding('regular', '2026-05-31T06:00:00.000Z', 90), 60)).toBe(
+      false,
+    );
+    expect(isBottleFeedingTopUpVolume(30, 0)).toBe(false);
+  });
+
+  it('formats today stats with top-ups separated from regular feedings', () => {
+    const feedings = [
+      feeding('regular-1', '2026-05-31T06:00:00.000Z', 120),
+      feeding('top-up', '2026-05-31T08:00:00.000Z', 30),
+      feeding('regular-2', '2026-05-31T10:00:00.000Z', 150),
+    ];
+
+    expect(calculateBottleFeedingTopUpStats(feedings, 30)).toEqual({
+      regularCount: 2,
+      topUpCount: 1,
+      totalVolumeMl: 300,
+    });
+    expect(formatTodayBottleFeedingStatsWithTopUpsLine(feedings, 30)).toBe(
+      'Сегодня: 300 мл · 2 кормления и 1 доешка',
+    );
+    expect(formatTodayBottleFeedingStatsWithTopUpsLine(feedings, 20)).toBe(
+      'Сегодня: 300 мл · 3 кормления',
+    );
+    expect(
+      formatTodayBottleFeedingStatsWithTopUpsLine(
+        [feeding('top-up-only', '2026-05-31T08:00:00.000Z', 30)],
+        30,
+      ),
+    ).toBe('Сегодня: 30 мл · 1 доешка');
+  });
+
   it('formats reminder status lines calmly', () => {
     expect(formatBottleFeedingReminderInterval(45)).toBe('45 мин');
     expect(formatBottleFeedingReminderInterval(180)).toBe('3 ч');
@@ -262,5 +309,6 @@ describe('bottle feeding calculations', () => {
         remindersEnabled: true,
       }),
     ).toBe('Через 2 ч 30 мин после кормления, если ребёнок не спит');
+    expect(formatBottleFeedingTopUpThresholdLine(60)).toBe('До 60 мл включительно');
   });
 });

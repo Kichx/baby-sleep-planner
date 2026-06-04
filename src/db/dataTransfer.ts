@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import {
+  DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML,
   DEFAULT_BOTTLE_FEEDING_VOLUME_ML,
   DEFAULT_BOTTLE_FEEDING_NOTIFY_DURING_SLEEP,
   DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
@@ -21,7 +22,7 @@ import {
 import type { EveningSleepRulesMode, SleepDayTemporaryModeType, SleepKind } from '@/types/sleep';
 
 export const APP_DATA_BACKUP_FORMAT = 'baby-sleep-planner-backup';
-export const APP_DATA_BACKUP_FORMAT_VERSION = 10;
+export const APP_DATA_BACKUP_FORMAT_VERSION = 11;
 export const APP_DATA_BACKUP_MIME_TYPE = 'application/json';
 const SUPPORTED_BACKUP_FORMAT_VERSIONS = new Set([
   1,
@@ -32,6 +33,7 @@ const SUPPORTED_BACKUP_FORMAT_VERSIONS = new Set([
   6,
   8,
   9,
+  10,
   APP_DATA_BACKUP_FORMAT_VERSION,
 ]);
 
@@ -44,6 +46,7 @@ interface ChildProfileBackupRow {
   bottle_feeding_enabled: number;
   bottle_feeding_prompt_dismissed: number;
   bottle_feeding_default_volume_ml: number;
+  bottle_feeding_top_up_threshold_ml: number;
   bottle_feeding_reminders_enabled: number;
   bottle_feeding_reminder_interval_minutes: number;
   bottle_feeding_notify_during_sleep: number;
@@ -428,9 +431,18 @@ function parseChildProfiles(value: unknown): ChildProfileBackupRow[] {
       'bottle_feeding_reminder_interval_minutes',
       DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
     );
+    const topUpThresholdMl = readOptionalInteger(
+      row,
+      'bottle_feeding_top_up_threshold_ml',
+      DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML,
+    );
 
     if (defaultVolumeMl <= 0 || defaultVolumeMl > MAX_BOTTLE_FEEDING_VOLUME_ML) {
       failInvalidData('Bottle feeding default volume must be positive');
+    }
+
+    if (topUpThresholdMl <= 0 || topUpThresholdMl > MAX_BOTTLE_FEEDING_VOLUME_ML) {
+      failInvalidData('Bottle feeding top-up threshold must be positive');
     }
 
     if (reminderIntervalMinutes <= 0) {
@@ -440,6 +452,7 @@ function parseChildProfiles(value: unknown): ChildProfileBackupRow[] {
     return {
       birth_date: readNullableString(row, 'birth_date'),
       bottle_feeding_default_volume_ml: defaultVolumeMl,
+      bottle_feeding_top_up_threshold_ml: topUpThresholdMl,
       bottle_feeding_enabled: readOptionalEnabledFlag(row, 'bottle_feeding_enabled'),
       bottle_feeding_prompt_dismissed: readOptionalEnabledFlag(
         row,
@@ -781,6 +794,7 @@ export async function buildAppDataBackup(db: SQLiteDatabase): Promise<AppDataBac
       bottle_feeding_enabled,
       bottle_feeding_prompt_dismissed,
       bottle_feeding_default_volume_ml,
+      bottle_feeding_top_up_threshold_ml,
       bottle_feeding_reminders_enabled,
       bottle_feeding_reminder_interval_minutes,
       bottle_feeding_notify_during_sleep,
@@ -936,12 +950,13 @@ export async function restoreAppDataBackup(
           bottle_feeding_enabled,
           bottle_feeding_prompt_dismissed,
           bottle_feeding_default_volume_ml,
+          bottle_feeding_top_up_threshold_ml,
           bottle_feeding_reminders_enabled,
           bottle_feeding_reminder_interval_minutes,
           bottle_feeding_notify_during_sleep,
           created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
           profile.id,
@@ -950,6 +965,7 @@ export async function restoreAppDataBackup(
           profile.bottle_feeding_enabled,
           profile.bottle_feeding_prompt_dismissed,
           profile.bottle_feeding_default_volume_ml,
+          profile.bottle_feeding_top_up_threshold_ml,
           profile.bottle_feeding_reminders_enabled,
           profile.bottle_feeding_reminder_interval_minutes,
           profile.bottle_feeding_notify_during_sleep,
