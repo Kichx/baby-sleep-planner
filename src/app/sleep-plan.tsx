@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { Stack, type Href, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import {
@@ -15,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SelectAllTextInput } from '@/components/SelectAllTextInput';
 import { SleepPlanIcon } from '@/components/SleepPlanIcon';
-import { DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
+import { DEFAULT_CHILD_NAME, DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
   AGE_SLEEP_PLAN_PRESET_TEMPLATE_BANDS,
@@ -72,6 +73,7 @@ import {
   getChildProfile,
   listSleepDayTemporaryModes,
   listTargetDayPlans,
+  updateChildProfile,
   updateTargetDayPlan,
 } from '@/db';
 import { syncSleepNotificationsFromDatabase } from '@/notifications/sleepNotifications';
@@ -147,7 +149,7 @@ interface BasePlanPresetFlowProps {
   onBackToSelection: () => void;
   onClose: () => void;
   onOpenEditor: (editorType: EditorType) => void;
-  onOpenProfile: () => void;
+  onOpenProfilePrompt: () => void;
   onSelectManualAgeBand: (ageBandId: AgeSleepPlanPresetTemplateAgeBandId) => void;
   onSelectPreset: (preset: AgeSleepPlanPresetTemplate) => void;
   onStartManualEdit: (preset: AgeSleepPlanPresetTemplate) => void;
@@ -275,13 +277,25 @@ interface RangeEditorProps {
   onChangeEnd: (value: string) => void;
 }
 
+interface ChildProfilePromptModalProps {
+  birthDate: string | null;
+  disabled: boolean;
+  errorMessage: string | null;
+  isSaving: boolean;
+  name: string;
+  onChangeName: (name: string) => void;
+  onClose: () => void;
+  onOpenBirthDatePicker: () => void;
+  onSave: () => void;
+  visible: boolean;
+}
+
 const NAP_COUNT_OPTIONS = [1, 2, 3, 4, 5] as const;
 const DEFAULT_PLAN_NAME = 'Основной';
 const OFFICIAL_SLEEP_INFO_ROUTE = '/info?article=official-sleep-guidelines' as Href;
 const PRACTICAL_SLEEP_INFO_ROUTE = '/info?article=practical-sleep-guidelines' as Href;
 const WAKE_WINDOW_INFO_ROUTE = '/info?article=wake-window-guidelines' as Href;
 const EVENING_SLEEP_INFO_ROUTE = '/info?article=evening-sleep-rules' as Href;
-const PROFILE_ROUTE = '/profile' as Href;
 const PLAN_NAME_MAX_LENGTH = 40;
 const MAX_MICRO_NAP_MINUTES = 60;
 const MAX_EVENING_NAP_MINUTES = 120;
@@ -340,6 +354,22 @@ function formatMinuteRangeShort(range: PlanMinuteRange | null): string {
   return formatDurationRangeShort(range.minMinutes, range.maxMinutes);
 }
 
+function formatBirthDate(date: Date): string {
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(date);
+}
+
+function toBirthDateValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
+
 function parseBirthDateValue(value: string | null): Date | null {
   if (!value) {
     return null;
@@ -363,6 +393,53 @@ function parseBirthDateValue(value: string | null): Date | null {
   }
 
   return date;
+}
+
+function startOfCalendarDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+}
+
+function getDaysInMonth(year: number, month: number): number {
+  return new Date(year, month + 1, 0).getDate();
+}
+
+function addCalendarMonths(date: Date, months: number): Date {
+  const targetYear = date.getFullYear();
+  const targetMonth = date.getMonth() + months;
+  const normalizedDate = new Date(targetYear, targetMonth, 1, 0, 0, 0, 0);
+  const daysInTargetMonth = getDaysInMonth(
+    normalizedDate.getFullYear(),
+    normalizedDate.getMonth(),
+  );
+
+  normalizedDate.setDate(Math.min(date.getDate(), daysInTargetMonth));
+
+  return normalizedDate;
+}
+
+function formatAgeFromBirthDate(birthDate: Date, now: Date): string {
+  const today = startOfCalendarDay(now);
+  const birthday = startOfCalendarDay(birthDate);
+
+  if (birthday.getTime() > today.getTime()) {
+    return 'Дата в будущем';
+  }
+
+  let months =
+    (today.getFullYear() - birthday.getFullYear()) * 12 +
+    today.getMonth() -
+    birthday.getMonth();
+  let monthAnchor = addCalendarMonths(birthday, months);
+
+  if (monthAnchor.getTime() > today.getTime()) {
+    months -= 1;
+    monthAnchor = addCalendarMonths(birthday, months);
+  }
+
+  const restDays = Math.floor((today.getTime() - monthAnchor.getTime()) / 86_400_000);
+  const weeks = Math.floor(restDays / 7);
+
+  return `${months} мес ${weeks} нед`;
 }
 
 function formatAgeMonthsLabel(ageMonths: number): string {
@@ -1759,7 +1836,7 @@ function BasePlanPresetFlow({
   onBackToSelection,
   onClose,
   onOpenEditor,
-  onOpenProfile,
+  onOpenProfilePrompt,
   onSelectManualAgeBand,
   onSelectPreset,
   onStartManualEdit,
@@ -1821,13 +1898,13 @@ function BasePlanPresetFlow({
           <Pressable
             accessibilityRole="button"
             disabled={disabled}
-            onPress={onOpenProfile}
+            onPress={onOpenProfilePrompt}
             style={({ pressed }) => [
               styles.presetSecondaryButton,
               pressed && !disabled ? styles.guidelineSecondaryButtonPressed : null,
               disabled ? styles.disabledCard : null,
             ]}>
-            <Text style={styles.presetSecondaryButtonText}>Указать дату рождения</Text>
+            <Text style={styles.presetSecondaryButtonText}>Указать дату рождения ребёнка</Text>
           </Pressable>
           <View style={styles.ageBandSelector}>
             {AGE_SLEEP_PLAN_PRESET_TEMPLATE_BANDS.map((ageBand) => {
@@ -1866,13 +1943,13 @@ function BasePlanPresetFlow({
           <Pressable
             accessibilityRole="button"
             disabled={disabled}
-            onPress={onOpenProfile}
+            onPress={onOpenProfilePrompt}
             style={({ pressed }) => [
               styles.presetSecondaryButton,
               pressed && !disabled ? styles.guidelineSecondaryButtonPressed : null,
               disabled ? styles.disabledCard : null,
             ]}>
-            <Text style={styles.presetSecondaryButtonText}>Указать дату рождения</Text>
+            <Text style={styles.presetSecondaryButtonText}>Указать дату рождения ребёнка</Text>
           </Pressable>
         </View>
       ) : null}
@@ -2023,6 +2100,111 @@ function RangeEditor({
   );
 }
 
+function ChildProfilePromptModal({
+  birthDate,
+  disabled,
+  errorMessage,
+  isSaving,
+  name,
+  onChangeName,
+  onClose,
+  onOpenBirthDatePicker,
+  onSave,
+  visible,
+}: ChildProfilePromptModalProps) {
+  const birthDateValue = parseBirthDateValue(birthDate);
+  const birthDateLabel = birthDateValue ? formatBirthDate(birthDateValue) : 'Выбрать';
+  const ageLabel = birthDateValue
+    ? `Возраст: ${formatAgeFromBirthDate(birthDateValue, new Date())}`
+    : 'Возраст: не указан';
+  const isBusy = disabled || isSaving;
+
+  return (
+    <Modal
+      animationType="fade"
+      navigationBarTranslucent
+      onRequestClose={onClose}
+      statusBarTranslucent
+      transparent
+      visible={visible}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardAvoider}>
+        <View style={styles.nameOverlay}>
+          <View style={styles.nameDialog}>
+            <Text style={styles.nameDialogTitle}>Профиль ребёнка</Text>
+            <Text style={styles.nameDialogText}>
+              Сохраним имя и дату рождения, затем вернёмся к выбору базового плана.
+            </Text>
+            {errorMessage ? <Text style={styles.nameDialogError}>{errorMessage}</Text> : null}
+            <View style={styles.profilePromptForm}>
+              <SelectAllTextInput
+                accessibilityLabel="Имя ребёнка"
+                autoCapitalize="words"
+                editable={!isBusy}
+                maxLength={32}
+                onChangeText={onChangeName}
+                placeholder="Имя ребёнка"
+                placeholderTextColor={colors.textMuted}
+                returnKeyType="done"
+                style={styles.profilePromptInput}
+                underlineColorAndroid="transparent"
+                value={name}
+              />
+              <Pressable
+                accessibilityLabel="Дата рождения ребёнка"
+                accessibilityRole="button"
+                disabled={isBusy}
+                onPress={onOpenBirthDatePicker}
+                style={({ pressed }) => [
+                  styles.profilePromptBirthDateField,
+                  pressed && !isBusy ? styles.profilePromptBirthDateFieldPressed : null,
+                  isBusy ? styles.disabledCard : null,
+                ]}>
+                <View style={styles.profilePromptBirthDateTextBlock}>
+                  <Text style={styles.compactLabel}>Дата рождения ребёнка</Text>
+                  <Text numberOfLines={1} style={styles.profilePromptBirthDateValue}>
+                    {birthDateLabel}
+                  </Text>
+                </View>
+                <Text numberOfLines={2} style={styles.profilePromptAgeText}>
+                  {ageLabel}
+                </Text>
+              </Pressable>
+            </View>
+            <View style={styles.nameDialogActions}>
+              <Pressable
+                accessibilityRole="button"
+                disabled={isBusy}
+                onPress={onClose}
+                style={({ pressed }) => [
+                  styles.nameSecondaryButton,
+                  pressed && !isBusy ? styles.confirmButtonPressed : null,
+                  isBusy ? styles.disabledCard : null,
+                ]}>
+                <Text style={styles.nameSecondaryButtonText}>Отмена</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                disabled={isBusy}
+                onPress={onSave}
+                style={({ pressed }) => [
+                  styles.namePrimaryButton,
+                  pressed && !isBusy ? styles.namePrimaryButtonPressed : null,
+                  isBusy ? styles.disabledCard : null,
+                ]}>
+                <Text style={styles.namePrimaryButtonText}>
+                  {isSaving ? 'Сохраняем...' : 'Сохранить'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
 export default function SleepPlanScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
@@ -2032,7 +2214,11 @@ export default function SleepPlanScreen() {
   const [activeEditor, setActiveEditor] = useState<EditorType | null>(null);
   const [nameEditorMode, setNameEditorMode] = useState<NameEditorMode | null>(null);
   const [newPlanName, setNewPlanName] = useState('');
+  const [childName, setChildName] = useState(DEFAULT_CHILD_NAME);
   const [childBirthDate, setChildBirthDate] = useState<string | null>(null);
+  const [profileDraftName, setProfileDraftName] = useState(DEFAULT_CHILD_NAME);
+  const [profileDraftBirthDate, setProfileDraftBirthDate] = useState<string | null>(null);
+  const [isProfilePromptVisible, setIsProfilePromptVisible] = useState(false);
   const [manualAgeBandId, setManualAgeBandId] =
     useState<AgeSleepPlanPresetTemplateAgeBandId | null>(null);
   const [isPresetFlowOpen, setIsPresetFlowOpen] = useState(false);
@@ -2047,8 +2233,10 @@ export default function SleepPlanScreen() {
   const [temporaryModes, setTemporaryModes] = useState<SleepDayTemporaryMode[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isProfilePromptSaving, setIsProfilePromptSaving] = useState(false);
   const [isTemporaryModeSaving, setIsTemporaryModeSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [profilePromptError, setProfilePromptError] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -2063,7 +2251,10 @@ export default function SleepPlanScreen() {
           loadedPlans.find((targetPlan) => targetPlan.isActive) ?? loadedPlans[0] ?? null;
 
         if (isMounted) {
+          setChildName(profile.name);
           setChildBirthDate(profile.birthDate);
+          setProfileDraftName(profile.name);
+          setProfileDraftBirthDate(profile.birthDate);
           setPlans(sortPlansForDisplay(loadedPlans));
           setSelectedPlanId(planToSelect?.id ?? null);
           setDraft(planToSelect ? createDraftFromTargetPlan(planToSelect) : createDraftFromPlan(DEFAULT_SLEEP_PLAN));
@@ -2296,6 +2487,105 @@ export default function SleepPlanScreen() {
       microNap: sourcePlan ? String(sourcePlan.microNapMinutes) : nextDraftBase.microNap,
     });
     setErrorMessage(null);
+  }
+
+  function openProfilePrompt() {
+    if (isLoading || isSaving || isProfilePromptSaving) {
+      return;
+    }
+
+    setProfileDraftName(childName);
+    setProfileDraftBirthDate(childBirthDate);
+    setProfilePromptError(null);
+    setErrorMessage(null);
+    setIsProfilePromptVisible(true);
+  }
+
+  function closeProfilePrompt() {
+    if (isProfilePromptSaving) {
+      return;
+    }
+
+    setIsProfilePromptVisible(false);
+    setProfilePromptError(null);
+  }
+
+  function openProfileBirthDatePicker() {
+    if (Platform.OS !== 'android' || isLoading || isProfilePromptSaving) {
+      return;
+    }
+
+    DateTimePickerAndroid.open({
+      display: 'calendar',
+      maximumDate: new Date(),
+      mode: 'date',
+      negativeButton: {
+        label: 'Отмена',
+      },
+      onDismiss: () => {},
+      onValueChange: (_event, selectedDate) => {
+        if (!selectedDate) {
+          return;
+        }
+
+        setProfileDraftBirthDate(toBirthDateValue(selectedDate));
+        setProfilePromptError(null);
+        setErrorMessage(null);
+      },
+      positiveButton: {
+        label: 'Готово',
+      },
+      value: parseBirthDateValue(profileDraftBirthDate) ?? new Date(),
+    });
+  }
+
+  async function saveProfilePrompt() {
+    const trimmedName = profileDraftName.trim();
+    const draftBirthDateValue = parseBirthDateValue(profileDraftBirthDate);
+
+    if (trimmedName.length === 0) {
+      setProfilePromptError('Введите имя ребёнка');
+      return;
+    }
+
+    if (!profileDraftBirthDate) {
+      setProfilePromptError('Выберите дату рождения ребёнка');
+      return;
+    }
+
+    if (!draftBirthDateValue) {
+      setProfilePromptError('Проверьте дату рождения');
+      return;
+    }
+
+    if (
+      draftBirthDateValue.getTime() > startOfCalendarDay(new Date()).getTime()
+    ) {
+      setProfilePromptError('Дата рождения не может быть в будущем');
+      return;
+    }
+
+    setIsProfilePromptSaving(true);
+    setProfilePromptError(null);
+    setErrorMessage(null);
+
+    try {
+      await updateChildProfile(db, {
+        birthDate: profileDraftBirthDate,
+        name: trimmedName,
+      });
+
+      setChildName(trimmedName);
+      setChildBirthDate(profileDraftBirthDate);
+      setProfileDraftName(trimmedName);
+      setProfileDraftBirthDate(profileDraftBirthDate);
+      setManualAgeBandId(null);
+      setIsProfilePromptVisible(false);
+    } catch {
+      setProfilePromptError('Не удалось сохранить профиль');
+    } finally {
+      setIsProfilePromptSaving(false);
+    }
   }
 
   function openEditor(editorType: EditorType) {
@@ -3030,7 +3320,7 @@ export default function SleepPlanScreen() {
             <BasePlanPresetFlow
               agePresetCatalog={agePresetCatalog}
               canClose={activePlan !== null}
-              disabled={isLoading || isSaving}
+              disabled={isLoading || isSaving || isProfilePromptSaving}
               flowMode={presetFlowMode}
               hasBirthDate={childBirthDateValue !== null}
               manualAgeBandId={manualAgeBandId}
@@ -3039,7 +3329,7 @@ export default function SleepPlanScreen() {
               onBackToSelection={backToPresetSelection}
               onClose={closePresetSelectionFlow}
               onOpenEditor={openEditor}
-              onOpenProfile={() => router.push(PROFILE_ROUTE)}
+              onOpenProfilePrompt={openProfilePrompt}
               onSelectManualAgeBand={setManualAgeBandId}
               onSelectPreset={selectPresetForPreview}
               onStartManualEdit={startPresetManualEdit}
@@ -3357,6 +3647,25 @@ export default function SleepPlanScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <ChildProfilePromptModal
+        birthDate={profileDraftBirthDate}
+        disabled={isLoading || isSaving}
+        errorMessage={profilePromptError}
+        isSaving={isProfilePromptSaving}
+        name={profileDraftName}
+        onChangeName={(value) => {
+          setProfileDraftName(value);
+          setProfilePromptError(null);
+          setErrorMessage(null);
+        }}
+        onClose={closeProfilePrompt}
+        onOpenBirthDatePicker={openProfileBirthDatePicker}
+        onSave={() => {
+          void saveProfilePrompt();
+        }}
+        visible={isProfilePromptVisible}
+      />
 
       <Modal
         animationType="fade"
@@ -4663,6 +4972,53 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     fontSize: 22,
     fontWeight: '900',
+  },
+  profilePromptForm: {
+    gap: spacing.sm,
+  },
+  profilePromptInput: {
+    minHeight: 52,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    color: colors.text,
+    backgroundColor: colors.surface,
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  profilePromptBirthDateField: {
+    minHeight: 68,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.surface,
+  },
+  profilePromptBirthDateFieldPressed: {
+    backgroundColor: colors.primarySoft,
+  },
+  profilePromptBirthDateTextBlock: {
+    flex: 1,
+    gap: spacing.xs,
+    minWidth: 0,
+  },
+  profilePromptBirthDateValue: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  profilePromptAgeText: {
+    maxWidth: 132,
+    color: colors.primary,
+    fontSize: 15,
+    fontWeight: '900',
+    textAlign: 'right',
   },
   nameDialogActions: {
     flexDirection: 'row',

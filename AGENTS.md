@@ -368,7 +368,7 @@ Keep the empty active-plan state reachable. `listTargetDayPlans` and other UI-fa
 
 For age-based preset selection:
 - if `child_profile.birthDate` exists, derive the catalog from the profile age and ignore manual age band selection;
-- if birth date is missing, show `Указать дату рождения` plus manual age-band chips, and do not block plan selection without birth date;
+- if birth date is missing, show `Указать дату рождения ребёнка` plus manual age-band chips, and do not block plan selection without birth date;
 - manual age-band selection is screen-local and must not write to `child_profile`;
 - show only `recommendedPreset` and one `alternativePreset` on the first selection level;
 - highlight the recommended preset with `Рекомендуем`, but never auto-select or auto-save it;
@@ -376,6 +376,8 @@ For age-based preset selection:
 - create and activate a `target_day_plan` only after `Использовать этот план`;
 - use a readable preset name such as `4 сна · 5–6 мес`;
 - keep `eveningRulesMode: "auto"` for plans created directly from a preset template.
+
+In the first-run empty-plan state, `Указать дату рождения ребёнка` must open a local profile prompt instead of navigating away to `/profile`. The prompt should mirror the simple profile fields for `name` and `birthDate`, use the same local validation and Android date picker pattern, save through `updateChildProfile`, close after a successful save, and leave the parent in the template selection flow. Saving a birth date should clear any screen-local manual age-band selection so the catalog is recalculated from the saved profile age. This prompt must not create or activate a `target_day_plan`, write temporary day modes, or hide the manual age-band fallback for parents who do not want to fill the profile yet.
 
 The manual path starts from a selected/recommended preset, not an empty form. If the parent changes details before saving, create an active custom plan such as `Свой план · 5–6 мес`; do not mutate an existing active plan just because the user opened the manual flow.
 
@@ -389,6 +391,8 @@ For all preset-template surfaces, only the first current-age recommendation shou
 
 When changing this flow, cover at least:
 - no birth date: manual age group can reveal presets and save a plan;
+- no birth date: `Указать дату рождения ребёнка` opens the local profile prompt with child name, birth date, and `Сохранить`;
+- saving the first-run profile prompt updates `child_profile`, closes the prompt, and recalculates preset recommendations without leaving `/sleep-plan`;
 - birth date: profile age drives the recommended preset;
 - recommended preset is not selected before the user taps `Выбрать этот план`;
 - the first selection level has no more than two preset cards;
