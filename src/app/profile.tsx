@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { buildApplicationVersionLine } from '@/appVersion';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ProfileAvatar } from '@/components/ProfileAvatar';
 import { SleepPlanIcon } from '@/components/SleepPlanIcon';
@@ -223,6 +224,7 @@ export default function ProfileScreen() {
     (trimmedDraftName !== profileName || draftBirthDate !== birthDate);
   const isBusy = isLoading || isSaving || isPhotoSaving || isDataTransferRunning;
   const isToggleDisabled = isBusy || isFeatureSaving;
+  const versionLine = buildApplicationVersionLine();
 
   function applyProfile(profile: {
     bottleFeedingEnabled: boolean;
@@ -786,7 +788,7 @@ export default function ProfileScreen() {
               <Text style={styles.sectionTitle}>О приложении</Text>
               <View style={styles.aboutBlock}>
                 <Text style={styles.aboutTitle}>Планировщик сна</Text>
-                <Text style={styles.aboutText}>Версия 1.0.0</Text>
+                <Text style={styles.aboutText}>{versionLine}</Text>
               </View>
               <Pressable
                 accessibilityLabel="Открыть справку"

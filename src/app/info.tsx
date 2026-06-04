@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
-import * as Application from 'expo-application';
-import Constants, { AppOwnership } from 'expo-constants';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { buildApplicationVersionLine } from '@/appVersion';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
   OFFICIAL_SLEEP_GUIDELINES,
@@ -215,21 +214,6 @@ function isInfoArticleId(value: unknown): value is InfoArticleId {
     value === 'evening-sleep-rules' ||
     value === 'scientific-evidence'
   );
-}
-
-function buildApplicationVersionLine(): string {
-  const configVersion = Constants.expoConfig?.version ?? 'dev';
-  const isExpoGo = Constants.appOwnership === AppOwnership.Expo;
-  const appVersion = isExpoGo
-    ? configVersion
-    : Application.nativeApplicationVersion ?? configVersion;
-  const buildVersion = isExpoGo ? null : Application.nativeBuildVersion;
-
-  if (buildVersion) {
-    return `Версия ${appVersion} (${buildVersion})`;
-  }
-
-  return `Версия ${appVersion}`;
 }
 
 function ArticleItem({ article, isOpen, onToggle }: ArticleItemProps) {
