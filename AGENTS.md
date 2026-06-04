@@ -338,9 +338,11 @@ The active plan summary must describe the permanent active `target_day_plan`: pl
 
 The `План на сегодня` block must use the active temporary modes for the current sleep-day and call `buildEffectiveSleepDayPlan`. Temporary mode toggles on this screen must write only `sleep_day_temporary_mode`; they must not update `target_day_plan`, saved snapshots, history, export/import format, or schema unless a later task explicitly asks for that.
 
-For the compact daily preview, calculate nap and night points from the effective plan's `wakeWindows`. Do not revive `buildIdealSleepPlanSegments` or an equal-slot schedule preview for this top block: `early_wake` changes only the first wake window, so a preview that ignores `wakeWindows` can fail to visibly change after the mode is enabled.
+For the compact daily preview, calculate the full planned sequence from the effective plan's `wakeWindows`. Use a pure core helper such as `buildSleepPlanTimelineItems` in `src/core/sleepPlanTimeline.ts`; UI should only format labels, badges, and row layout. Do not revive `buildIdealSleepPlanSegments` or an equal-slot schedule preview for this top block: `early_wake` changes only the first wake window, so a preview that ignores `wakeWindows` can fail to visibly change after the mode is enabled.
 
-Wake windows on `/sleep-plan` are detail, not first-level content. Hide them by default behind `Показать окна бодрствования` and show `ВБ 1`, `ВБ 2`, etc. only after expansion.
+The `План на сегодня` block on `/sleep-plan` is a full planned timeline, visually close to the main screen timeline: show `Подъём`, every planned `ВБ`, every daytime `Сон`, the final `ВБ`, and `Ночь` inline in one list. Do not hide planned wake windows behind `Показать окна бодрствования` here. Each `ВБ` row should show the target duration and calm min/max range so the parent can see the next step without opening another detail layer.
+
+Do not confuse planned `ВБ` rows in the `/sleep-plan` timeline with summed 24-hour awake time. Inline planned `ВБ` belongs to the daily sequence. Summed `Бодрствование за 24 часа (ВБ)` remains detail content inside expanded `Проверка и расчёт` and must not become a standalone first-level card on `/` or `/sleep-plan`.
 
 Keep `/sleep-plan` guideline checks as a compact `Проверка и расчёт` block, not as three large A/B/C cards. The collapsed state should show only the title, three short statuses for 24-hour sleep, daytime sleep, and wake windows, plus `Подробнее о расчёте`. The expanded state can show Level A/B/C details and `i` links.
 

@@ -55,6 +55,10 @@ import {
   type PlanMinuteRange,
   type SleepPlanChecks,
 } from '@/core/sleepPlanChecks';
+import {
+  buildSleepPlanTimelineItems,
+  type SleepPlanTimelineItem,
+} from '@/core/sleepPlanTimeline';
 import { getSleepDayDateKeyForDate } from '@/core/sleepDay';
 import {
   activateTargetDayPlan,
@@ -74,7 +78,6 @@ import type {
   SleepDayTemporaryModeType,
   SleepPlanPreset,
   TargetDayPlan,
-  WakeWindowPreset,
 } from '@/types/sleep';
 
 type EditorType = 'wakeUp' | 'awake' | 'napCount' | 'daySleep' | 'evening';
@@ -197,22 +200,7 @@ interface TodayModesSectionProps {
   onEnableMode: (mode: SleepDayTemporaryModeType) => void;
 }
 
-interface TodayPlanPoint {
-  id: string;
-  caption: string | null;
-  timeLabel: string;
-  title: string;
-}
-
-interface TodayPlanWakeWindow {
-  id: string;
-  rangeLabel: string;
-  title: string;
-}
-
 interface TodayPlanSectionProps {
-  isWakeWindowsExpanded: boolean;
-  onToggleWakeWindows: () => void;
   plan: SleepPlanPreset;
 }
 
@@ -488,121 +476,58 @@ function getClockMidpointMinutes(startMinutes: number, endMinutes: number): numb
   return Math.round((startMinutes + endMinutes) / 2);
 }
 
-function normalizePlanClockMinutes(minutes: number): number {
-  const dayMinutes = 24 * 60;
-
-  return ((minutes % dayMinutes) + dayMinutes) % dayMinutes;
-}
-
-function buildNapSleepDurations(plan: SleepPlanPreset): number[] {
-  const baseDuration = Math.floor(plan.targetDaySleepMinutes / plan.napCount);
-  const extraMinutes = plan.targetDaySleepMinutes - baseDuration * plan.napCount;
-
-  return Array.from({ length: plan.napCount }, (_, index) =>
-    baseDuration + (index < extraMinutes ? 1 : 0),
-  );
-}
-
-function getFallbackWakeWindowTarget(plan: SleepPlanPreset): number {
-  return Math.max(1, Math.round(plan.targetAwakeMinutes / (plan.napCount + 1)));
-}
-
-function getFinalWakeWindow(plan: SleepPlanPreset): WakeWindowPreset {
-  const wakeWindowTargetsTotal = plan.wakeWindows.reduce(
-    (total, wakeWindow) => total + wakeWindow.targetWakeMinutes,
-    0,
-  );
-  const wakeWindowMinTotal = plan.wakeWindows.reduce(
-    (total, wakeWindow) => total + wakeWindow.minWakeMinutes,
-    0,
-  );
-  const wakeWindowMaxTotal = plan.wakeWindows.reduce(
-    (total, wakeWindow) => total + wakeWindow.maxWakeMinutes,
-    0,
-  );
-  const minWakeMinutes = Math.max(1, plan.targetAwakeMinMinutes - wakeWindowMinTotal);
-  const maxWakeMinutes = Math.max(
-    minWakeMinutes,
-    plan.targetAwakeMaxMinutes - wakeWindowMaxTotal,
-  );
-  const targetWakeMinutes = Math.min(
-    Math.max(plan.targetAwakeMinutes - wakeWindowTargetsTotal, minWakeMinutes),
-    maxWakeMinutes,
-  );
-
-  return {
-    maxWakeMinutes,
-    minWakeMinutes,
-    napNumber: plan.napCount + 1,
-    targetWakeMinutes,
-  };
-}
-
-function getDisplayWakeWindow(plan: SleepPlanPreset, index: number): WakeWindowPreset {
-  return plan.wakeWindows[index] ?? {
-    maxWakeMinutes: getFallbackWakeWindowTarget(plan),
-    minWakeMinutes: getFallbackWakeWindowTarget(plan),
-    napNumber: index + 1,
-    targetWakeMinutes: getFallbackWakeWindowTarget(plan),
-  };
-}
-
-function buildTodayPlanPoints(plan: SleepPlanPreset): TodayPlanPoint[] {
-  const points: TodayPlanPoint[] = [
-    {
-      caption: null,
-      id: 'wake-up',
-      timeLabel: formatClockMinutes(getClockMidpointMinutes(
-        plan.wakeUpStartMinutes,
-        plan.wakeUpEndMinutes,
-      )),
-      title: 'Подъём',
-    },
-  ];
-  const sleepDurations = buildNapSleepDurations(plan);
-  let cursorMinutes = getClockMidpointMinutes(plan.wakeUpStartMinutes, plan.wakeUpEndMinutes);
-
-  for (let index = 0; index < plan.napCount; index += 1) {
-    const wakeWindow = getDisplayWakeWindow(plan, index);
-    const sleepDurationMinutes = sleepDurations[index] ?? 0;
-    const sleepStartMinutes = cursorMinutes + wakeWindow.targetWakeMinutes;
-    const sleepEndMinutes = sleepStartMinutes + sleepDurationMinutes;
-
-    points.push({
-      caption: `${formatClockRange(sleepStartMinutes, sleepEndMinutes)} · ${formatDuration(
-        sleepDurationMinutes,
-      )}`,
-      id: `nap-${index + 1}`,
-      timeLabel: formatClockMinutes(sleepStartMinutes),
-      title: `Сон ${index + 1}`,
-    });
-
-    cursorMinutes = sleepEndMinutes;
+function getTodayPlanTimelineBadgeLabel(item: SleepPlanTimelineItem): string {
+  switch (item.kind) {
+    case 'wakeUp':
+      return 'Старт';
+    case 'wakeWindow':
+      return 'ВБ';
+    case 'nap':
+      return 'Сон';
+    case 'night':
+      return 'Ночь';
   }
-
-  const finalWakeWindow = getFinalWakeWindow(plan);
-  const nightStartMinutes = normalizePlanClockMinutes(
-    cursorMinutes + finalWakeWindow.targetWakeMinutes,
-  );
-
-  points.push({
-    caption: null,
-    id: 'night',
-    timeLabel: formatClockMinutes(nightStartMinutes),
-    title: 'Ночь',
-  });
-
-  return points;
 }
 
-function buildTodayPlanWakeWindows(plan: SleepPlanPreset): TodayPlanWakeWindow[] {
-  const wakeWindows = [...plan.wakeWindows, getFinalWakeWindow(plan)];
+function getTodayPlanTimelineTitle(item: SleepPlanTimelineItem): string {
+  switch (item.kind) {
+    case 'wakeUp':
+      return 'Подъём';
+    case 'wakeWindow':
+      return `ВБ ${item.number ?? ''}`.trim();
+    case 'nap':
+      return `Сон ${item.number ?? ''}`.trim();
+    case 'night':
+      return 'Ночь';
+  }
+}
 
-  return wakeWindows.map((wakeWindow, index) => ({
-    id: `wake-window-${index + 1}`,
-    rangeLabel: formatDurationRange(wakeWindow.minWakeMinutes, wakeWindow.maxWakeMinutes),
-    title: `ВБ ${index + 1}`,
-  }));
+function getTodayPlanTimelineCaption(item: SleepPlanTimelineItem): string | null {
+  switch (item.kind) {
+    case 'wakeUp':
+      return item.rangeStartMinutes !== null && item.rangeEndMinutes !== null
+        ? `план ${formatClockRange(item.rangeStartMinutes, item.rangeEndMinutes)}`
+        : null;
+    case 'wakeWindow':
+      return item.rangeEndMinutes !== null &&
+        item.minDurationMinutes !== null &&
+        item.maxDurationMinutes !== null
+        ? `до ${formatClockMinutes(item.rangeEndMinutes)} · диапазон ${formatDurationRangeShort(
+            item.minDurationMinutes,
+            item.maxDurationMinutes,
+          )}`
+        : null;
+    case 'nap':
+      return item.rangeStartMinutes !== null && item.rangeEndMinutes !== null
+        ? formatClockRange(item.rangeStartMinutes, item.rangeEndMinutes)
+        : null;
+    case 'night':
+      return 'ориентир на отбой';
+  }
+}
+
+function getTodayPlanTimelineDetail(item: SleepPlanTimelineItem): string | null {
+  return item.targetDurationMinutes === null ? null : formatDuration(item.targetDurationMinutes);
 }
 
 function getActiveTemporaryModes(
@@ -1100,60 +1025,77 @@ function TodayModesSection({
   );
 }
 
-function TodayPlanPointRow({ point }: { point: TodayPlanPoint }) {
+function TodayPlanTimelineRow({
+  isLast,
+  item,
+}: {
+  isLast: boolean;
+  item: SleepPlanTimelineItem;
+}) {
+  const badgeLabel = getTodayPlanTimelineBadgeLabel(item);
+  const caption = getTodayPlanTimelineCaption(item);
+  const detailLabel = getTodayPlanTimelineDetail(item);
+  const title = getTodayPlanTimelineTitle(item);
+  const timeLabel = formatClockMinutes(item.startMinutes);
+
   return (
-    <View style={styles.todayPlanPointRow}>
-      <Text style={styles.todayPlanPointTime}>{point.timeLabel}</Text>
-      <View style={styles.todayPlanPointTextBlock}>
-        <Text style={styles.todayPlanPointTitle}>{point.title}</Text>
-        {point.caption ? (
-          <Text numberOfLines={2} style={styles.todayPlanPointCaption}>
-            {point.caption}
+    <View style={[styles.todayPlanTimelineRow, isLast ? styles.todayPlanTimelineRowLast : null]}>
+      <View style={styles.todayPlanTimelineTimeBlock}>
+        <Text style={styles.todayPlanTimelineTime}>{timeLabel}</Text>
+        <View
+          style={[
+            styles.todayPlanTimelineBadge,
+            item.kind === 'wakeWindow' ? styles.todayPlanTimelineBadgeWake : null,
+            item.kind === 'nap' ? styles.todayPlanTimelineBadgeNap : null,
+            item.kind === 'night' ? styles.todayPlanTimelineBadgeNight : null,
+          ]}>
+          <Text
+            numberOfLines={1}
+            style={[
+              styles.todayPlanTimelineBadgeText,
+              item.kind === 'nap' ? styles.todayPlanTimelineBadgeTextNap : null,
+              item.kind === 'night' ? styles.todayPlanTimelineBadgeTextNight : null,
+            ]}>
+            {badgeLabel}
+          </Text>
+        </View>
+      </View>
+      <View style={styles.todayPlanTimelineTextBlock}>
+        <Text style={styles.todayPlanTimelineTitle}>{title}</Text>
+        {caption ? (
+          <Text numberOfLines={2} style={styles.todayPlanTimelineCaption}>
+            {caption}
           </Text>
         ) : null}
       </View>
+      {detailLabel ? (
+        <Text
+          adjustsFontSizeToFit
+          minimumFontScale={0.82}
+          numberOfLines={1}
+          style={styles.todayPlanTimelineDetail}>
+          {detailLabel}
+        </Text>
+      ) : null}
     </View>
   );
 }
 
-function TodayPlanSection({
-  isWakeWindowsExpanded,
-  onToggleWakeWindows,
-  plan,
-}: TodayPlanSectionProps) {
-  const points = buildTodayPlanPoints(plan);
-  const wakeWindows = buildTodayPlanWakeWindows(plan);
+function TodayPlanSection({ plan }: TodayPlanSectionProps) {
+  const timelineItems = buildSleepPlanTimelineItems(plan);
 
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>План на сегодня</Text>
-      <View style={styles.todayPlanList}>
-        {points.map((point) => (
-          <TodayPlanPointRow key={point.id} point={point} />
+      <View style={styles.todayPlanTimeline}>
+        {timelineItems.map((item, index) => (
+          <TodayPlanTimelineRow
+            isLast={index === timelineItems.length - 1}
+            item={item}
+            key={item.id}
+          />
         ))}
       </View>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ expanded: isWakeWindowsExpanded }}
-        onPress={onToggleWakeWindows}
-        style={({ pressed }) => [
-          styles.wakeWindowsToggleButton,
-          pressed ? styles.guidelineSecondaryButtonPressed : null,
-        ]}>
-        <Text style={styles.wakeWindowsToggleButtonText}>
-          {isWakeWindowsExpanded ? 'Скрыть окна бодрствования' : 'Показать окна бодрствования'}
-        </Text>
-      </Pressable>
-      {isWakeWindowsExpanded ? (
-        <View style={styles.wakeWindowList}>
-          {wakeWindows.map((wakeWindow) => (
-            <View key={wakeWindow.id} style={styles.wakeWindowRow}>
-              <Text style={styles.wakeWindowTitle}>{wakeWindow.title}</Text>
-              <Text style={styles.wakeWindowRange}>{wakeWindow.rangeLabel}</Text>
-            </View>
-          ))}
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -1883,7 +1825,6 @@ export default function SleepPlanScreen() {
   const [isNapDropdownOpen, setIsNapDropdownOpen] = useState(false);
   const [isEveningSettingsExpanded, setIsEveningSettingsExpanded] = useState(false);
   const [isChecksExpanded, setIsChecksExpanded] = useState(false);
-  const [isWakeWindowsExpanded, setIsWakeWindowsExpanded] = useState(false);
   const [temporaryModes, setTemporaryModes] = useState<SleepDayTemporaryMode[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -2906,13 +2847,7 @@ export default function SleepPlanScreen() {
                 }}
               />
               {effectiveTodayPlan ? (
-                <TodayPlanSection
-                  isWakeWindowsExpanded={isWakeWindowsExpanded}
-                  onToggleWakeWindows={() =>
-                    setIsWakeWindowsExpanded((isExpanded) => !isExpanded)
-                  }
-                  plan={effectiveTodayPlan.plan}
-                />
+                <TodayPlanSection plan={effectiveTodayPlan.plan} />
               ) : null}
             </>
           ) : null}
@@ -3605,88 +3540,86 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '900',
   },
-  todayPlanList: {
+  todayPlanTimeline: {
     overflow: 'hidden',
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
   },
-  todayPlanPointRow: {
-    minHeight: 58,
+  todayPlanTimelineRow: {
+    minHeight: 64,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    gap: spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
   },
-  todayPlanPointTime: {
-    width: 56,
-    color: colors.text,
-    fontSize: 17,
-    fontWeight: '900',
+  todayPlanTimelineRowLast: {
+    borderBottomWidth: 0,
   },
-  todayPlanPointTextBlock: {
-    flex: 1,
-    gap: 2,
-    minWidth: 0,
+  todayPlanTimelineTimeBlock: {
+    width: 58,
+    flexShrink: 0,
+    gap: 4,
   },
-  todayPlanPointTitle: {
+  todayPlanTimelineTime: {
     color: colors.text,
     fontSize: 16,
     fontWeight: '900',
   },
-  todayPlanPointCaption: {
+  todayPlanTimelineBadge: {
+    minHeight: 22,
+    alignSelf: 'flex-start',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.xs,
+    backgroundColor: colors.surfaceMuted,
+  },
+  todayPlanTimelineBadgeWake: {
+    backgroundColor: colors.primarySoft,
+  },
+  todayPlanTimelineBadgeNap: {
+    backgroundColor: colors.primary,
+  },
+  todayPlanTimelineBadgeNight: {
+    backgroundColor: colors.warningSoft,
+  },
+  todayPlanTimelineBadgeText: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  todayPlanTimelineBadgeTextNap: {
+    color: colors.surface,
+  },
+  todayPlanTimelineBadgeTextNight: {
+    color: colors.text,
+  },
+  todayPlanTimelineTextBlock: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  todayPlanTimelineTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  todayPlanTimelineCaption: {
     color: colors.textMuted,
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '700',
   },
-  wakeWindowsToggleButton: {
-    minHeight: 42,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    paddingHorizontal: spacing.md,
-    backgroundColor: colors.primarySoft,
-  },
-  wakeWindowsToggleButtonText: {
-    color: colors.primary,
-    fontSize: 14,
-    fontWeight: '900',
-  },
-  wakeWindowList: {
-    overflow: 'hidden',
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  wakeWindowRow: {
-    minHeight: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-  wakeWindowTitle: {
+  todayPlanTimelineDetail: {
+    width: 78,
+    flexShrink: 0,
     color: colors.text,
-    fontSize: 15,
-    fontWeight: '900',
-  },
-  wakeWindowRange: {
-    flexShrink: 1,
-    color: colors.textMuted,
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '900',
     textAlign: 'right',
   },
   planChecksPanel: {
