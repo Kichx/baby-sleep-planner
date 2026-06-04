@@ -1232,6 +1232,7 @@ Encoding safety for Russian Confluence pages:
 - If piping a Node script through PowerShell and the script contains Russian strings or Russian HTML anchors, set UTF-8 first:
 
 ```powershell
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new()
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 $OutputEncoding = [System.Text.UTF8Encoding]::new()
 ```
@@ -1260,6 +1261,14 @@ When creating or updating pages:
 - Use official Atlassian Confluence Cloud REST API docs when adding an untested endpoint:
   `https://developer.atlassian.com/cloud/confluence/rest/v2/` and
   `https://developer.atlassian.com/cloud/confluence/rest/v1/`.
+
+For large existing Confluence pages, use a storage-body patch workflow instead of manual partial updates:
+- Treat the fetched body as Confluence storage XHTML, not rendered Markdown. Rendered headings and rows can be stored as `<h2>Отдельный экран <code>Кормление</code></h2>`, links can be `<ac:link>...`, and punctuation can be HTML entities such as `&mdash;`. Before writing, inspect the exact storage slice around every target marker instead of matching a copied Markdown line.
+- Do not pass a small snippet to `_updateconfluencepage` for a page update. Page update tools and REST `PUT /wiki/api/v2/pages/<pageId>` replace the page body. Use them only with the full desired body.
+- For multi-page documentation updates, write the script in two phases: fetch every target page and compute every replacement first; if any marker is missing, throw and perform no `PUT`. Only after all replacements are verified should the script update pages with `version.number + 1`.
+- Make replacements idempotent enough for repeated runs. Prefer bounded section replacements between stable headings, or targeted row replacements after confirming the exact storage form. Avoid broad regexes that can cross unrelated sections.
+- Log only page id/title/version and replacement status. Never log tokens, auth headers, full page bodies, or local secret paths.
+- After `PUT`, verify the returned version number, then read the page back through `_getconfluencepage` with `contentFormat: "markdown"` and check the body text itself. Rovo summaries/snippets may lag or show stale text; do not treat the summary field as proof that the body update failed.
 
 When using the Atlassian Rovo MCP tools for Confluence:
 - Always search first with Rovo Search and update an existing page when one matches the requested topic.
