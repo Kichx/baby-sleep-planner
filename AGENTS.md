@@ -305,6 +305,10 @@ When computing early-wake suggestion on `/`, use nearby sleep sessions around th
 
 Before the base `dayStartMinutes`, the current sleep-day key can still point to yesterday even though the child has already woken for today. `getActualWakeTimeForEarlyWakeMode` must handle this by searching the nearest morning wake window, so a 06:30 wake-up before a 07:00 plan can still drive the current effective plan and `buildTodaySleepSnapshot` counts awake time from 06:30.
 
+When fixing or extending the main `/` screen around early wake-ups, keep the displayed "today" boundary separate from the persisted sleep-day key. A completed night sleep ending before the base `dayStartMinutes` may become the actual display/calculation boundary for today even when `early_wake` is only suggested and not enabled. Use a pure helper such as `getActualWakeDayStartForToday(...)` and pass the resulting `dayStart` into snapshot, summary, timeline, sharing, and current start/stop calculations. Do not write `sleep_day_temporary_mode`, rewrite `target_day_plan`, or change `sleepDayPlan.sleepDayDate` merely because the display boundary moved.
+
+Do not keep a stale `selectedSessions` state calculated before the actual early-wake boundary is known. Load nearby sessions around the current sleep-day, derive the actual wake-up, then compute visible selected-day sessions from `nearbySessions`, the final `selectedDayStart`, and `selectedDayEnd`. Include the completed night sleep that ends exactly at the actual wake boundary so the parent sees the wake-up context, but exclude previous-day daytime naps from today's metrics and timeline.
+
 The main screen may show only a compact temporary-mode badge near the scenario plan line:
 - `Сегодня мягкий день`;
 - `Сегодня ранний подъём`;

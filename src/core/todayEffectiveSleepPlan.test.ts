@@ -4,6 +4,7 @@ import { DEFAULT_CHILD_ID, DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import { buildTodaySleepSnapshot, minutesBetween } from '@/core/sleepCalculations';
 import {
   buildTodayEffectiveSleepPlan,
+  getActualWakeDayStartForToday,
   getTemporaryModeBadgeLabel,
   shouldShowEarlyWakeModeSuggestion,
 } from '@/core/todayEffectiveSleepPlan';
@@ -121,6 +122,29 @@ describe('today effective sleep plan for the main screen', () => {
         temporaryModes: [],
       }),
     ).toBe(true);
+  });
+
+  it('uses an early completed wake-up as the actual today boundary without enabling the mode', () => {
+    const now = new Date(2026, 5, 3, 6, 45);
+    const actualWakeTime = new Date(2026, 5, 3, 6, 30);
+
+    expect(
+      getActualWakeDayStartForToday({
+        actualWakeTime,
+        basePlan: BASE_PLAN.plan,
+        now,
+      })?.getTime(),
+    ).toBe(actualWakeTime.getTime());
+  });
+
+  it('keeps the planned boundary for a wake-up inside the normal wake range', () => {
+    expect(
+      getActualWakeDayStartForToday({
+        actualWakeTime: new Date(2026, 5, 3, 7, 10),
+        basePlan: BASE_PLAN.plan,
+        now: new Date(2026, 5, 3, 8, 0),
+      }),
+    ).toBeNull();
   });
 
   it('uses the actual early wake-up before the normal day start when the sleep-day key is still yesterday', () => {

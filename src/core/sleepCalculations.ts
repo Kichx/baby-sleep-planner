@@ -43,6 +43,14 @@ interface BedtimeProjection {
   projectedRemainingDaySleepMinutes: number;
 }
 
+interface SleepDaySummaryOptions {
+  dayStart?: Date;
+}
+
+interface TodaySleepSnapshotOptions {
+  dayStart?: Date;
+}
+
 export function minutesBetween(start: Date, end: Date): number {
   return Math.max(0, Math.round((end.getTime() - start.getTime()) / MS_PER_MINUTE));
 }
@@ -528,8 +536,9 @@ export function buildSleepDaySummary(
   referenceDate: Date,
   now: Date,
   plan: SleepPlanPreset,
+  options: SleepDaySummaryOptions = {},
 ): SleepDaySummary {
-  const dayStart = getDayStart(referenceDate, plan);
+  const dayStart = options.dayStart ?? getDayStart(referenceDate, plan);
   const dayEnd = addMinutes(dayStart, 24 * 60);
   const segments = buildSleepTimelineSegments(sessions, dayStart, dayEnd, now, plan);
   const totalDaySleepMinutes = segments.reduce(
@@ -606,8 +615,9 @@ export function buildTodaySleepSnapshot(
   sessions: SleepSession[],
   now: Date,
   plan: SleepPlanPreset,
+  options: TodaySleepSnapshotOptions = {},
 ): SleepSnapshot {
-  const dayStart = getDayStart(now, plan);
+  const dayStart = options.dayStart ?? getDayStart(now, plan);
   const todaySessions = sessions.filter((session) => {
     const startedAt = new Date(session.startedAt);
     const endedAt = session.endedAt ? new Date(session.endedAt) : now;

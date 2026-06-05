@@ -53,6 +53,7 @@ import {
 } from '@/core/sleepDay';
 import {
   buildTodayEffectiveSleepPlan,
+  getActualWakeDayStartForToday,
   getTemporaryModeBadgeLabel,
   shouldShowEarlyWakeModeSuggestion,
 } from '@/core/todayEffectiveSleepPlan';
@@ -140,7 +141,6 @@ type SelectedDayType = 'past' | 'today' | 'future';
 
 interface LoadedSessionsForDate {
   latestSleepSessionId: string | null;
-  selectedSessions: SleepSession[];
   nearbySessions: SleepSession[];
 }
 
@@ -423,9 +423,10 @@ function getSleepDayStartForSelection(
   selectedDate: Date,
   now: Date,
   plan: SleepPlanPreset,
+  actualDayStart: Date | null = null,
 ): Date {
   if (getSelectedDayType(selectedDate, now) === 'today') {
-    return getDayStart(now, plan);
+    return actualDayStart ?? getDayStart(now, plan);
   }
 
   return dateAtMinutes(dateAtNoon(selectedDate), plan.dayStartMinutes);
@@ -444,11 +445,20 @@ function sleepSessionOverlapsDay(
   dayStart: Date,
   dayEnd: Date,
   now: Date,
+  options: { includeNightEndingAtStart?: boolean } = {},
 ): boolean {
   const startedAt = new Date(session.startedAt);
   const endedAt = getVisibleSessionEnd(session, now, dayEnd);
+  const endsAtDayStart =
+    options.includeNightEndingAtStart === true &&
+    session.kind === 'night' &&
+    session.endedAt !== null &&
+    endedAt.getTime() === dayStart.getTime();
 
-  return startedAt.getTime() < dayEnd.getTime() && endedAt.getTime() > dayStart.getTime();
+  return (
+    (startedAt.getTime() < dayEnd.getTime() && endedAt.getTime() > dayStart.getTime()) ||
+    endsAtDayStart
+  );
 }
 
 function formatDateLabel(date: Date): string {
@@ -600,7 +610,6 @@ export default function TodaySleepScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const params = useLocalSearchParams<{ date?: string }>();
-  const [sessions, setSessions] = useState<SleepSession[]>([]);
   const [nearbySessions, setNearbySessions] = useState<SleepSession[]>([]);
   const [bottleFeedings, setBottleFeedings] = useState<BottleFeeding[]>([]);
   const [nearbyBottleFeedings, setNearbyBottleFeedings] = useState<BottleFeeding[]>([]);
@@ -658,9 +667,6 @@ export default function TodaySleepScreen() {
       return {
         latestSleepSessionId: latestSleepSession?.id ?? null,
         nearbySessions: nearbySessionsForDisplay,
-        selectedSessions: nearbySessionsForDisplay.filter((session) =>
-          sleepSessionOverlapsDay(session, dayStart, dayEnd, currentNow),
-        ),
       };
     },
     [db],
@@ -831,7 +837,6 @@ export default function TodaySleepScreen() {
           setSleepPlan(loadedData.effectivePlan);
           setSleepDayTemporaryModes(loadedData.temporaryModes);
           setActualWakeTime(loadedData.actualWakeTime);
-          setSessions(loadedData.sessions.selectedSessions);
           setNearbySessions(loadedData.sessions.nearbySessions);
           setBottleFeedings(loadedData.bottleFeedings.selectedFeedings);
           setNearbyBottleFeedings(loadedData.bottleFeedings.nearbyFeedings);
@@ -874,24 +879,47 @@ export default function TodaySleepScreen() {
     [now, selectedDate],
   );
   const headerTitle = useMemo(() => formatHeaderTitle(selectedDate, now), [now, selectedDate]);
+  const baseSleepPlan = sleepDayPlan?.plan ?? sleepPlan;
+  const actualTodayDayStart = useMemo(
+    () =>
+      isToday
+        ? getActualWakeDayStartForToday({
+            actualWakeTime,
+            basePlan: baseSleepPlan,
+            now,
+          })
+        : null,
+    [actualWakeTime, baseSleepPlan, isToday, now],
+  );
   const selectedDayStart = useMemo(
-    () => getSleepDayStartForSelection(selectedDate, now, sleepPlan),
-    [now, selectedDate, sleepPlan],
+    () => getSleepDayStartForSelection(selectedDate, now, sleepPlan, actualTodayDayStart),
+    [actualTodayDayStart, now, selectedDate, sleepPlan],
   );
   const selectedDayEnd = useMemo(() => addMinutes(selectedDayStart, DAY_MINUTES), [
     selectedDayStart,
   ]);
+  const selectedSessionsForDay = useMemo(
+    () =>
+      nearbySessions.filter((session) =>
+        sleepSessionOverlapsDay(session, selectedDayStart, selectedDayEnd, now, {
+          includeNightEndingAtStart: actualTodayDayStart !== null,
+        }),
+      ),
+    [actualTodayDayStart, nearbySessions, now, selectedDayEnd, selectedDayStart],
+  );
   const sessionDayGroups = useMemo<SessionDayGroup[]>(() => {
     const previousDayStart = addMinutes(selectedDayStart, -DAY_MINUTES);
     const previousDate = addCalendarDays(selectedDate, -1);
-    const selectedGroupSessions = nearbySessions.filter((session) =>
-      sleepSessionOverlapsDay(session, selectedDayStart, selectedDayEnd, now),
-    );
+    const selectedGroupSessions = selectedSessionsForDay;
     const selectedGroupFeedings = bottleFeedingEnabled
       ? filterBottleFeedingsInCalendarDay(nearbyBottleFeedings, selectedDate)
       : [];
     const previousGroupSessions = nearbySessions.filter((session) => {
-      if (sleepSessionOverlapsDay(session, selectedDayStart, selectedDayEnd, now)) {
+      if (
+        sleepSessionOverlapsDay(session, selectedDayStart, selectedDayEnd, now, {
+          includeNightEndingAtStart: actualTodayDayStart !== null,
+        })
+      ) {
         return false;
       }
 
@@ -961,6 +989,8 @@ export default function TodaySleepScreen() {
     selectedDate,
     selectedDayEnd,
     selectedDayStart,
+    selectedSessionsForDay,
+    actualTodayDayStart,
   ]);
   const displayedSessionCount = useMemo(
     () =>
@@ -988,12 +1018,12 @@ export default function TodaySleepScreen() {
   const editModalSessions = useMemo(() => {
     const uniqueSessions = new Map<string, SleepSession>();
 
-    [...nearbySessions, ...sessions].forEach((session) => {
+    [...nearbySessions, ...selectedSessionsForDay].forEach((session) => {
       uniqueSessions.set(session.id, session);
     });
 
     return Array.from(uniqueSessions.values());
-  }, [nearbySessions, sessions]);
+  }, [nearbySessions, selectedSessionsForDay]);
   const summaryReferenceDate = dayType === 'today' ? now : dateAtNoon(selectedDate);
   const childBirthDateValue = useMemo(
     () => parseBirthDateValue(childBirthDate),
@@ -1007,23 +1037,29 @@ export default function TodaySleepScreen() {
     [childBirthDateValue, summaryReferenceDate],
   );
   const daySummary = useMemo(
-    () => buildSleepDaySummary(sessions, summaryReferenceDate, now, sleepPlan),
-    [now, sessions, sleepPlan, summaryReferenceDate],
+    () =>
+      buildSleepDaySummary(selectedSessionsForDay, summaryReferenceDate, now, sleepPlan, {
+        dayStart: selectedDayStart,
+      }),
+    [now, selectedDayStart, selectedSessionsForDay, sleepPlan, summaryReferenceDate],
   );
   const timelineSegments = useMemo(
     () =>
       buildSleepTimelineSegments(
-        sessions,
+        selectedSessionsForDay,
         selectedDayStart,
         selectedDayEnd,
         now,
         sleepPlan,
       ),
-    [now, selectedDayEnd, selectedDayStart, sessions, sleepPlan],
+    [now, selectedDayEnd, selectedDayStart, selectedSessionsForDay, sleepPlan],
   );
   const snapshot = useMemo(
-    () => buildTodaySleepSnapshot(sessions, now, sleepPlan),
-    [sessions, now, sleepPlan],
+    () =>
+      buildTodaySleepSnapshot(selectedSessionsForDay, now, sleepPlan, {
+        dayStart: selectedDayStart,
+      }),
+    [now, selectedDayStart, selectedSessionsForDay, sleepPlan],
   );
   const predictedBedtimeCaption =
     snapshot.projectedRemainingDaySleepMinutes > 0
@@ -1032,7 +1068,6 @@ export default function TodaySleepScreen() {
   const currentPlanName = sleepDayPlan?.sourcePlanName ?? 'Основной';
   const canChangeSleepDayPlan = dayType === 'past' && availablePlans.length > 0;
   const isSleeping = isToday && snapshot.state === 'sleeping';
-  const baseSleepPlan = sleepDayPlan?.plan ?? sleepPlan;
   const hasPersistedCurrentPlan = useMemo(
     () =>
       sleepDayPlan?.sourcePlanId
@@ -1190,7 +1225,6 @@ export default function TodaySleepScreen() {
     setSleepPlan(loadedData.effectivePlan);
     setSleepDayTemporaryModes(loadedData.temporaryModes);
     setActualWakeTime(loadedData.actualWakeTime);
-    setSessions(loadedData.sessions.selectedSessions);
     setNearbySessions(loadedData.sessions.nearbySessions);
     setBottleFeedings(loadedData.bottleFeedings.selectedFeedings);
     setNearbyBottleFeedings(loadedData.bottleFeedings.nearbyFeedings);
@@ -1269,7 +1303,7 @@ export default function TodaySleepScreen() {
 
     try {
       if (isSleeping) {
-        const activeSession = sessions.find((session) => session.endedAt === null);
+        const activeSession = selectedSessionsForDay.find((session) => session.endedAt === null);
         const sleepKind = activeSession
           ? inferSleepKindForInterval(
               new Date(activeSession.startedAt),
@@ -1491,7 +1525,7 @@ export default function TodaySleepScreen() {
       latestBottleFeeding: bottleFeedingEnabled ? latestBottleFeeding : null,
       plan: sleepPlan,
       planName: currentPlanName,
-      sessions,
+      sessions: selectedSessionsForDay,
     });
 
     setNow(shareAt);

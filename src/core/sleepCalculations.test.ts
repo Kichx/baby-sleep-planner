@@ -278,6 +278,25 @@ describe('buildTodaySleepSnapshot bedtime projection', () => {
     expect(clock(snapshot.predictedBedtimeAt)).toBe('19:10');
     expect(snapshot.projectedRemainingDaySleepMinutes).toBe(0);
   });
+
+  it('can count today from an explicit early wake boundary without yesterday naps', () => {
+    const earlyWakeAt = at(6, 30);
+    const now = at(6, 45);
+    const snapshot = buildTodaySleepSnapshot(
+      [
+        sleepSessionWithDayOffsets('yesterday-nap', 'nap', -1, 9, 30, -1, 10, 15),
+        sleepSessionWithDayOffsets('night', 'night', -1, 20, 30, 0, 6, 30),
+      ],
+      now,
+      DEFAULT_SLEEP_PLAN,
+      { dayStart: earlyWakeAt },
+    );
+
+    expect(snapshot.currentDurationMinutes).toBe(15);
+    expect(snapshot.totalAwakeMinutes).toBe(15);
+    expect(snapshot.totalDaySleepMinutes).toBe(0);
+    expect(snapshot.completedNaps).toBe(0);
+  });
 });
 
 describe('buildSleepDaySummary retrospective summary', () => {

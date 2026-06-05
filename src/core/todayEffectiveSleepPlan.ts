@@ -186,3 +186,17 @@ export function shouldShowEarlyWakeModeSuggestion(params: {
     planWakeWindowStartMinutes: params.basePlan.wakeUpStartMinutes,
   });
 }
+
+export function getActualWakeDayStartForToday(params: {
+  actualWakeTime: Date | null;
+  basePlan: SleepPlanPreset;
+  now: Date;
+}): Date | null {
+  if (!params.actualWakeTime || params.actualWakeTime.getTime() > params.now.getTime()) {
+    return null;
+  }
+
+  const actualWakeMinutes = getLocalMinutesFromMidnight(params.actualWakeTime);
+
+  return actualWakeMinutes < params.basePlan.dayStartMinutes ? params.actualWakeTime : null;
+}
