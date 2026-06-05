@@ -20,6 +20,8 @@ import { SleepDayTimeline } from '@/components/SleepDayTimeline';
 import { SleepSessionEditorModal } from '@/components/SleepSessionEditorModal';
 import { SummaryCard } from '@/components/SummaryCard';
 import {
+  DEFAULT_BOTTLE_FEEDING_NOTIFY_DURING_SLEEP,
+  DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
   DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML,
   DEFAULT_BOTTLE_FEEDING_VOLUME_ML,
 } from '@/constants/bottleFeeding';
@@ -87,8 +89,6 @@ import {
   deleteSleepSession,
   dismissSleepDayTemporaryModeSuggestion,
   enableSleepDayTemporaryMode,
-  ensureDefaultChildProfile,
-  getLast24HoursBottleFeedingStats,
   getLatestBottleFeeding,
   getChildProfile,
   getLatestSleepSession,
@@ -103,8 +103,9 @@ import {
   updateSleepSession,
 } from '@/db';
 import { syncSleepNotificationsFromDatabase } from '@/notifications/sleepNotifications';
-import type { BottleFeeding, BottleFeedingStats } from '@/types/bottleFeeding';
+import type { BottleFeeding } from '@/types/bottleFeeding';
 import type {
+  ChildProfile,
   SleepDayPlan,
   SleepDayTemporaryMode,
   SleepKind,
@@ -145,11 +146,23 @@ interface LoadedSessionsForDate {
 }
 
 interface LoadedBottleFeedingsForDate {
-  last24HoursStats: BottleFeedingStats;
   latestBottleFeeding: BottleFeeding | null;
-  selectedFeedings: BottleFeeding[];
   nearbyFeedings: BottleFeeding[];
   todayFeedings: BottleFeeding[];
+}
+
+interface LoadedSelectedDayData {
+  actualWakeTime: Date | null;
+  bottleFeedings: LoadedBottleFeedingsForDate;
+  dayPlan: SleepDayPlan;
+  effectivePlan: SleepPlanPreset;
+  sessions: LoadedSessionsForDate;
+  temporaryModes: SleepDayTemporaryMode[];
+}
+
+interface LoadedMainScreenData extends LoadedSelectedDayData {
+  availablePlans: TargetDayPlan[];
+  profile: ChildProfile;
 }
 
 interface SessionDayGroup {
@@ -170,10 +183,6 @@ const SLEEP_RETROSPECTIVE_ROUTE = '/sleep-retrospective' as Href;
 const BOTTLE_FEEDING_ROUTE = '/bottle-feeding' as Href;
 const OFFICIAL_SLEEP_SOURCE_SUMMARY =
   'Источники: ВОЗ, CDC, AASM, Australian/Canadian 24-Hour';
-const EMPTY_BOTTLE_FEEDING_STATS: BottleFeedingStats = {
-  count: 0,
-  totalVolumeMl: 0,
-};
 
 function formatClock(date: Date): string {
   return formatLocalClock(date);
@@ -213,6 +222,23 @@ function parseBirthDateValue(value: string | null): Date | null {
   }
 
   return date;
+}
+
+function buildFallbackChildProfile(): ChildProfile {
+  return {
+    birthDate: null,
+    bottleFeedingDefaultVolumeMl: DEFAULT_BOTTLE_FEEDING_VOLUME_ML,
+    bottleFeedingEnabled: false,
+    bottleFeedingNotifyDuringSleep: DEFAULT_BOTTLE_FEEDING_NOTIFY_DURING_SLEEP,
+    bottleFeedingPromptDismissed: false,
+    bottleFeedingReminderIntervalMinutes: DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
+    bottleFeedingRemindersEnabled: false,
+    bottleFeedingTopUpThresholdMl: DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML,
+    createdAt: new Date().toISOString(),
+    id: DEFAULT_CHILD_ID,
+    name: DEFAULT_CHILD_NAME,
+    photoUri: null,
+  };
 }
 
 function getOfficialRangeCaption(params: {
@@ -606,17 +632,67 @@ function buildTargetPlanFromSleepDayPlan(dayPlan: SleepDayPlan): TargetDayPlan {
   };
 }
 
+interface CurrentTimerTextProps {
+  currentDurationMinutes: number;
+  isLoading: boolean;
+  isSleeping: boolean;
+  statusStartedAt: Date;
+}
+
+function CurrentTimerText({
+  currentDurationMinutes,
+  isLoading,
+  isSleeping,
+  statusStartedAt,
+}: CurrentTimerTextProps) {
+  const [localNow, setLocalNow] = useState(() => new Date());
+  const statusStartedAtTime = statusStartedAt.getTime();
+  const elapsedSeconds = isSleeping
+    ? getElapsedSeconds(new Date(statusStartedAtTime), localNow)
+    : 0;
+  const shouldShowSeconds = isSleeping && elapsedSeconds < ACTIVE_SLEEP_DETAIL_SECONDS;
+  const timerDurationMinutes = isSleeping && shouldShowSeconds
+    ? Math.floor(elapsedSeconds / 60)
+    : currentDurationMinutes;
+  const timerValue = shouldShowSeconds
+    ? formatDurationWithSeconds(elapsedSeconds)
+    : formatDuration(timerDurationMinutes);
+
+  useEffect(() => {
+    if (!isSleeping || !shouldShowSeconds) {
+      return;
+    }
+
+    setLocalNow(new Date());
+
+    const timer = setInterval(() => {
+      setLocalNow(new Date());
+    }, ACTIVE_SLEEP_DETAIL_REFRESH_MS);
+
+    return () => {
+      clearInterval(timer);
+    };
+  }, [isSleeping, shouldShowSeconds, statusStartedAtTime]);
+
+  return (
+    <Text
+      adjustsFontSizeToFit
+      minimumFontScale={0.86}
+      numberOfLines={1}
+      style={styles.currentTimer}>
+      {isLoading ? '--' : timerValue}
+    </Text>
+  );
+}
+
 export default function TodaySleepScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const params = useLocalSearchParams<{ date?: string }>();
   const [nearbySessions, setNearbySessions] = useState<SleepSession[]>([]);
-  const [bottleFeedings, setBottleFeedings] = useState<BottleFeeding[]>([]);
   const [nearbyBottleFeedings, setNearbyBottleFeedings] = useState<BottleFeeding[]>([]);
   const [latestBottleFeeding, setLatestBottleFeeding] = useState<BottleFeeding | null>(null);
   const [todayBottleFeedings, setTodayBottleFeedings] = useState<BottleFeeding[]>([]);
-  const [, setLast24HoursBottleFeedingStats] =
-    useState<BottleFeedingStats>(EMPTY_BOTTLE_FEEDING_STATS);
   const [latestSleepSessionId, setLatestSleepSessionId] = useState<string | null>(null);
   const [childName, setChildName] = useState(DEFAULT_CHILD_NAME);
   const [childBirthDate, setChildBirthDate] = useState<string | null>(null);
@@ -641,7 +717,6 @@ export default function TodaySleepScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [isChangingDayPlan, setIsChangingDayPlan] = useState(false);
   const [isPlanPickerOpen, setIsPlanPickerOpen] = useState(false);
-  const [reloadVersion, setReloadVersion] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [editorState, setEditorState] = useState<EditorState | null>(null);
   const [bottleFeedingEditorState, setBottleFeedingEditorState] =
@@ -653,8 +728,6 @@ export default function TodaySleepScreen() {
       currentNow: Date,
       plan: SleepPlanPreset,
     ): Promise<LoadedSessionsForDate> => {
-      await ensureDefaultChildProfile(db);
-
       const dayStart = getSleepDayStartForSelection(referenceDate, currentNow, plan);
       const dayEnd = addMinutes(dayStart, DAY_MINUTES);
       const previousDayStart = addMinutes(dayStart, -DAY_MINUTES);
@@ -680,10 +753,8 @@ export default function TodaySleepScreen() {
     ): Promise<LoadedBottleFeedingsForDate> => {
       if (!enabled) {
         return {
-          last24HoursStats: EMPTY_BOTTLE_FEEDING_STATS,
           latestBottleFeeding: null,
           nearbyFeedings: [],
-          selectedFeedings: [],
           todayFeedings: [],
         };
       }
@@ -693,23 +764,19 @@ export default function TodaySleepScreen() {
       const previousFeedingRange = getBottleFeedingCalendarDayRange(
         addCalendarDays(referenceDate, -1),
       );
-      const [loadedFeedings, todayFeedings, latestFeeding, last24HoursStats] =
-        await Promise.all([
-          listBottleFeedingsInRange(
-            db,
-            previousFeedingRange.start,
-            selectedFeedingRange.end,
-          ),
-          listBottleFeedingsInRange(db, todayFeedingRange.start, todayFeedingRange.end),
-          getLatestBottleFeeding(db),
-          getLast24HoursBottleFeedingStats(db, currentNow),
-        ]);
+      const [loadedFeedings, todayFeedings, latestFeeding] = await Promise.all([
+        listBottleFeedingsInRange(
+          db,
+          previousFeedingRange.start,
+          selectedFeedingRange.end,
+        ),
+        listBottleFeedingsInRange(db, todayFeedingRange.start, todayFeedingRange.end),
+        getLatestBottleFeeding(db),
+      ]);
 
       return {
-        last24HoursStats,
         latestBottleFeeding: latestFeeding,
         nearbyFeedings: loadedFeedings,
-        selectedFeedings: filterBottleFeedingsInCalendarDay(loadedFeedings, referenceDate),
         todayFeedings,
       };
     },
@@ -717,7 +784,11 @@ export default function TodaySleepScreen() {
   );
 
   const loadSelectedDayData = useCallback(
-    async (referenceDate: Date, currentNow: Date) => {
+    async (
+      referenceDate: Date,
+      currentNow: Date,
+      isBottleFeedingEnabled: boolean,
+    ): Promise<LoadedSelectedDayData> => {
       const loadedDayPlan = await getSleepDayPlan(db, referenceDate, currentNow);
       const loadedSessions = await fetchSessionsForDate(
         referenceDate,
@@ -750,7 +821,7 @@ export default function TodaySleepScreen() {
       const loadedBottleFeedings = await fetchBottleFeedingsForDate(
         referenceDate,
         currentNow,
-        bottleFeedingEnabled,
+        isBottleFeedingEnabled,
       );
 
       return {
@@ -762,107 +833,86 @@ export default function TodaySleepScreen() {
         temporaryModes,
       };
     },
-    [bottleFeedingEnabled, db, fetchBottleFeedingsForDate, fetchSessionsForDate],
+    [db, fetchBottleFeedingsForDate, fetchSessionsForDate],
   );
+
+  const loadMainScreenData = useCallback(
+    async (referenceDate: Date, currentNow: Date): Promise<LoadedMainScreenData> => {
+      const profile = await getChildProfile(db).catch(() => buildFallbackChildProfile());
+      const selectedDayData = await loadSelectedDayData(
+        referenceDate,
+        currentNow,
+        profile.bottleFeedingEnabled,
+      );
+      const plans = await listTargetDayPlans(db).catch(() => []);
+
+      return {
+        ...selectedDayData,
+        availablePlans: plans,
+        profile,
+      };
+    },
+    [db, loadSelectedDayData],
+  );
+
+  function applySelectedDayData(loadedData: LoadedSelectedDayData, currentNow: Date) {
+    setNow(currentNow);
+    setSleepDayPlan(loadedData.dayPlan);
+    setSleepPlan(loadedData.effectivePlan);
+    setSleepDayTemporaryModes(loadedData.temporaryModes);
+    setActualWakeTime(loadedData.actualWakeTime);
+    setNearbySessions(loadedData.sessions.nearbySessions);
+    setNearbyBottleFeedings(loadedData.bottleFeedings.nearbyFeedings);
+    setLatestBottleFeeding(loadedData.bottleFeedings.latestBottleFeeding);
+    setTodayBottleFeedings(loadedData.bottleFeedings.todayFeedings);
+    setLatestSleepSessionId(loadedData.sessions.latestSleepSessionId);
+  }
+
+  function applyMainScreenData(loadedData: LoadedMainScreenData, currentNow: Date) {
+    setBottleFeedingEnabled(loadedData.profile.bottleFeedingEnabled);
+    setBottleFeedingDefaultVolumeMl(loadedData.profile.bottleFeedingDefaultVolumeMl);
+    setBottleFeedingTopUpThresholdMl(loadedData.profile.bottleFeedingTopUpThresholdMl);
+    setChildBirthDate(loadedData.profile.birthDate);
+    setChildName(loadedData.profile.name);
+    setChildPhotoUri(loadedData.profile.photoUri);
+    setAvailablePlans(loadedData.availablePlans);
+    applySelectedDayData(loadedData, currentNow);
+  }
 
   useFocusEffect(
     useCallback(() => {
       let isActive = true;
 
-      async function loadChildProfile() {
+      async function loadMainScreen() {
+        const loadedAt = new Date();
+
+        setIsLoading(true);
+
         try {
-          const profile = await getChildProfile(db);
+          const loadedData = await loadMainScreenData(selectedDate, loadedAt);
 
           if (isActive) {
-            setBottleFeedingEnabled(profile.bottleFeedingEnabled);
-            setBottleFeedingDefaultVolumeMl(profile.bottleFeedingDefaultVolumeMl);
-            setBottleFeedingTopUpThresholdMl(profile.bottleFeedingTopUpThresholdMl);
-            setChildBirthDate(profile.birthDate);
-            setChildName(profile.name);
-            setChildPhotoUri(profile.photoUri);
+            applyMainScreenData(loadedData, loadedAt);
+            setErrorMessage(null);
           }
         } catch {
           if (isActive) {
-            setBottleFeedingEnabled(false);
-            setBottleFeedingDefaultVolumeMl(DEFAULT_BOTTLE_FEEDING_VOLUME_ML);
-            setBottleFeedingTopUpThresholdMl(DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML);
-            setChildBirthDate(null);
-            setChildName(DEFAULT_CHILD_NAME);
-            setChildPhotoUri(null);
-          }
-        }
-      }
-
-      async function loadTargetPlans() {
-        try {
-          const plans = await listTargetDayPlans(db);
-
-          if (isActive) {
-            setAvailablePlans(plans);
-          }
-        } catch {
-          if (isActive) {
-            setAvailablePlans([]);
+            setErrorMessage('Не удалось загрузить сон');
           }
         } finally {
           if (isActive) {
-            setReloadVersion((version) => version + 1);
+            setIsLoading(false);
           }
         }
       }
 
-      loadChildProfile();
-      loadTargetPlans();
+      loadMainScreen();
 
       return () => {
         isActive = false;
       };
-    }, [db]),
+    }, [loadMainScreenData, selectedDate]),
   );
-
-  useEffect(() => {
-    let isMounted = true;
-
-    async function loadSelectedDay() {
-      const loadedAt = new Date();
-
-      setIsLoading(true);
-
-      try {
-        const loadedData = await loadSelectedDayData(selectedDate, loadedAt);
-
-        if (isMounted) {
-          setNow(loadedAt);
-          setSleepDayPlan(loadedData.dayPlan);
-          setSleepPlan(loadedData.effectivePlan);
-          setSleepDayTemporaryModes(loadedData.temporaryModes);
-          setActualWakeTime(loadedData.actualWakeTime);
-          setNearbySessions(loadedData.sessions.nearbySessions);
-          setBottleFeedings(loadedData.bottleFeedings.selectedFeedings);
-          setNearbyBottleFeedings(loadedData.bottleFeedings.nearbyFeedings);
-          setLatestBottleFeeding(loadedData.bottleFeedings.latestBottleFeeding);
-          setTodayBottleFeedings(loadedData.bottleFeedings.todayFeedings);
-          setLast24HoursBottleFeedingStats(loadedData.bottleFeedings.last24HoursStats);
-          setLatestSleepSessionId(loadedData.sessions.latestSleepSessionId);
-          setErrorMessage(null);
-        }
-      } catch {
-        if (isMounted) {
-          setErrorMessage('Не удалось загрузить сон');
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    loadSelectedDay();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [loadSelectedDayData, reloadVersion, selectedDate]);
 
   const dayType = useMemo(() => getSelectedDayType(selectedDate, now), [now, selectedDate]);
   const isToday = dayType === 'today';
@@ -1086,21 +1136,6 @@ export default function TodaySleepScreen() {
       basePlan: baseSleepPlan,
       temporaryModes: sleepDayTemporaryModes,
     });
-  const activeSleepElapsedSeconds = isSleeping
-    ? getElapsedSeconds(snapshot.statusStartedAt, now)
-    : 0;
-  const shouldShowActiveSleepSeconds =
-    isSleeping && activeSleepElapsedSeconds < ACTIVE_SLEEP_DETAIL_SECONDS;
-  const timerDurationMinutes = isSleeping
-    ? Math.floor(activeSleepElapsedSeconds / 60)
-    : snapshot.currentDurationMinutes;
-  const timerValue = shouldShowActiveSleepSeconds
-    ? formatDurationWithSeconds(activeSleepElapsedSeconds)
-    : formatDuration(timerDurationMinutes);
-  const timerRefreshMs =
-    shouldShowActiveSleepSeconds
-      ? ACTIVE_SLEEP_DETAIL_REFRESH_MS
-      : DEFAULT_TIMER_REFRESH_MS;
   const nextSleepWaitLabel = formatNextSleepWaitLabel(
     isSleeping,
     now,
@@ -1202,12 +1237,12 @@ export default function TodaySleepScreen() {
   useEffect(() => {
     const timer = setInterval(() => {
       setNow(new Date());
-    }, timerRefreshMs);
+    }, DEFAULT_TIMER_REFRESH_MS);
 
     return () => {
       clearInterval(timer);
     };
-  }, [timerRefreshMs]);
+  }, []);
 
   function openEditEditor(session: SleepSession) {
     setEditorState({
@@ -1218,20 +1253,13 @@ export default function TodaySleepScreen() {
   }
 
   async function reloadSelectedDay(referenceDate: Date, currentNow: Date) {
-    const loadedData = await loadSelectedDayData(referenceDate, currentNow);
+    const loadedData = await loadSelectedDayData(
+      referenceDate,
+      currentNow,
+      bottleFeedingEnabled,
+    );
 
-    setNow(currentNow);
-    setSleepDayPlan(loadedData.dayPlan);
-    setSleepPlan(loadedData.effectivePlan);
-    setSleepDayTemporaryModes(loadedData.temporaryModes);
-    setActualWakeTime(loadedData.actualWakeTime);
-    setNearbySessions(loadedData.sessions.nearbySessions);
-    setBottleFeedings(loadedData.bottleFeedings.selectedFeedings);
-    setNearbyBottleFeedings(loadedData.bottleFeedings.nearbyFeedings);
-    setLatestBottleFeeding(loadedData.bottleFeedings.latestBottleFeeding);
-    setTodayBottleFeedings(loadedData.bottleFeedings.todayFeedings);
-    setLast24HoursBottleFeedingStats(loadedData.bottleFeedings.last24HoursStats);
-    setLatestSleepSessionId(loadedData.sessions.latestSleepSessionId);
+    applySelectedDayData(loadedData, currentNow);
   }
 
   function openProfile() {
@@ -1290,6 +1318,10 @@ export default function TodaySleepScreen() {
     setSelectedDate((currentDate) => addCalendarDays(currentDate, 1));
   }
 
+  function syncNotificationsInBackground(actionAt: Date) {
+    void syncSleepNotificationsFromDatabase(db, actionAt).catch(() => undefined);
+  }
+
   async function handleSleepButtonPress() {
     if (!isToday) {
       return;
@@ -1317,8 +1349,8 @@ export default function TodaySleepScreen() {
         await startSleepSession(db, inferSleepKindForStart(actionAt, sleepPlan), actionAt);
       }
 
-      await syncSleepNotificationsFromDatabase(db, actionAt);
       await reloadSelectedDay(selectedDate, actionAt);
+      syncNotificationsInBackground(actionAt);
     } catch {
       setErrorMessage('Не удалось сохранить сон');
     } finally {
@@ -1349,9 +1381,9 @@ export default function TodaySleepScreen() {
         await createSleepSession(db, inputWithKind);
       }
 
-      await syncSleepNotificationsFromDatabase(db, actionAt);
       await reloadSelectedDay(selectedDate, actionAt);
       setEditorState(null);
+      syncNotificationsInBackground(actionAt);
     } catch {
       setErrorMessage('Не удалось сохранить запись');
     } finally {
@@ -1372,9 +1404,9 @@ export default function TodaySleepScreen() {
 
     try {
       await deleteSleepSession(db, editorState.session.id);
-      await syncSleepNotificationsFromDatabase(db, actionAt);
       await reloadSelectedDay(selectedDate, actionAt);
       setEditorState(null);
+      syncNotificationsInBackground(actionAt);
     } catch {
       setErrorMessage('Не удалось удалить запись');
     } finally {
@@ -1396,9 +1428,9 @@ export default function TodaySleepScreen() {
         await createBottleFeeding(db, input);
       }
 
-      await syncSleepNotificationsFromDatabase(db, actionAt);
       await reloadSelectedDay(selectedDate, actionAt);
       setBottleFeedingEditorState(null);
+      syncNotificationsInBackground(actionAt);
     } catch {
       setErrorMessage('Не удалось сохранить кормление');
     } finally {
@@ -1419,9 +1451,9 @@ export default function TodaySleepScreen() {
 
     try {
       await deleteBottleFeeding(db, bottleFeedingEditorState.feeding.id);
-      await syncSleepNotificationsFromDatabase(db, actionAt);
       await reloadSelectedDay(selectedDate, actionAt);
       setBottleFeedingEditorState(null);
+      syncNotificationsInBackground(actionAt);
     } catch {
       setErrorMessage('Не удалось удалить кормление');
     } finally {
@@ -1471,13 +1503,8 @@ export default function TodaySleepScreen() {
         sleepDayPlan.sourcePlanId,
       );
 
-      try {
-        await syncSleepNotificationsFromDatabase(db, actionAt);
-      } catch {
-        // Temporary mode changes should not block local sleep planning.
-      }
-
       await reloadSelectedDay(selectedDate, actionAt);
+      syncNotificationsInBackground(actionAt);
     } catch {
       setErrorMessage('Не удалось включить ранний подъём');
     } finally {
@@ -1726,13 +1753,12 @@ export default function TodaySleepScreen() {
                     {isLoading ? 'Загрузка' : isSleeping ? 'Спит' : 'Бодрствует'}
                   </Text>
                 </View>
-                <Text
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.86}
-                  numberOfLines={1}
-                  style={styles.currentTimer}>
-                  {isLoading ? '--' : timerValue}
-                </Text>
+                <CurrentTimerText
+                  currentDurationMinutes={snapshot.currentDurationMinutes}
+                  isLoading={isLoading}
+                  isSleeping={isSleeping}
+                  statusStartedAt={snapshot.statusStartedAt}
+                />
                 <Text numberOfLines={1} style={styles.currentHelper}>
                   с {formatClock(snapshot.statusStartedAt)}
                 </Text>

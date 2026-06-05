@@ -333,6 +333,18 @@ When changing this integration, cover at least:
 - recommendation does not appear when `early_wake` is enabled;
 - today UI still has no standalone summed-WB card.
 
+## Implementation lessons from main screen performance optimization
+
+On the main `/` screen, do not load child profile, target plans, and selected-day sleep data as separate focus effects that trigger each other through a reload counter. Load profile first, then selected-day data with the fresh profile settings, then plan list in one coordinated focus load so birth-date/age-dependent UI does not visibly update after the first render.
+
+Keep frequently changing timer state local to the smallest component that displays it. During active sleep, seconds may update in a dedicated timer text component for the first few minutes, but the parent screen should keep a coarse refresh such as 30 seconds so cards, scenarios, timeline rows, header actions, and feeding rows are not re-rendered every second.
+
+Do not add unused data loads to the home screen. If a stat is not rendered or needed for sharing/current UI, do not query it on every home-screen reload; keep feeding and sleep range queries scoped to the visible card/timeline behavior.
+
+After local sleep or feeding writes, update the local UI first and run notification synchronization in the background with swallowed errors. Notification state must not keep the main sleep button or editor in a saving state after SQLite has already accepted the change.
+
+When optimizing `/`, preserve the existing effective-plan boundaries: no schema changes, no `target_day_plan` rewrites, no temporary-mode writes except the explicit parent action, and no new standalone summed-WB card.
+
 ## Implementation lessons from `/sleep-plan` active state simplification
 
 The active state of `/sleep-plan` should stay a calm parent-facing overview before plan management. When an active plan exists, keep the first-level order:
