@@ -1,6 +1,17 @@
 export const DATABASE_NAME = 'baby_sleep_planner.db';
 
-export const DATABASE_VERSION = 15;
+export const DATABASE_VERSION = 16;
+
+export const APP_SETTINGS_STORAGE_SQL = `
+CREATE TABLE IF NOT EXISTS app_settings (
+  id TEXT PRIMARY KEY NOT NULL,
+  onboarding_completed_at TEXT,
+  onboarding_mode TEXT CHECK (
+    onboarding_mode IS NULL OR onboarding_mode IN ('tracking_only', 'plan_saved')
+  ),
+  evening_plan_prompt_dismissed_date_key TEXT
+);
+`;
 
 export const BOTTLE_FEEDINGS_STORAGE_SQL = `
 CREATE TABLE IF NOT EXISTS bottle_feedings (
@@ -68,6 +79,8 @@ ON sleep_sessions(child_id, started_at);
 ${BOTTLE_FEEDINGS_STORAGE_SQL}
 
 ${SLEEP_DAY_TEMPORARY_MODE_STORAGE_SQL}
+
+${APP_SETTINGS_STORAGE_SQL}
 
 CREATE TABLE IF NOT EXISTS target_day_plan (
   id TEXT PRIMARY KEY NOT NULL,

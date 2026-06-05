@@ -68,11 +68,13 @@ import { dateFromSleepDayDateKey, getSleepDayDateKeyForDate } from '@/core/sleep
 import { getActualWakeTimeForEarlyWakeMode } from '@/core/todayEffectiveSleepPlan';
 import {
   activateTargetDayPlan,
+  completeOnboardingTrackingOnly,
   createTargetDayPlan,
   deleteTargetDayPlan,
   disableSleepDayTemporaryMode,
   enableSleepDayTemporaryMode,
   getChildProfile,
+  getOnboardingState,
   listSleepDayTemporaryModes,
   listSleepSessionsInRange,
   listTargetDayPlans,
@@ -80,6 +82,7 @@ import {
   updateTargetDayPlan,
 } from '@/db';
 import { syncSleepNotificationsFromDatabase } from '@/notifications/sleepNotifications';
+import type { OnboardingState } from '@/types/appSettings';
 import type {
   EveningSleepRulesMode,
   SleepDayTemporaryMode,
@@ -152,6 +155,7 @@ interface BasePlanPresetFlowProps {
   manualDraft: PlanDraft;
   manualPlan: SleepPlanPreset | null;
   onBackToSelection: () => void;
+  onChooseTrackingOnly: () => void;
   onClose: () => void;
   onOpenEditor: (editorType: EditorType) => void;
   onOpenProfilePrompt: () => void;
@@ -1864,6 +1868,7 @@ function BasePlanPresetFlow({
   manualDraft,
   manualPlan,
   onBackToSelection,
+  onChooseTrackingOnly,
   onClose,
   onOpenEditor,
   onOpenProfilePrompt,
@@ -2050,6 +2055,20 @@ function BasePlanPresetFlow({
                 disabled ? styles.disabledCard : null,
               ]}>
               <Text style={styles.presetPlainButtonText}>Настроить вручную</Text>
+            </Pressable>
+          ) : null}
+
+          {!canClose ? (
+            <Pressable
+              accessibilityRole="button"
+              disabled={disabled}
+              onPress={onChooseTrackingOnly}
+              style={({ pressed }) => [
+                styles.presetSecondaryButton,
+                pressed && !disabled ? styles.guidelineSecondaryButtonPressed : null,
+                disabled ? styles.disabledCard : null,
+              ]}>
+              <Text style={styles.presetSecondaryButtonText}>Пока просто записывать сны</Text>
             </Pressable>
           ) : null}
         </>
@@ -2265,6 +2284,7 @@ export default function SleepPlanScreen() {
   const [isChecksExpanded, setIsChecksExpanded] = useState(false);
   const [temporaryModes, setTemporaryModes] = useState<SleepDayTemporaryMode[]>([]);
   const [todayActualWakeTime, setTodayActualWakeTime] = useState<Date | null>(null);
+  const [onboardingState, setOnboardingState] = useState<OnboardingState>('not_started');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isProfilePromptSaving, setIsProfilePromptSaving] = useState(false);
@@ -2281,6 +2301,7 @@ export default function SleepPlanScreen() {
       try {
         const loadedPlans = await listTargetDayPlans(db);
         const profile = await getChildProfile(db);
+        const loadedOnboardingState = await getOnboardingState(db);
         const planToSelect =
           loadedPlans.find((targetPlan) => targetPlan.isActive) ?? loadedPlans[0] ?? null;
 
@@ -2292,6 +2313,7 @@ export default function SleepPlanScreen() {
           setPlans(sortPlansForDisplay(loadedPlans));
           setSelectedPlanId(planToSelect?.id ?? null);
           setDraft(planToSelect ? createDraftFromTargetPlan(planToSelect) : createDraftFromPlan(DEFAULT_SLEEP_PLAN));
+          setOnboardingState(loadedOnboardingState);
           setErrorMessage(null);
         }
       } catch {
@@ -2317,7 +2339,8 @@ export default function SleepPlanScreen() {
     [plans, selectedPlanId],
   );
   const activePlan = useMemo(() => plans.find((plan) => plan.isActive) ?? null, [plans]);
-  const isPresetFlowVisible = !activePlan || isPresetFlowOpen;
+  const isPresetFlowVisible =
+    (!activePlan && onboardingState === 'not_started') || isPresetFlowOpen;
   const isPresetManualMode = isPresetFlowVisible && presetFlowMode === 'manual';
   const todaySleepDayKey = useMemo(
     () => (activePlan ? getSleepDayDateKeyForDate(new Date(), activePlan.plan) : null),
@@ -2813,6 +2836,7 @@ export default function SleepPlanScreen() {
       setPlans(loadedPlans);
       setSelectedPlanId(activePresetPlan.id);
       setDraft(createDraftFromTargetPlan(activePresetPlan));
+      setOnboardingState('plan_saved');
       setIsPresetFlowOpen(false);
       setPresetFlowMode('select');
       setSelectedPresetForPreview(null);
@@ -2831,6 +2855,32 @@ export default function SleepPlanScreen() {
     } catch {
       setErrorMessage('Не удалось создать базовый план');
       return false;
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function chooseTrackingOnly() {
+    if (isSaving) {
+      return;
+    }
+
+    setIsSaving(true);
+    setErrorMessage(null);
+
+    try {
+      await completeOnboardingTrackingOnly(db);
+
+      setOnboardingState('tracking_only');
+      setIsPresetFlowOpen(false);
+      setPresetFlowMode('select');
+      setSelectedPresetForPreview(null);
+      setDraftBeforePresetFlow(null);
+      setActiveEditor(null);
+      setNameEditorMode(null);
+      setIsNapDropdownOpen(false);
+    } catch {
+      setErrorMessage('Не удалось сохранить стартовый выбор');
     } finally {
       setIsSaving(false);
     }
@@ -2938,6 +2988,7 @@ export default function SleepPlanScreen() {
 
       setPlans((currentPlans) => replacePlanInList(currentPlans, updatedPlan));
       setDraft(createDraftFromTargetPlan(updatedPlan));
+      setOnboardingState('plan_saved');
 
       if (updatedPlan.isActive) {
         await syncSleepNotificationsFromDatabase(db);
@@ -2983,6 +3034,7 @@ export default function SleepPlanScreen() {
       setPlans((currentPlans) => sortPlansForDisplay([...currentPlans, createdPlan]));
       setSelectedPlanId(createdPlan.id);
       setDraft(createDraftFromTargetPlan(createdPlan));
+      setOnboardingState('plan_saved');
       setActiveEditor(null);
       setIsNapDropdownOpen(false);
       return true;
@@ -3017,6 +3069,7 @@ export default function SleepPlanScreen() {
 
       setPlans((currentPlans) => markPlanActive(currentPlans, activePlan));
       setDraft(createDraftFromTargetPlan(activePlan));
+      setOnboardingState('plan_saved');
       await syncSleepNotificationsFromDatabase(db);
     } catch {
       setErrorMessage('Не удалось сделать план активным');
@@ -3405,6 +3458,9 @@ export default function SleepPlanScreen() {
               manualDraft={draft}
               manualPlan={parsedDraft.plan}
               onBackToSelection={backToPresetSelection}
+              onChooseTrackingOnly={() => {
+                void chooseTrackingOnly();
+              }}
               onClose={closePresetSelectionFlow}
               onOpenEditor={openEditor}
               onOpenProfilePrompt={openProfilePrompt}
@@ -3537,11 +3593,13 @@ export default function SleepPlanScreen() {
                       />
                     ))
                   ) : (
-                    <Text style={styles.emptyScheduleText}>Загрузка планов</Text>
+                    <Text style={styles.emptyScheduleText}>
+                      {isLoading ? 'Загрузка планов' : 'План пока не сохранён'}
+                    </Text>
                   )}
                 </ScrollView>
 
-                {selectedPlan?.isActive ? null : (
+                {selectedPlan && !selectedPlan.isActive ? (
                   <Pressable
                     accessibilityRole="button"
                     disabled={isEditingDisabled}
@@ -3555,110 +3613,121 @@ export default function SleepPlanScreen() {
                     ]}>
                     <Text style={styles.activatePlanButtonText}>Сделать активным</Text>
                   </Pressable>
-                )}
-
-            <View
-              onLayout={(event) => {
-                planEditorYRef.current = event.nativeEvent.layout.y;
-              }}
-              style={[styles.hero, !selectedPlan?.isActive ? styles.heroCompact : null]}>
-              <View style={styles.heroIcon}>
-                <SleepPlanIcon backgroundColor={colors.primarySoft} />
-              </View>
-              <View style={styles.heroTextBlock}>
-                <Text numberOfLines={1} adjustsFontSizeToFit style={styles.heroTitle}>
-                  {draft.name.trim() || 'План дня'}
-                </Text>
-                {selectedPlan?.isActive ? (
-                  <Text numberOfLines={1} adjustsFontSizeToFit style={styles.heroText}>
-                    Основной план
-                  </Text>
                 ) : null}
+
+                {selectedPlan ? (
+                  <>
+                    <View
+                      onLayout={(event) => {
+                        planEditorYRef.current = event.nativeEvent.layout.y;
+                      }}
+                      style={[styles.hero, !selectedPlan.isActive ? styles.heroCompact : null]}>
+                      <View style={styles.heroIcon}>
+                        <SleepPlanIcon backgroundColor={colors.primarySoft} />
+                      </View>
+                      <View style={styles.heroTextBlock}>
+                        <Text numberOfLines={1} adjustsFontSizeToFit style={styles.heroTitle}>
+                          {draft.name.trim() || 'План дня'}
+                        </Text>
+                        {selectedPlan.isActive ? (
+                          <Text numberOfLines={1} adjustsFontSizeToFit style={styles.heroText}>
+                            Основной план
+                          </Text>
+                        ) : null}
+                      </View>
+                      <Pressable
+                        accessibilityLabel="Изменить название плана"
+                        accessibilityRole="button"
+                        disabled={isEditingDisabled}
+                        hitSlop={8}
+                        onPress={openNameEditor}
+                        style={({ pressed }) => [
+                          styles.editNameButton,
+                          pressed && !isEditingDisabled ? styles.editNameButtonPressed : null,
+                          isEditingDisabled ? styles.disabledCard : null,
+                        ]}>
+                        <Text style={styles.editNameIcon}>✎</Text>
+                      </Pressable>
+                    </View>
+
+                    <View style={styles.metricGrid}>
+                      <MetricCard
+                        caption="ориентир утра"
+                        disabled={isEditingDisabled}
+                        label="Подъем"
+                        onPress={() => openEditor('wakeUp')}
+                        value={`${draft.wakeUpStart} - ${draft.wakeUpEnd}`}
+                      />
+                      <MetricCard
+                        caption={`Отбой ${bedtimeLabel}`}
+                        disabled={isEditingDisabled}
+                        label="Бодрствование"
+                        onPress={() => openEditor('awake')}
+                        value={
+                          parsedDraft.plan
+                            ? formatDurationRange(
+                                parsedDraft.plan.targetAwakeMinMinutes,
+                                parsedDraft.plan.targetAwakeMaxMinutes,
+                              )
+                            : `${draft.awakeStart} - ${draft.awakeEnd}`
+                        }
+                      />
+                      <MetricCard
+                        caption={
+                          getPracticalNapCountCaption(practicalNapCountStatus.status) ?? 'в день'
+                        }
+                        disabled={isEditingDisabled}
+                        label="Дневных снов"
+                        onPress={() => openEditor('napCount')}
+                        value={draft.napCount}
+                      />
+                      <MetricCard
+                        caption={getPracticalDaySleepCaption(practicalPreset)}
+                        disabled={isEditingDisabled}
+                        label="Дневной сон"
+                        onPress={() => openEditor('daySleep')}
+                        value={
+                          parsedDraft.plan
+                            ? formatDurationRange(
+                                parsedDraft.plan.targetDaySleepMinMinutes,
+                                parsedDraft.plan.targetDaySleepMaxMinutes,
+                              )
+                            : `${draft.daySleepStart} - ${draft.daySleepEnd}`
+                        }
+                      />
+                    </View>
+
+                    <EveningSettingsCard
+                      disabled={isEditingDisabled}
+                      eveningRulesMode={draft.eveningRulesMode}
+                      isExpanded={isEveningSettingsExpanded}
+                      latestNapEndLabel={eveningLatestNapEndLabel}
+                      maxNapLabel={eveningMaxNapLabel}
+                      microNapLabel={eveningMicroNapLabel}
+                      onOpenInfo={() => router.push(EVENING_SLEEP_INFO_ROUTE)}
+                      onPress={() => openEditor('evening')}
+                      onToggle={() => setIsEveningSettingsExpanded((isExpanded) => !isExpanded)}
+                    />
+
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={isPlanDeleteDisabled}
+                      onPress={requestDeleteSelectedPlan}
+                      style={({ pressed }) => [
+                        styles.deletePlanButton,
+                        pressed && !isPlanDeleteDisabled ? styles.deletePlanButtonPressed : null,
+                        isPlanDeleteDisabled ? styles.disabledCard : null,
+                      ]}>
+                      <Text style={styles.deletePlanButtonText}>Удалить выбранный план</Text>
+                    </Pressable>
+                  </>
+                ) : (
+                  <Text style={styles.emptyScheduleText}>
+                    Можно продолжать записи сна без сохранённого плана. План дня можно добавить
+                    позже.
+                  </Text>
+                )}
               </View>
-              <Pressable
-                accessibilityLabel="Изменить название плана"
-                accessibilityRole="button"
-                disabled={isEditingDisabled}
-                hitSlop={8}
-                onPress={openNameEditor}
-                style={({ pressed }) => [
-                  styles.editNameButton,
-                  pressed && !isEditingDisabled ? styles.editNameButtonPressed : null,
-                  isEditingDisabled ? styles.disabledCard : null,
-                ]}>
-                <Text style={styles.editNameIcon}>✎</Text>
-              </Pressable>
-            </View>
-
-            <View style={styles.metricGrid}>
-              <MetricCard
-                caption="ориентир утра"
-                disabled={isEditingDisabled}
-                label="Подъем"
-                onPress={() => openEditor('wakeUp')}
-                value={`${draft.wakeUpStart} - ${draft.wakeUpEnd}`}
-              />
-              <MetricCard
-                caption={`Отбой ${bedtimeLabel}`}
-                disabled={isEditingDisabled}
-                label="Бодрствование"
-                onPress={() => openEditor('awake')}
-                value={
-                  parsedDraft.plan
-                    ? formatDurationRange(
-                        parsedDraft.plan.targetAwakeMinMinutes,
-                        parsedDraft.plan.targetAwakeMaxMinutes,
-                      )
-                    : `${draft.awakeStart} - ${draft.awakeEnd}`
-                }
-              />
-              <MetricCard
-                caption={getPracticalNapCountCaption(practicalNapCountStatus.status) ?? 'в день'}
-                disabled={isEditingDisabled}
-                label="Дневных снов"
-                onPress={() => openEditor('napCount')}
-                value={draft.napCount}
-              />
-              <MetricCard
-                caption={getPracticalDaySleepCaption(practicalPreset)}
-                disabled={isEditingDisabled}
-                label="Дневной сон"
-                onPress={() => openEditor('daySleep')}
-                value={
-                  parsedDraft.plan
-                    ? formatDurationRange(
-                        parsedDraft.plan.targetDaySleepMinMinutes,
-                        parsedDraft.plan.targetDaySleepMaxMinutes,
-                      )
-                    : `${draft.daySleepStart} - ${draft.daySleepEnd}`
-                }
-              />
-            </View>
-
-            <EveningSettingsCard
-              disabled={isEditingDisabled}
-              eveningRulesMode={draft.eveningRulesMode}
-              isExpanded={isEveningSettingsExpanded}
-              latestNapEndLabel={eveningLatestNapEndLabel}
-              maxNapLabel={eveningMaxNapLabel}
-              microNapLabel={eveningMicroNapLabel}
-              onOpenInfo={() => router.push(EVENING_SLEEP_INFO_ROUTE)}
-              onPress={() => openEditor('evening')}
-              onToggle={() => setIsEveningSettingsExpanded((isExpanded) => !isExpanded)}
-            />
-
-            <Pressable
-              accessibilityRole="button"
-              disabled={isPlanDeleteDisabled}
-              onPress={requestDeleteSelectedPlan}
-              style={({ pressed }) => [
-                styles.deletePlanButton,
-                pressed && !isPlanDeleteDisabled ? styles.deletePlanButtonPressed : null,
-                isPlanDeleteDisabled ? styles.disabledCard : null,
-              ]}>
-              <Text style={styles.deletePlanButtonText}>Удалить выбранный план</Text>
-            </Pressable>
-          </View>
             </>
           ) : null}
 

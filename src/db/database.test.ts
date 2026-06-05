@@ -36,7 +36,7 @@ function createFakeDatabase(userVersion: number): SQLiteDatabase & FakeMigration
 }
 
 describe('database migrations', () => {
-  it('adds the sleep day temporary mode table for an existing database', async () => {
+  it('adds guarded app tables for an existing database', async () => {
     const db = createFakeDatabase(DATABASE_VERSION - 1);
 
     await migrateDatabase(db);
@@ -47,10 +47,12 @@ describe('database migrations', () => {
     expect(execSql).toContain(
       'CREATE UNIQUE INDEX IF NOT EXISTS sleep_day_temporary_mode_child_day_mode_idx',
     );
+    expect(execSql).toContain('CREATE TABLE IF NOT EXISTS app_settings');
+    expect(execSql).toContain('onboarding_completed_at TEXT');
     expect(execSql).toContain(`PRAGMA user_version = ${DATABASE_VERSION}`);
   });
 
-  it('keeps the temporary mode table guard before the user_version early return', async () => {
+  it('keeps guarded app tables before the user_version early return', async () => {
     const db = createFakeDatabase(DATABASE_VERSION);
 
     await migrateDatabase(db);
@@ -58,6 +60,7 @@ describe('database migrations', () => {
     const execSql = db.execSqls.join('\n');
 
     expect(execSql).toContain('CREATE TABLE IF NOT EXISTS sleep_day_temporary_mode');
+    expect(execSql).toContain('CREATE TABLE IF NOT EXISTS app_settings');
     expect(execSql).not.toContain(`PRAGMA user_version = ${DATABASE_VERSION}`);
   });
 });

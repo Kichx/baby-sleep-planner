@@ -13,6 +13,13 @@ export {
   saveProfilePhotoCopy,
 } from '@/db/profilePhotoStorage';
 export {
+  completeOnboardingTrackingOnly,
+  dismissEveningPlanPrompt,
+  getAppSettings,
+  getOnboardingState,
+  markOnboardingPlanSaved,
+} from '@/db/appSettingsRepository';
+export {
   createBottleFeeding,
   deleteBottleFeeding,
   getBottleFeedingStatsInRange,

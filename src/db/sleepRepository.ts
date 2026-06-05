@@ -14,6 +14,7 @@ import {
   getSleepDayDateKeysForInterval,
 } from '@/core/sleepDay';
 import { buildSleepPlanPreset, deriveEveningSleepRulesForPlan } from '@/core/sleepPlan';
+import { markOnboardingPlanSaved } from '@/db/appSettingsRepository';
 import type {
   ChildProfile,
   EveningSleepRulesMode,
@@ -980,6 +981,8 @@ export async function createTargetDayPlan(
     throw new Error('Target day plan was not created');
   }
 
+  await markOnboardingPlanSaved(db);
+
   return createdPlan;
 }
 
@@ -1041,6 +1044,8 @@ export async function updateTargetDayPlan(
     throw new Error('Target day plan was not updated');
   }
 
+  await markOnboardingPlanSaved(db);
+
   if (updatedPlan.isActive) {
     await upsertCurrentSleepDayPlanSnapshot(db, updatedPlan);
   }
@@ -1099,6 +1104,7 @@ export async function activateTargetDayPlan(
   }
 
   await upsertCurrentSleepDayPlanSnapshot(db, activePlan);
+  await markOnboardingPlanSaved(db);
 
   return activePlan;
 }

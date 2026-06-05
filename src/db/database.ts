@@ -10,6 +10,7 @@ import { DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import { getSleepDayDateKeysForInterval } from '@/core/sleepDay';
 import { buildSleepPlanPreset, deriveEveningSleepRulesForPlan } from '@/core/sleepPlan';
 import {
+  APP_SETTINGS_STORAGE_SQL,
   DATABASE_VERSION,
   INITIAL_SCHEMA_SQL,
   SLEEP_DAY_TEMPORARY_MODE_STORAGE_SQL,
@@ -177,6 +178,10 @@ async function ensureSleepDayPlanSnapshotTable(db: SQLiteDatabase): Promise<void
 
 async function ensureSleepDayTemporaryModeTable(db: SQLiteDatabase): Promise<void> {
   await db.execAsync(SLEEP_DAY_TEMPORARY_MODE_STORAGE_SQL);
+}
+
+async function ensureAppSettingsTable(db: SQLiteDatabase): Promise<void> {
+  await db.execAsync(APP_SETTINGS_STORAGE_SQL);
 }
 
 function coalesceNumber(value: number | null | undefined, fallback: number): number {
@@ -440,6 +445,7 @@ export async function migrateDatabase(db: SQLiteDatabase): Promise<void> {
   await ensureChildProfileColumns(db);
   await ensureTargetDayPlanColumns(db);
   await ensureSleepDayTemporaryModeTable(db);
+  await ensureAppSettingsTable(db);
   await ensureSleepDayPlanSnapshotTable(db);
   await normalizeTargetDayPlans(db);
   await backfillSleepDayPlanSnapshots(db);

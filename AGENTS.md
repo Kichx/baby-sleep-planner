@@ -435,6 +435,38 @@ When changing this flow, cover at least:
 - returning to `/sleep-plan` shows the normal active state for the created plan;
 - TypeScript checks and unit tests pass.
 
+## Implementation lessons from explicit first-run onboarding state
+
+The app has an explicit app-level onboarding state. A clean database with no `app_settings` row and no active `target_day_plan` is `not_started`, not an error and not a reason to insert a default plan.
+
+Keep onboarding state separate from child profile, sleep sessions, target plans, temporary modes, snapshots, and backup/import format unless a later task explicitly asks for those formats to change. The current minimal storage is `app_settings`:
+- `onboarding_completed_at`;
+- `onboarding_mode`, where valid saved modes are `tracking_only` and `plan_saved`;
+- `evening_plan_prompt_dismissed_date_key` for a future evening-plan prompt.
+
+Use the existing app settings repository for app-level flags:
+- `getOnboardingState(db)` for derived state;
+- `completeOnboardingTrackingOnly(db)` after the parent chooses `Пока просто записывать сны`;
+- `markOnboardingPlanSaved(db)` after an explicit target day plan save/activation;
+- `dismissEveningPlanPrompt(db, dateKey)` if the evening prompt is implemented later.
+
+Keep derivation pure in `src/core/onboarding.ts`. `deriveOnboardingState` must treat an existing active `target_day_plan` as `plan_saved` so old databases with a plan do not return to first-run, but it must treat an empty plan list without app settings as `not_started`.
+
+Do not automatically persist `DEFAULT_SLEEP_PLAN`, preset templates, or any fallback plan into `target_day_plan`. Fallback helpers such as `getTargetDayPlan` and `getSleepDayPlan` may return `DEFAULT_SLEEP_PLAN` for calculations, but they must not create persistent `target_day_plan` rows without an explicit parent action.
+
+On `/sleep-plan`, first-run can offer two calm paths:
+- choose and confirm a base plan, which creates/activates `target_day_plan` and marks onboarding `plan_saved`;
+- `Пока просто записывать сны`, which marks onboarding `tracking_only` and leaves `target_day_plan` empty.
+
+When `onboardingState === 'tracking_only'` and no active plan exists, `/sleep-plan` should show a valid empty-plan management state, not force the preset flow again and not show loading copy forever. The parent must still be able to create a plan later.
+
+When adding or changing onboarding persistence, bump `DATABASE_VERSION`, keep the fresh schema and migration idempotent with `CREATE TABLE IF NOT EXISTS` / additive changes, and do not use `DROP TABLE`, database resets, or `DELETE FROM` user data. Cover:
+- pure onboarding derivation: `not_started`, `tracking_only`, `plan_saved`, and old database with active plan;
+- schema/migration guard for `app_settings`;
+- `tracking_only` save;
+- `target_day_plan` save/activation marks `plan_saved`;
+- fallback plan reads do not insert into `target_day_plan`.
+
 ## Implementation lessons from date-based UI work
 
 When adding date navigation or history screens, verify every date mode explicitly:
