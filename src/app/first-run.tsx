@@ -20,13 +20,7 @@ import { colors, radius, spacing } from '@/constants/theme';
 import { completeOnboardingTrackingOnly, updateChildProfile } from '@/db';
 
 const HOME_ROUTE = '/' as Href;
-const SLEEP_PLAN_ROUTE = {
-  params: {
-    source: 'first-run',
-    returnTo: 'home',
-  },
-  pathname: '/sleep-plan',
-} as const;
+const SLEEP_PLAN_ROUTE = '/sleep-plan?source=first-run&returnTo=home' as Href;
 
 const EXAMPLES = [
   'Следующий сон: примерно в 10:20',
@@ -60,7 +54,7 @@ export default function FirstRunScreen() {
 
   function openSleepPlan() {
     setIsHowItWorksVisible(false);
-    router.push(SLEEP_PLAN_ROUTE);
+    router.replace(SLEEP_PLAN_ROUTE);
   }
 
   function openNamePrompt() {

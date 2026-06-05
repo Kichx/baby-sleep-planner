@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import { getOnboardingState } from '@/db/appSettingsRepository';
 import {
+  activateTargetDayPlan,
   createTargetDayPlan,
   getTargetDayPlan,
   listTargetDayPlans,
@@ -84,6 +85,24 @@ class FakeSleepRepositoryDatabase {
         wake_up_end_minutes: Number(params[6]),
         wake_up_start_minutes: Number(params[5]),
       });
+
+      return;
+    }
+
+    if (sql.includes('is_active = CASE WHEN id = ? THEN 1 ELSE 0')) {
+      const planId = String(params[0]);
+      const childId = String(params[params.length - 1]);
+      const updatedAt = params.length > 2 ? String(params[2]) : null;
+
+      this.targetPlanRows = this.targetPlanRows.map((plan) =>
+        plan.child_id === childId
+          ? {
+              ...plan,
+              is_active: plan.id === planId ? 1 : 0,
+              updated_at: plan.id === planId && updatedAt ? updatedAt : plan.updated_at,
+            }
+          : plan,
+      );
     }
   }
 
@@ -159,6 +178,31 @@ describe('sleep repository target plan fallback', () => {
 
     expect(createdPlan.name).toBe('4 сна · 5-6 мес');
     expect(db.targetPlanRows).toHaveLength(1);
+    await expect(getOnboardingState(db)).resolves.toBe('plan_saved');
+  });
+
+  it('keeps exactly one active target day plan after activating a saved plan', async () => {
+    const db = createFakeDatabase();
+
+    const firstPlan = await createTargetDayPlan(db, {
+      eveningRulesMode: 'auto',
+      name: 'Plan A',
+      plan: DEFAULT_SLEEP_PLAN,
+    });
+    const secondPlan = await createTargetDayPlan(db, {
+      eveningRulesMode: 'auto',
+      name: 'Plan B',
+      plan: DEFAULT_SLEEP_PLAN,
+    });
+
+    await activateTargetDayPlan(db, firstPlan.id);
+    await activateTargetDayPlan(db, secondPlan.id);
+
+    const plans = await listTargetDayPlans(db);
+    const activePlans = plans.filter((plan) => plan.isActive);
+
+    expect(plans).toHaveLength(2);
+    expect(activePlans.map((plan) => plan.id)).toEqual([secondPlan.id]);
     await expect(getOnboardingState(db)).resolves.toBe('plan_saved');
   });
 });

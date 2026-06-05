@@ -2304,8 +2304,11 @@ export default function SleepPlanScreen() {
   const [isTemporaryModeSaving, setIsTemporaryModeSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [profilePromptError, setProfilePromptError] = useState<string | null>(null);
+  const isFirstRunPlanSelection =
+    onboardingState === 'not_started' &&
+    getSearchParamValue(searchParams.source) === 'first-run';
   const shouldReturnHomeAfterFirstRun =
-    getSearchParamValue(searchParams.source) === 'first-run' &&
+    isFirstRunPlanSelection &&
     getSearchParamValue(searchParams.returnTo) === 'home';
 
   useEffect(() => {
