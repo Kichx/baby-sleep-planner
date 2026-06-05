@@ -9,9 +9,20 @@ interface AppSettingsRow {
   onboarding_completed_at: string | null;
   onboarding_mode: string | null;
   evening_plan_prompt_dismissed_date_key: string | null;
+  tracking_only_bridge_dismissed_date_key: string | null;
+}
+
+interface TableInfoRow {
+  name: string;
 }
 
 const APP_SETTINGS_ID = 'default';
+const APP_SETTINGS_COLUMNS = [
+  {
+    definition: 'tracking_only_bridge_dismissed_date_key TEXT',
+    name: 'tracking_only_bridge_dismissed_date_key',
+  },
+] as const;
 
 function mapAppSettingsRow(row: AppSettingsRow | null): AppSettings {
   return {
@@ -21,6 +32,8 @@ function mapAppSettingsRow(row: AppSettingsRow | null): AppSettings {
       row?.onboarding_mode === 'tracking_only' || row?.onboarding_mode === 'plan_saved'
         ? row.onboarding_mode
         : null,
+    trackingOnlyBridgeDismissedDateKey:
+      row?.tracking_only_bridge_dismissed_date_key ?? null,
   };
 }
 
@@ -43,6 +56,15 @@ function assertValidDateKey(dateKey: string): void {
 
 async function ensureAppSettingsStorage(db: SQLiteDatabase): Promise<void> {
   await db.execAsync(APP_SETTINGS_STORAGE_SQL);
+
+  const rows = await db.getAllAsync<TableInfoRow>('PRAGMA table_info(app_settings)');
+  const existingColumns = new Set(rows.map((row) => row.name));
+
+  for (const column of APP_SETTINGS_COLUMNS) {
+    if (!existingColumns.has(column.name)) {
+      await db.execAsync(`ALTER TABLE app_settings ADD COLUMN ${column.definition}`);
+    }
+  }
 }
 
 async function hasActiveTargetDayPlan(
@@ -70,7 +92,8 @@ export async function getAppSettings(db: SQLiteDatabase): Promise<AppSettings> {
     SELECT
       onboarding_completed_at,
       onboarding_mode,
-      evening_plan_prompt_dismissed_date_key
+      evening_plan_prompt_dismissed_date_key,
+      tracking_only_bridge_dismissed_date_key
     FROM app_settings
     WHERE id = ?
     LIMIT 1
@@ -162,6 +185,29 @@ export async function dismissEveningPlanPrompt(
     VALUES (?, NULL, NULL, ?)
     ON CONFLICT(id) DO UPDATE SET
       evening_plan_prompt_dismissed_date_key = excluded.evening_plan_prompt_dismissed_date_key
+    `,
+    [APP_SETTINGS_ID, dateKey],
+  );
+
+  return getAppSettings(db);
+}
+
+export async function dismissTrackingOnlyBridgePrompt(
+  db: SQLiteDatabase,
+  dateKey: string,
+): Promise<AppSettings> {
+  assertValidDateKey(dateKey);
+  await ensureAppSettingsStorage(db);
+
+  await db.runAsync(
+    `
+    INSERT INTO app_settings (
+      id,
+      tracking_only_bridge_dismissed_date_key
+    )
+    VALUES (?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      tracking_only_bridge_dismissed_date_key = excluded.tracking_only_bridge_dismissed_date_key
     `,
     [APP_SETTINGS_ID, dateKey],
   );

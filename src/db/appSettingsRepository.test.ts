@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   completeOnboardingTrackingOnly,
+  dismissTrackingOnlyBridgePrompt,
   getOnboardingState,
   markOnboardingPlanSaved,
 } from '@/db/appSettingsRepository';
@@ -12,6 +13,7 @@ interface AppSettingsTestRow {
   onboarding_completed_at: string | null;
   onboarding_mode: string | null;
   evening_plan_prompt_dismissed_date_key: string | null;
+  tracking_only_bridge_dismissed_date_key: string | null;
 }
 
 class FakeAppSettingsDatabase {
@@ -29,6 +31,19 @@ class FakeAppSettingsDatabase {
       return;
     }
 
+    if (sql.includes('tracking_only_bridge_dismissed_date_key')) {
+      this.appSettingsRow = {
+        evening_plan_prompt_dismissed_date_key:
+          this.appSettingsRow?.evening_plan_prompt_dismissed_date_key ?? null,
+        id: String(params[0]),
+        onboarding_completed_at: this.appSettingsRow?.onboarding_completed_at ?? null,
+        onboarding_mode: this.appSettingsRow?.onboarding_mode ?? null,
+        tracking_only_bridge_dismissed_date_key: String(params[1]),
+      };
+
+      return;
+    }
+
     const id = String(params[0]);
     const completedAt = params[1] === null ? null : String(params[1]);
     const existingCompletedAt = this.appSettingsRow?.onboarding_completed_at ?? null;
@@ -39,6 +54,8 @@ class FakeAppSettingsDatabase {
       id,
       onboarding_completed_at: existingCompletedAt ?? completedAt,
       onboarding_mode: sql.includes("'plan_saved'") ? 'plan_saved' : 'tracking_only',
+      tracking_only_bridge_dismissed_date_key:
+        this.appSettingsRow?.tracking_only_bridge_dismissed_date_key ?? null,
     };
   }
 
@@ -52,6 +69,16 @@ class FakeAppSettingsDatabase {
     }
 
     return null;
+  }
+
+  async getAllAsync<T>(): Promise<T[]> {
+    return [
+      { name: 'id' },
+      { name: 'onboarding_completed_at' },
+      { name: 'onboarding_mode' },
+      { name: 'evening_plan_prompt_dismissed_date_key' },
+      { name: 'tracking_only_bridge_dismissed_date_key' },
+    ] as T[];
   }
 }
 
@@ -101,6 +128,20 @@ describe('app settings repository', () => {
       onboardingMode: 'plan_saved',
     });
     await expect(getOnboardingState(db)).resolves.toBe('plan_saved');
+  });
+
+  it('dismisses the tracking-only bridge for one date without changing onboarding mode', async () => {
+    const db = createFakeDatabase();
+
+    await completeOnboardingTrackingOnly(db);
+    const settings = await dismissTrackingOnlyBridgePrompt(db, '2026-06-05');
+
+    expect(settings).toMatchObject({
+      onboardingMode: 'tracking_only',
+      trackingOnlyBridgeDismissedDateKey: '2026-06-05',
+    });
+    await expect(getOnboardingState(db)).resolves.toBe('tracking_only');
+    expect(db.runSqls.join('\n')).not.toContain('INSERT INTO target_day_plan');
   });
 
   it('derives plan saved for an old database with an active target day plan', async () => {

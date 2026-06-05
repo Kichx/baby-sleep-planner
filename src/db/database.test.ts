@@ -49,6 +49,7 @@ describe('database migrations', () => {
     );
     expect(execSql).toContain('CREATE TABLE IF NOT EXISTS app_settings');
     expect(execSql).toContain('onboarding_completed_at TEXT');
+    expect(execSql).toContain('tracking_only_bridge_dismissed_date_key TEXT');
     expect(execSql).toContain(`PRAGMA user_version = ${DATABASE_VERSION}`);
   });
 

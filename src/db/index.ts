@@ -15,6 +15,7 @@ export {
 export {
   completeOnboardingTrackingOnly,
   dismissEveningPlanPrompt,
+  dismissTrackingOnlyBridgePrompt,
   getAppSettings,
   getOnboardingState,
   markOnboardingPlanSaved,

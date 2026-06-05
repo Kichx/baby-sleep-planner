@@ -87,8 +87,10 @@ import {
   createSleepSession,
   deleteBottleFeeding,
   deleteSleepSession,
+  dismissTrackingOnlyBridgePrompt,
   dismissSleepDayTemporaryModeSuggestion,
   enableSleepDayTemporaryMode,
+  getAppSettings,
   getLatestBottleFeeding,
   getChildProfile,
   getLatestSleepSession,
@@ -104,6 +106,7 @@ import {
   updateSleepSession,
 } from '@/db';
 import { syncSleepNotificationsFromDatabase } from '@/notifications/sleepNotifications';
+import type { OnboardingMode } from '@/types/appSettings';
 import type { BottleFeeding } from '@/types/bottleFeeding';
 import type {
   ChildProfile,
@@ -163,7 +166,11 @@ interface LoadedSelectedDayData {
 
 interface LoadedMainScreenData extends LoadedSelectedDayData {
   availablePlans: TargetDayPlan[];
+  hasActiveTargetPlan: boolean;
+  isTrackingOnlyBridge: boolean;
+  onboardingMode: OnboardingMode | null;
   profile: ChildProfile;
+  trackingOnlyBridgeDismissedDateKey: string | null;
 }
 
 interface SessionDayGroup {
@@ -181,6 +188,8 @@ const TIMELINE_ROW_HEIGHT = 62;
 const MAX_PAST_DAY_FEEDBACK_LINES = 3;
 const FIRST_RUN_ROUTE = '/first-run' as Href;
 const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
+const TRACKING_BRIDGE_SLEEP_PLAN_ROUTE =
+  '/sleep-plan?source=tracking-bridge&returnTo=home' as Href;
 const SLEEP_RETROSPECTIVE_ROUTE = '/sleep-retrospective' as Href;
 const BOTTLE_FEEDING_ROUTE = '/bottle-feeding' as Href;
 const OFFICIAL_SLEEP_SOURCE_SUMMARY =
@@ -713,6 +722,11 @@ export default function TodaySleepScreen() {
   >([]);
   const [actualWakeTime, setActualWakeTime] = useState<Date | null>(null);
   const [availablePlans, setAvailablePlans] = useState<TargetDayPlan[]>([]);
+  const [hasActiveTargetPlan, setHasActiveTargetPlan] = useState(false);
+  const [onboardingMode, setOnboardingMode] = useState<OnboardingMode | null>(null);
+  const [isTrackingOnlyBridge, setIsTrackingOnlyBridge] = useState(false);
+  const [trackingOnlyBridgeDismissedDateKey, setTrackingOnlyBridgeDismissedDateKey] =
+    useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [now, setNow] = useState(() => new Date());
   const [isLoading, setIsLoading] = useState(true);
@@ -790,6 +804,7 @@ export default function TodaySleepScreen() {
       referenceDate: Date,
       currentNow: Date,
       isBottleFeedingEnabled: boolean,
+      hasActiveTargetPlanForDay: boolean,
     ): Promise<LoadedSelectedDayData> => {
       const loadedDayPlan = await getSleepDayPlan(db, referenceDate, currentNow);
       const loadedSessions = await fetchSessionsForDate(
@@ -801,7 +816,10 @@ export default function TodaySleepScreen() {
       let actualWakeTimeForDay: Date | null = null;
       let temporaryModes: SleepDayTemporaryMode[] = [];
 
-      if (getSelectedDayType(referenceDate, currentNow) === 'today') {
+      if (
+        hasActiveTargetPlanForDay &&
+        getSelectedDayType(referenceDate, currentNow) === 'today'
+      ) {
         temporaryModes = await listSleepDayTemporaryModes(
           db,
           loadedDayPlan.childId,
@@ -841,17 +859,28 @@ export default function TodaySleepScreen() {
   const loadMainScreenData = useCallback(
     async (referenceDate: Date, currentNow: Date): Promise<LoadedMainScreenData> => {
       const profile = await getChildProfile(db).catch(() => buildFallbackChildProfile());
+      const [appSettings, plans] = await Promise.all([
+        getAppSettings(db),
+        listTargetDayPlans(db).catch(() => []),
+      ]);
+      const hasActivePlan = plans.some((plan) => plan.isActive);
       const selectedDayData = await loadSelectedDayData(
         referenceDate,
         currentNow,
         profile.bottleFeedingEnabled,
+        hasActivePlan,
       );
-      const plans = await listTargetDayPlans(db).catch(() => []);
+      const loadedOnboardingMode = appSettings.onboardingMode;
 
       return {
         ...selectedDayData,
         availablePlans: plans,
+        hasActiveTargetPlan: hasActivePlan,
+        isTrackingOnlyBridge: loadedOnboardingMode === 'tracking_only' && !hasActivePlan,
+        onboardingMode: loadedOnboardingMode,
         profile,
+        trackingOnlyBridgeDismissedDateKey:
+          appSettings.trackingOnlyBridgeDismissedDateKey,
       };
     },
     [db, loadSelectedDayData],
@@ -878,6 +907,12 @@ export default function TodaySleepScreen() {
     setChildName(loadedData.profile.name);
     setChildPhotoUri(loadedData.profile.photoUri);
     setAvailablePlans(loadedData.availablePlans);
+    setHasActiveTargetPlan(loadedData.hasActiveTargetPlan);
+    setOnboardingMode(loadedData.onboardingMode);
+    setIsTrackingOnlyBridge(loadedData.isTrackingOnlyBridge);
+    setTrackingOnlyBridgeDismissedDateKey(
+      loadedData.trackingOnlyBridgeDismissedDateKey,
+    );
     applySelectedDayData(loadedData, currentNow);
   }
 
@@ -1129,20 +1164,22 @@ export default function TodaySleepScreen() {
       ? `ещё сна днём ${formatDuration(snapshot.projectedRemainingDaySleepMinutes)}`
       : 'с учётом сна днём';
   const currentPlanName = sleepDayPlan?.sourcePlanName ?? 'Основной';
-  const canChangeSleepDayPlan = dayType === 'past' && availablePlans.length > 0;
+  const canChangeSleepDayPlan =
+    hasActiveTargetPlan && dayType === 'past' && availablePlans.length > 0;
   const isSleeping = isToday && snapshot.state === 'sleeping';
   const hasPersistedCurrentPlan = useMemo(
     () =>
-      sleepDayPlan?.sourcePlanId
+      hasActiveTargetPlan && sleepDayPlan?.sourcePlanId
         ? availablePlans.some((plan) => plan.id === sleepDayPlan.sourcePlanId)
         : false,
-    [availablePlans, sleepDayPlan?.sourcePlanId],
+    [availablePlans, hasActiveTargetPlan, sleepDayPlan?.sourcePlanId],
   );
-  const temporaryModeBadgeLabel = isToday
+  const temporaryModeBadgeLabel = isToday && hasActiveTargetPlan
     ? getTemporaryModeBadgeLabel(sleepDayTemporaryModes)
     : null;
   const shouldShowEarlyWakeSuggestion =
     isToday &&
+    hasActiveTargetPlan &&
     hasPersistedCurrentPlan &&
     shouldShowEarlyWakeModeSuggestion({
       actualWakeTime,
@@ -1160,6 +1197,16 @@ export default function TodaySleepScreen() {
     : isSleeping
       ? 'Завершить сон'
       : 'Начать сон';
+  const currentDateKey = formatSleepDayDateKey(now);
+  const shouldShowPlanBasedUi = hasActiveTargetPlan;
+  const hasSelectedSleepRecords = selectedSessionsForDay.length > 0;
+  const hasCurrentStatusFact =
+    isSleeping || selectedSessionsForDay.some((session) => session.endedAt !== null);
+  const shouldShowTrackingOnlyBridgeCard =
+    isToday &&
+    isTrackingOnlyBridge &&
+    onboardingMode === 'tracking_only' &&
+    trackingOnlyBridgeDismissedDateKey !== currentDateKey;
   const hasPastDayRecords = daySummary.sleepSessionCount > 0;
   const pastDayTotalSleepMinutes = daySummary.totalDaySleepMinutes + daySummary.totalNightSleepMinutes;
   const pastDayOfficialSleepCheck = useMemo(
@@ -1270,6 +1317,7 @@ export default function TodaySleepScreen() {
       referenceDate,
       currentNow,
       bottleFeedingEnabled,
+      hasActiveTargetPlan,
     );
 
     applySelectedDayData(loadedData, currentNow);
@@ -1281,6 +1329,10 @@ export default function TodaySleepScreen() {
 
   function openSleepPlan() {
     router.push(SLEEP_PLAN_ROUTE);
+  }
+
+  function openTrackingBridgeSleepPlan() {
+    router.push(TRACKING_BRIDGE_SLEEP_PLAN_ROUTE);
   }
 
   function openRetrospective() {
@@ -1333,6 +1385,30 @@ export default function TodaySleepScreen() {
 
   function syncNotificationsInBackground(actionAt: Date) {
     void syncSleepNotificationsFromDatabase(db, actionAt).catch(() => undefined);
+  }
+
+  async function handleDismissTrackingOnlyBridge() {
+    if (!isToday || !isTrackingOnlyBridge) {
+      return;
+    }
+
+    const actionAt = new Date();
+    const dateKey = formatSleepDayDateKey(actionAt);
+    const previousDismissedDateKey = trackingOnlyBridgeDismissedDateKey;
+
+    setIsSaving(true);
+    setErrorMessage(null);
+    setNow(actionAt);
+    setTrackingOnlyBridgeDismissedDateKey(dateKey);
+
+    try {
+      await dismissTrackingOnlyBridgePrompt(db, dateKey);
+    } catch {
+      setTrackingOnlyBridgeDismissedDateKey(previousDismissedDateKey);
+      setErrorMessage('Не удалось скрыть подсказку');
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   async function handleSleepButtonPress() {
@@ -1552,7 +1628,7 @@ export default function TodaySleepScreen() {
   }
 
   async function handleShareTodayPlan() {
-    if (!isToday) {
+    if (!isToday || !hasActiveTargetPlan) {
       return;
     }
 
@@ -1579,6 +1655,56 @@ export default function TodaySleepScreen() {
     } catch {
       setErrorMessage('Не удалось открыть отправку плана');
     }
+  }
+
+  function renderTrackingOnlyBridgeCard() {
+    if (!shouldShowTrackingOnlyBridgeCard) {
+      return null;
+    }
+
+    return (
+      <View style={styles.trackingBridgeCard}>
+        <Text style={styles.trackingBridgeTitle}>План дня пока не выбран</Text>
+        <Text style={styles.trackingBridgeText}>
+          Можно просто записывать сны. Когда будете готовы, приложение начнёт подсказывать
+          следующий сон, бодрствование и примерный отбой.
+        </Text>
+        <View style={styles.trackingBridgeActions}>
+          <PrimaryButton
+            compact
+            disabled={isLoading || isSaving}
+            label="Выбрать План дня"
+            onPress={openTrackingBridgeSleepPlan}
+            style={styles.trackingBridgeButton}
+            textStyle={styles.trackingBridgeButtonText}
+          />
+          <PrimaryButton
+            compact
+            disabled={isLoading || isSaving}
+            label="Скрыть пока"
+            onPress={handleDismissTrackingOnlyBridge}
+            style={styles.trackingBridgeButton}
+            textStyle={styles.trackingBridgeButtonText}
+            variant="secondary"
+          />
+        </View>
+      </View>
+    );
+  }
+
+  function renderTrackingOnlyEmptyHint() {
+    if (isLoading || hasSelectedSleepRecords) {
+      return null;
+    }
+
+    return (
+      <View style={styles.trackingOnlyEmptyCard}>
+        <Text style={styles.trackingOnlyEmptyTitle}>Пока нет записей сна</Text>
+        <Text style={styles.trackingOnlyEmptyText}>
+          Начните сон сейчас или внесите уже прошедший сон вручную.
+        </Text>
+      </View>
+    );
   }
 
   function renderDateShortcut(label: string, dayOffset: -1 | 0) {
@@ -1750,7 +1876,9 @@ export default function TodaySleepScreen() {
             </View>
           </View>
 
-          {isToday ? null : renderSleepDayPlanBar()}
+          {renderTrackingOnlyBridgeCard()}
+
+          {isToday || !hasActiveTargetPlan ? null : renderSleepDayPlanBar()}
 
           {isToday ? (
             <>
@@ -1763,17 +1891,27 @@ export default function TodaySleepScreen() {
                     ]}
                   />
                   <Text style={styles.currentStatus}>
-                    {isLoading ? 'Загрузка' : isSleeping ? 'Спит' : 'Бодрствует'}
+                    {isLoading
+                      ? 'Загрузка'
+                      : !shouldShowPlanBasedUi && !hasCurrentStatusFact
+                        ? 'Пока нет записей'
+                        : isSleeping
+                          ? 'Спит'
+                          : 'Бодрствует'}
                   </Text>
                 </View>
                 <CurrentTimerText
                   currentDurationMinutes={snapshot.currentDurationMinutes}
-                  isLoading={isLoading}
+                  isLoading={
+                    isLoading || (!shouldShowPlanBasedUi && !hasCurrentStatusFact)
+                  }
                   isSleeping={isSleeping}
                   statusStartedAt={snapshot.statusStartedAt}
                 />
                 <Text numberOfLines={1} style={styles.currentHelper}>
-                  с {formatClock(snapshot.statusStartedAt)}
+                  {!shouldShowPlanBasedUi && !hasCurrentStatusFact
+                    ? 'начните сон или внесите запись'
+                    : `с ${formatClock(snapshot.statusStartedAt)}`}
                 </Text>
               </View>
 
@@ -1828,111 +1966,128 @@ export default function TodaySleepScreen() {
                 />
               </View>
 
-              <View style={styles.grid}>
-                <SummaryCard
-                  title="Следующий сон"
-                  value={isSleeping ? 'после сна' : formatClock(snapshot.nextSleepAt)}
-                  detail={nextSleepWaitLabel}
-                  caption={snapshot.onTrackLabel}
-                  tone="accent"
-                />
-                <SummaryCard
-                  title="Прогноз ночи"
-                  value={formatClock(snapshot.predictedBedtimeAt)}
-                  caption={predictedBedtimeCaption}
-                />
-              </View>
+              {shouldShowPlanBasedUi ? (
+                <>
+                  <View style={styles.grid}>
+                    <SummaryCard
+                      title="Следующий сон"
+                      value={isSleeping ? 'после сна' : formatClock(snapshot.nextSleepAt)}
+                      detail={nextSleepWaitLabel}
+                      caption={snapshot.onTrackLabel}
+                      tone="accent"
+                    />
+                    <SummaryCard
+                      title="Прогноз ночи"
+                      value={formatClock(snapshot.predictedBedtimeAt)}
+                      caption={predictedBedtimeCaption}
+                    />
+                  </View>
 
-              <View style={styles.grid}>
-                <SummaryCard
-                  title="До цели бодрств."
-                  value={formatDuration(snapshot.remainingAwakeMinutes)}
-                  caption="до ориентира дня"
-                />
-                <SummaryCard
-                  title="Сон днем"
-                  value={formatDuration(snapshot.totalDaySleepMinutes)}
-                  caption={`${snapshot.completedNaps} сна сегодня`}
-                />
-              </View>
+                  <View style={styles.grid}>
+                    <SummaryCard
+                      title="До цели бодрств."
+                      value={formatDuration(snapshot.remainingAwakeMinutes)}
+                      caption="до ориентира дня"
+                    />
+                    <SummaryCard
+                      title="Сон днем"
+                      value={formatDuration(snapshot.totalDaySleepMinutes)}
+                      caption={`${snapshot.completedNaps} сна сегодня`}
+                    />
+                  </View>
 
-              <View style={styles.section}>
-                <View style={styles.scenarioHeader}>
-                  <View style={styles.scenarioTitleBlock}>
-                    <Text style={styles.sectionTitle}>Сценарии</Text>
-                    <Text numberOfLines={1} style={styles.scenarioPlanLabel}>
-                      Активный план: {currentPlanName}
-                    </Text>
-                    {temporaryModeBadgeLabel ? (
+                  <View style={styles.section}>
+                    <View style={styles.scenarioHeader}>
+                      <View style={styles.scenarioTitleBlock}>
+                        <Text style={styles.sectionTitle}>Сценарии</Text>
+                        <Text numberOfLines={1} style={styles.scenarioPlanLabel}>
+                          Активный план: {currentPlanName}
+                        </Text>
+                        {temporaryModeBadgeLabel ? (
+                          <Pressable
+                            accessibilityRole="button"
+                            hitSlop={4}
+                            onPress={openSleepPlan}
+                            style={({ pressed }) => [
+                              styles.temporaryModeBadge,
+                              pressed ? styles.temporaryModeBadgePressed : null,
+                            ]}>
+                            <Text numberOfLines={1} style={styles.temporaryModeBadgeText}>
+                              {temporaryModeBadgeLabel}
+                            </Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
                       <Pressable
                         accessibilityRole="button"
+                        disabled={isLoading || isSaving}
                         hitSlop={4}
-                        onPress={openSleepPlan}
+                        onPress={handleShareTodayPlan}
                         style={({ pressed }) => [
-                          styles.temporaryModeBadge,
-                          pressed ? styles.temporaryModeBadgePressed : null,
+                          styles.sharePlanButton,
+                          pressed ? styles.sharePlanButtonPressed : null,
+                          isLoading || isSaving ? styles.sharePlanButtonDisabled : null,
                         ]}>
-                        <Text numberOfLines={1} style={styles.temporaryModeBadgeText}>
-                          {temporaryModeBadgeLabel}
+                        <Text numberOfLines={1} style={styles.sharePlanButtonText}>
+                          Поделиться
                         </Text>
                       </Pressable>
+                    </View>
+                    {shouldShowEarlyWakeSuggestion ? (
+                      <View style={styles.earlyWakeSuggestionCard}>
+                        <Text style={styles.earlyWakeSuggestionText}>
+                          {
+                            'Похоже, день начался раньше обычного. Можно включить ранний подъём, чтобы первое бодрствование было мягче.'
+                          }
+                        </Text>
+                        <View style={styles.earlyWakeSuggestionActions}>
+                          <PrimaryButton
+                            compact
+                            disabled={isLoading || isSaving}
+                            label="Включить"
+                            onPress={handleEnableEarlyWakeMode}
+                            style={styles.earlyWakeSuggestionButton}
+                          />
+                          <PrimaryButton
+                            compact
+                            disabled={isLoading || isSaving}
+                            label="Не сейчас"
+                            onPress={handleDismissEarlyWakeSuggestion}
+                            style={styles.earlyWakeSuggestionButton}
+                            variant="secondary"
+                          />
+                        </View>
+                      </View>
                     ) : null}
-                  </View>
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={isLoading || isSaving}
-                    hitSlop={4}
-                    onPress={handleShareTodayPlan}
-                    style={({ pressed }) => [
-                      styles.sharePlanButton,
-                      pressed ? styles.sharePlanButtonPressed : null,
-                      isLoading || isSaving ? styles.sharePlanButtonDisabled : null,
-                    ]}>
-                    <Text numberOfLines={1} style={styles.sharePlanButtonText}>
-                      Поделиться
-                    </Text>
-                  </Pressable>
-                </View>
-                {shouldShowEarlyWakeSuggestion ? (
-                  <View style={styles.earlyWakeSuggestionCard}>
-                    <Text style={styles.earlyWakeSuggestionText}>
-                      {
-                        'Похоже, день начался раньше обычного. Можно включить ранний подъём, чтобы первое бодрствование было мягче.'
-                      }
-                    </Text>
-                    <View style={styles.earlyWakeSuggestionActions}>
-                      <PrimaryButton
-                        compact
-                        disabled={isLoading || isSaving}
-                        label="Включить"
-                        onPress={handleEnableEarlyWakeMode}
-                        style={styles.earlyWakeSuggestionButton}
-                      />
-                      <PrimaryButton
-                        compact
-                        disabled={isLoading || isSaving}
-                        label="Не сейчас"
-                        onPress={handleDismissEarlyWakeSuggestion}
-                        style={styles.earlyWakeSuggestionButton}
-                        variant="secondary"
-                      />
+                    <View style={styles.scenarioList}>
+                      {snapshot.scenarios.map((scenario) => (
+                        <View
+                          key={scenario.id}
+                          style={[
+                            styles.scenario,
+                            scenario.priority === 'primary' ? styles.primaryScenario : null,
+                          ]}>
+                          <Text style={styles.scenarioTitle}>{scenario.title}</Text>
+                          <Text style={styles.scenarioText}>{scenario.detail}</Text>
+                        </View>
+                      ))}
                     </View>
                   </View>
-                ) : null}
-                <View style={styles.scenarioList}>
-                  {snapshot.scenarios.map((scenario) => (
-                    <View
-                      key={scenario.id}
-                      style={[
-                        styles.scenario,
-                        scenario.priority === 'primary' ? styles.primaryScenario : null,
-                      ]}>
-                      <Text style={styles.scenarioTitle}>{scenario.title}</Text>
-                      <Text style={styles.scenarioText}>{scenario.detail}</Text>
-                    </View>
-                  ))}
-                </View>
-              </View>
+                </>
+              ) : (
+                renderTrackingOnlyEmptyHint()
+              )}
+            </>
+          ) : !shouldShowPlanBasedUi ? (
+            <>
+              {renderTrackingOnlyEmptyHint()}
+              <PrimaryButton
+                compact
+                disabled={isLoading || isSaving}
+                label="Внести сон"
+                onPress={openCreateEditor}
+                variant="secondary"
+              />
             </>
           ) : dayType === 'future' ? (
             <>
@@ -2586,6 +2741,56 @@ const styles = StyleSheet.create({
     backgroundColor: colors.warningSoft,
     fontSize: 15,
     fontWeight: '700',
+  },
+  trackingBridgeCard: {
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primarySoft,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+    gap: spacing.sm,
+  },
+  trackingBridgeTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  trackingBridgeText: {
+    color: colors.textMuted,
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 21,
+  },
+  trackingBridgeActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  trackingBridgeButton: {
+    flex: 1,
+    minHeight: 50,
+    paddingHorizontal: spacing.sm,
+  },
+  trackingBridgeButtonText: {
+    fontSize: 15,
+  },
+  trackingOnlyEmptyCard: {
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+    gap: spacing.xs,
+  },
+  trackingOnlyEmptyTitle: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  trackingOnlyEmptyText: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
   },
   actionRow: {
     flexDirection: 'row',

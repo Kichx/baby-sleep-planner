@@ -9,7 +9,7 @@ import {
 
 describe('database schema', () => {
   it('contains the sleep day temporary mode table and unique index in the fresh schema', () => {
-    expect(DATABASE_VERSION).toBe(16);
+    expect(DATABASE_VERSION).toBe(17);
     expect(INITIAL_SCHEMA_SQL).toContain('bottle_feeding_top_up_threshold_ml INTEGER NOT NULL DEFAULT 30');
     expect(INITIAL_SCHEMA_SQL).toContain('CREATE TABLE IF NOT EXISTS sleep_day_temporary_mode');
     expect(INITIAL_SCHEMA_SQL).toContain('sleep_day_date_key TEXT NOT NULL');
@@ -31,6 +31,7 @@ describe('database schema', () => {
       "onboarding_mode IS NULL OR onboarding_mode IN ('tracking_only', 'plan_saved')",
     );
     expect(INITIAL_SCHEMA_SQL).toContain('evening_plan_prompt_dismissed_date_key TEXT');
+    expect(INITIAL_SCHEMA_SQL).toContain('tracking_only_bridge_dismissed_date_key TEXT');
     expect(APP_SETTINGS_STORAGE_SQL).toContain('CREATE TABLE IF NOT EXISTS app_settings');
   });
 });

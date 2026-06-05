@@ -1,6 +1,6 @@
 export const DATABASE_NAME = 'baby_sleep_planner.db';
 
-export const DATABASE_VERSION = 16;
+export const DATABASE_VERSION = 17;
 
 export const APP_SETTINGS_STORAGE_SQL = `
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS app_settings (
   onboarding_mode TEXT CHECK (
     onboarding_mode IS NULL OR onboarding_mode IN ('tracking_only', 'plan_saved')
   ),
-  evening_plan_prompt_dismissed_date_key TEXT
+  evening_plan_prompt_dismissed_date_key TEXT,
+  tracking_only_bridge_dismissed_date_key TEXT
 );
 `;
 

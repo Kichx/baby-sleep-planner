@@ -37,6 +37,7 @@ interface AppSettingsTestRow {
   onboarding_completed_at: string | null;
   onboarding_mode: string | null;
   evening_plan_prompt_dismissed_date_key: string | null;
+  tracking_only_bridge_dismissed_date_key: string | null;
 }
 
 class FakeSleepRepositoryDatabase {
@@ -58,6 +59,7 @@ class FakeSleepRepositoryDatabase {
         id: String(params[0]),
         onboarding_completed_at: String(params[1]),
         onboarding_mode: 'plan_saved',
+        tracking_only_bridge_dismissed_date_key: null,
       };
 
       return;

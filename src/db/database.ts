@@ -111,6 +111,13 @@ const CHILD_PROFILE_COLUMNS = [
   },
 ] as const;
 
+const APP_SETTINGS_COLUMNS = [
+  {
+    definition: 'tracking_only_bridge_dismissed_date_key TEXT',
+    name: 'tracking_only_bridge_dismissed_date_key',
+  },
+] as const;
+
 const DEFAULT_TARGET_DAY_PLAN_NAME = 'Основной';
 
 const SLEEP_DAY_PLAN_SNAPSHOT_TABLE_SQL = `
@@ -182,6 +189,14 @@ async function ensureSleepDayTemporaryModeTable(db: SQLiteDatabase): Promise<voi
 
 async function ensureAppSettingsTable(db: SQLiteDatabase): Promise<void> {
   await db.execAsync(APP_SETTINGS_STORAGE_SQL);
+
+  for (const column of APP_SETTINGS_COLUMNS) {
+    const hasColumn = await hasTableColumn(db, 'app_settings', column.name);
+
+    if (!hasColumn) {
+      await db.execAsync(`ALTER TABLE app_settings ADD COLUMN ${column.definition}`);
+    }
+  }
 }
 
 function coalesceNumber(value: number | null | undefined, fallback: number): number {

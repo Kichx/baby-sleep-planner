@@ -442,13 +442,15 @@ The app has an explicit app-level onboarding state. A clean database with no `ap
 Keep onboarding state separate from child profile, sleep sessions, target plans, temporary modes, snapshots, and backup/import format unless a later task explicitly asks for those formats to change. The current minimal storage is `app_settings`:
 - `onboarding_completed_at`;
 - `onboarding_mode`, where valid saved modes are `tracking_only` and `plan_saved`;
-- `evening_plan_prompt_dismissed_date_key` for a future evening-plan prompt.
+- `evening_plan_prompt_dismissed_date_key` for a future evening-plan prompt;
+- `tracking_only_bridge_dismissed_date_key` for hiding the main-screen plan bridge only for one local day.
 
 Use the existing app settings repository for app-level flags:
 - `getOnboardingState(db)` for derived state;
 - `completeOnboardingTrackingOnly(db)` after the parent chooses `Пока просто записывать сны`;
 - `markOnboardingPlanSaved(db)` after an explicit target day plan save/activation;
-- `dismissEveningPlanPrompt(db, dateKey)` if the evening prompt is implemented later.
+- `dismissEveningPlanPrompt(db, dateKey)` if the evening prompt is implemented later;
+- `dismissTrackingOnlyBridgePrompt(db, dateKey)` when the parent taps `Скрыть пока` on the main-screen tracking-only bridge.
 
 Keep derivation pure in `src/core/onboarding.ts`. `deriveOnboardingState` must treat an existing active `target_day_plan` as `plan_saved` so old databases with a plan do not return to first-run, but it must treat an empty plan list without app settings as `not_started`.
 
@@ -491,12 +493,23 @@ For the `/first-run` tracking-only name prompt:
 
 Do not request or trigger notification permission while onboarding is `not_started` or `tracking_only`. Sleep reminder synchronization must return before loading fallback target plans or calling the shared notification permission helper unless onboarding is `plan_saved`; otherwise a fallback `DEFAULT_SLEEP_PLAN` can accidentally cause a notification permission prompt before the parent has chosen a plan.
 
+When `onboardingState === 'tracking_only'` and no active `target_day_plan` exists, the main `/` screen must render a real tracking-only bridge state instead of plan-based recommendations from fallback `DEFAULT_SLEEP_PLAN`.
+
+In this main-screen bridge state:
+- `loadMainScreenData` or the nearest view-model layer should expose `hasActiveTargetPlan`, `onboardingMode`, and `isTrackingOnlyBridge`;
+- show the current factual sleep/awake status when it can be derived from real sleep sessions, the `Начать сон` / `Завершить сон` action, `Внести сон`, the factual timeline, and a simple empty hint when there are no sleep records;
+- show a calm card titled `План дня пока не выбран` with primary `Выбрать План дня` linking to `/sleep-plan?source=tracking-bridge&returnTo=home` and secondary `Скрыть пока`;
+- `Скрыть пока` writes only `tracking_only_bridge_dismissed_date_key` for the current local day and must not complete or leave tracking-only mode.
+
+In this main-screen bridge state, do not show `Следующий сон`, `Прогноз ночи`, `До цели бодрств.`, `Сценарии`, `Проверка и расчёт`, temporary-mode badges, early-wake suggestions, share text based on a plan, or any forecast/recommendation derived from fallback `DEFAULT_SLEEP_PLAN`.
+
 When `onboardingState === 'tracking_only'` and no active plan exists, `/sleep-plan` should show a valid empty-plan management state, not force the preset flow again and not show loading copy forever. The parent must still be able to create a plan later.
 
 When adding or changing onboarding persistence, bump `DATABASE_VERSION`, keep the fresh schema and migration idempotent with `CREATE TABLE IF NOT EXISTS` / additive changes, and do not use `DROP TABLE`, database resets, or `DELETE FROM` user data. Cover:
 - pure onboarding derivation: `not_started`, `tracking_only`, `plan_saved`, and old database with active plan;
 - schema/migration guard for `app_settings`;
 - `tracking_only` save;
+- tracking-only bridge dismissal for one local day without writing `target_day_plan`;
 - `target_day_plan` save/activation marks `plan_saved`;
 - fallback plan reads do not insert into `target_day_plan`.
 

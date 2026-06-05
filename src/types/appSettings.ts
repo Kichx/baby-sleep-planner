@@ -8,4 +8,5 @@ export interface AppSettings {
   eveningPlanPromptDismissedDateKey: string | null;
   onboardingCompletedAt: ISODateString | null;
   onboardingMode: OnboardingMode | null;
+  trackingOnlyBridgeDismissedDateKey: string | null;
 }
