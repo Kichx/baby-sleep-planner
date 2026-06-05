@@ -15,10 +15,8 @@ import {
   calculateBottleFeedingStats,
   filterBottleFeedingsInCalendarDay,
   formatBottleFeedingElapsed,
-  formatBottleFeedingRecordLine,
   formatBottleFeedingStatsLine,
   formatTodayBottleFeedingStatsWithTopUpsLine,
-  isBottleFeedingTopUp,
 } from '@/core/bottleFeeding';
 import type { BottleFeeding } from '@/types/bottleFeeding';
 import type { SleepKind, SleepPlanPreset, SleepSession } from '@/types/sleep';
@@ -221,13 +219,6 @@ function formatNapRows(rows: ShareSessionRow[]): string[] {
   });
 }
 
-function sortBottleFeedingsByStart(feedings: BottleFeeding[]): BottleFeeding[] {
-  return [...feedings].sort(
-    (first, second) =>
-      new Date(first.startedAt).getTime() - new Date(second.startedAt).getTime(),
-  );
-}
-
 function hasValidTopUpThreshold(threshold: number | undefined): threshold is number {
   return typeof threshold === 'number' && Number.isInteger(threshold) && threshold > 0;
 }
@@ -264,24 +255,6 @@ function formatLatestBottleFeedingShareLine(
   return `• Последнее кормление: ${elapsedLabel}, ${feeding.volumeMl} мл в ${clockLabel}`;
 }
 
-function formatBottleFeedingRows(
-  feedings: BottleFeeding[],
-  topUpThresholdMl: number | undefined,
-): string[] {
-  if (feedings.length === 0) {
-    return ['• Записей сегодня пока нет'];
-  }
-
-  return sortBottleFeedingsByStart(feedings).map((feeding) => {
-    const topUpLabel =
-      hasValidTopUpThreshold(topUpThresholdMl) && isBottleFeedingTopUp(feeding, topUpThresholdMl)
-        ? ' · доешка'
-        : '';
-
-    return `• ${formatBottleFeedingRecordLine(feeding)}${topUpLabel}`;
-  });
-}
-
 function buildBottleFeedingShareSection(input: TodayPlanShareInput): string[] {
   if (!input.bottleFeedings) {
     return [];
@@ -297,7 +270,6 @@ function buildBottleFeedingShareSection(input: TodayPlanShareInput): string[] {
     'Кормления сегодня:',
     `• ${formatTodayBottleFeedingSummary(todayFeedings, input.bottleFeedingTopUpThresholdMl)}`,
     formatLatestBottleFeedingShareLine(input.latestBottleFeeding, input.generatedAt),
-    ...formatBottleFeedingRows(todayFeedings, input.bottleFeedingTopUpThresholdMl),
   ];
 }
 

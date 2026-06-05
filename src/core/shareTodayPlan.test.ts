@@ -142,7 +142,7 @@ describe('buildTodayPlanShareText', () => {
     expect(message).toContain('• Отбой: 20:30');
   });
 
-  it('includes today bottle feedings and elapsed time since the latest feeding', () => {
+  it('includes today bottle feeding summary and elapsed time since the latest feeding', () => {
     const latestFeeding = bottleFeeding('feeding-3', 0, 12, 40, 150);
     const message = buildTodayPlanShareText({
       bottleFeedingTopUpThresholdMl: 30,
@@ -163,9 +163,9 @@ describe('buildTodayPlanShareText', () => {
     expect(message).toContain('Кормления сегодня:');
     expect(message).toContain('• Сегодня: 350 мл · 2 кормления и 1 доешка');
     expect(message).toContain('• Последнее кормление: 28 мин назад, 150 мл в 12:40');
-    expect(message).toContain('• 08:10 · 180 мл');
-    expect(message).toContain('• 11:45 · 20 мл · доешка');
-    expect(message).toContain('• 12:40 · 150 мл');
+    expect(message).not.toContain('• 08:10 · 180 мл');
+    expect(message).not.toContain('• 11:45 · 20 мл · доешка');
+    expect(message).not.toContain('• 12:40 · 150 мл');
     expect(message).not.toContain('• 07:00 · 180 мл');
   });
 
@@ -187,6 +187,6 @@ describe('buildTodayPlanShareText', () => {
     expect(message).toContain(
       '• Последнее кормление: 15 ч 8 мин назад, 180 мл в 22:00 вчера',
     );
-    expect(message).toContain('• Записей сегодня пока нет');
+    expect(message).not.toContain('• Записей сегодня пока нет');
   });
 });
