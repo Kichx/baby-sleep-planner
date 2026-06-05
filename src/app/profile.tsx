@@ -27,6 +27,11 @@ import { SleepPlanIcon } from '@/components/SleepPlanIcon';
 import { DEFAULT_CHILD_NAME } from '@/constants/sleep';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
+  CHILD_NAME_MAX_LENGTH,
+  getChildNameValidationError,
+  normalizeChildName,
+} from '@/core/childProfile';
+import {
   APP_DATA_BACKUP_MIME_TYPE,
   DataTransferError,
   applyBottleFeedingPromptDecision,
@@ -213,14 +218,15 @@ export default function ProfileScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const trimmedDraftName = draftName.trim();
+  const trimmedDraftName = normalizeChildName(draftName);
   const draftBirthDateValue = useMemo(() => parseBirthDateValue(draftBirthDate), [draftBirthDate]);
   const birthDateLabel = draftBirthDateValue ? formatBirthDate(draftBirthDateValue) : 'Выбрать';
   const ageLabel = draftBirthDateValue
     ? `Возраст: ${formatAgeFromBirthDate(draftBirthDateValue, new Date())}`
     : 'Возраст: не указан';
+  const profileNameError = getChildNameValidationError(draftName, { required: true });
   const hasProfileChanges =
-    trimmedDraftName.length > 0 &&
+    profileNameError === null &&
     (trimmedDraftName !== profileName || draftBirthDate !== birthDate);
   const isBusy = isLoading || isSaving || isPhotoSaving || isDataTransferRunning;
   const isToggleDisabled = isBusy || isFeatureSaving;
@@ -303,8 +309,8 @@ export default function ProfileScreen() {
   }
 
   async function handleSaveProfile() {
-    if (trimmedDraftName.length === 0) {
-      setErrorMessage('Введите имя ребёнка');
+    if (profileNameError) {
+      setErrorMessage(profileNameError);
       setMessage(null);
       return;
     }
@@ -610,7 +616,7 @@ export default function ProfileScreen() {
                 accessibilityLabel="Имя ребёнка"
                 autoCapitalize="words"
                 editable={!isBusy}
-                maxLength={32}
+                maxLength={CHILD_NAME_MAX_LENGTH}
                 onChangeText={(value) => {
                   setDraftName(value);
                   setMessage(null);

@@ -32,6 +32,11 @@ import {
   type AgeSleepPlanPresetTemplateOption,
 } from '@/core/ageSleepPlanPresetTemplates';
 import {
+  CHILD_NAME_MAX_LENGTH,
+  getChildNameValidationError,
+  normalizeChildName,
+} from '@/core/childProfile';
+import {
   calculateTotalSleepRangeFromWakeRange,
   checkTotalSleepRangeAgainstOfficialGuideline,
   formatDurationRangeShort,
@@ -2200,7 +2205,7 @@ function ChildProfilePromptModal({
                 accessibilityLabel="Имя ребёнка"
                 autoCapitalize="words"
                 editable={!isBusy}
-                maxLength={32}
+                maxLength={CHILD_NAME_MAX_LENGTH}
                 onChangeText={onChangeName}
                 placeholder="Имя ребёнка"
                 placeholderTextColor={colors.textMuted}
@@ -2652,11 +2657,14 @@ export default function SleepPlanScreen() {
   }
 
   async function saveProfilePrompt() {
-    const trimmedName = profileDraftName.trim();
+    const trimmedName = normalizeChildName(profileDraftName);
     const draftBirthDateValue = parseBirthDateValue(profileDraftBirthDate);
+    const nameValidationError = getChildNameValidationError(profileDraftName, {
+      required: true,
+    });
 
-    if (trimmedName.length === 0) {
-      setProfilePromptError('Введите имя ребёнка');
+    if (nameValidationError) {
+      setProfilePromptError(nameValidationError);
       return;
     }
 

@@ -17,11 +17,13 @@ interface AppSettingsTestRow {
 class FakeAppSettingsDatabase {
   appSettingsRow: AppSettingsTestRow | null = null;
   hasActivePlan = false;
+  runSqls: string[] = [];
 
   async execAsync(): Promise<void> {}
 
   async runAsync(_sql: string, params: unknown[] = []): Promise<void> {
     const sql = _sql.replace(/\s+/g, ' ');
+    this.runSqls.push(sql);
 
     if (!sql.includes('INSERT INTO app_settings')) {
       return;
@@ -83,6 +85,7 @@ describe('app settings repository', () => {
       onboardingMode: 'tracking_only',
     });
     await expect(getOnboardingState(db)).resolves.toBe('tracking_only');
+    expect(db.runSqls.join('\n')).not.toContain('INSERT INTO target_day_plan');
   });
 
   it('moves onboarding state to plan saved', async () => {

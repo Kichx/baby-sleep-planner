@@ -482,6 +482,13 @@ Do not duplicate base-plan selection UI on `/first-run`. Age-band chips, `Ука
 
 From `/first-run`, `Пока просто записывать сны` should open a short local name prompt, save the child name through the existing profile repository, mark onboarding with `completeOnboardingTrackingOnly(db)`, and then replace navigation with `/`. It should not ask for birth date, notifications, feeding setup, export/import, or plan details.
 
+For the `/first-run` tracking-only name prompt:
+- keep the input empty by default; do not prefill or save `DEFAULT_CHILD_NAME`;
+- use the shared child-name helper in `src/core/childProfile.ts` for trim/max-length validation;
+- `Продолжить` with a non-empty trimmed name may call `updateChildProfileName`, but an empty trimmed name should skip the profile write and still complete tracking-only onboarding;
+- `Пропустить` is a completion action that writes `tracking_only` and replaces navigation with `/`, not a modal cancel;
+- do not call `updateChildProfile` from this prompt, because it can accidentally reset birth date or unrelated profile fields.
+
 Do not request or trigger notification permission while onboarding is `not_started` or `tracking_only`. Sleep reminder synchronization must return before loading fallback target plans or calling the shared notification permission helper unless onboarding is `plan_saved`; otherwise a fallback `DEFAULT_SLEEP_PLAN` can accidentally cause a notification permission prompt before the parent has chosen a plan.
 
 When `onboardingState === 'tracking_only'` and no active plan exists, `/sleep-plan` should show a valid empty-plan management state, not force the preset flow again and not show loading copy forever. The parent must still be able to create a plan later.

@@ -15,9 +15,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/PrimaryButton';
-import { DEFAULT_CHILD_NAME } from '@/constants/sleep';
 import { colors, radius, spacing } from '@/constants/theme';
-import { completeOnboardingTrackingOnly, updateChildProfile } from '@/db';
+import {
+  CHILD_NAME_MAX_LENGTH,
+  getChildNameValidationError,
+  normalizeChildName,
+} from '@/core/childProfile';
+import { completeOnboardingTrackingOnly, updateChildProfileName } from '@/db';
 
 const HOME_ROUTE = '/' as Href;
 const SLEEP_PLAN_ROUTE = '/sleep-plan?source=first-run&returnTo=home' as Href;
@@ -48,7 +52,7 @@ export default function FirstRunScreen() {
   const router = useRouter();
   const [isNamePromptVisible, setIsNamePromptVisible] = useState(false);
   const [isHowItWorksVisible, setIsHowItWorksVisible] = useState(false);
-  const [childName, setChildName] = useState(DEFAULT_CHILD_NAME);
+  const [childName, setChildName] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -63,6 +67,7 @@ export default function FirstRunScreen() {
     }
 
     setErrorMessage(null);
+    setChildName('');
     setIsNamePromptVisible(true);
   }
 
@@ -75,22 +80,30 @@ export default function FirstRunScreen() {
     setIsNamePromptVisible(false);
   }
 
-  async function startTrackingOnly() {
-    const trimmedName = childName.trim();
-
-    if (trimmedName.length === 0) {
-      setErrorMessage('Введите имя ребёнка');
+  async function startTrackingOnly(options: { saveName: boolean }) {
+    if (isSaving) {
       return;
     }
+
+    const validationError = options.saveName
+      ? getChildNameValidationError(childName, { required: false })
+      : null;
+
+    if (validationError) {
+      setErrorMessage(validationError);
+      return;
+    }
+
+    const trimmedName = normalizeChildName(childName);
 
     setIsSaving(true);
     setErrorMessage(null);
 
     try {
-      await updateChildProfile(db, {
-        birthDate: null,
-        name: trimmedName,
-      });
+      if (options.saveName && trimmedName.length > 0) {
+        await updateChildProfileName(db, trimmedName);
+      }
+
       await completeOnboardingTrackingOnly(db);
       router.replace(HOME_ROUTE);
     } catch {
@@ -156,18 +169,19 @@ export default function FirstRunScreen() {
           style={styles.modalRoot}>
           <Pressable style={styles.modalBackdrop} onPress={closeNamePrompt} />
           <View style={styles.bottomSheet}>
-            <Text style={styles.sheetTitle}>Имя ребёнка</Text>
-            <Text style={styles.sheetText}>Так записи сна будут понятнее. Изменить можно позже.</Text>
+            <Text style={styles.sheetTitle}>Как зовут ребёнка?</Text>
             {errorMessage ? <Text style={styles.sheetError}>{errorMessage}</Text> : null}
             <TextInput
+              accessibilityLabel="Имя ребёнка"
+              autoCapitalize="words"
               autoFocus
               editable={!isSaving}
-              maxLength={32}
+              maxLength={CHILD_NAME_MAX_LENGTH}
               onChangeText={(value) => {
                 setChildName(value);
                 setErrorMessage(null);
               }}
-              placeholder="Имя"
+              placeholder="Имя ребёнка"
               placeholderTextColor={colors.textMuted}
               returnKeyType="done"
               style={styles.nameInput}
@@ -177,19 +191,21 @@ export default function FirstRunScreen() {
               <Pressable
                 accessibilityRole="button"
                 disabled={isSaving}
-                onPress={closeNamePrompt}
+                onPress={() => {
+                  void startTrackingOnly({ saveName: false });
+                }}
                 style={({ pressed }) => [
                   styles.sheetSecondaryButton,
                   pressed && !isSaving ? styles.sheetButtonPressed : null,
                   isSaving ? styles.disabled : null,
                 ]}>
-                <Text style={styles.sheetSecondaryButtonText}>Отмена</Text>
+                <Text style={styles.sheetSecondaryButtonText}>Пропустить</Text>
               </Pressable>
               <Pressable
                 accessibilityRole="button"
                 disabled={isSaving}
                 onPress={() => {
-                  void startTrackingOnly();
+                  void startTrackingOnly({ saveName: true });
                 }}
                 style={({ pressed }) => [
                   styles.sheetPrimaryButton,
@@ -197,7 +213,7 @@ export default function FirstRunScreen() {
                   isSaving ? styles.disabled : null,
                 ]}>
                 <Text style={styles.sheetPrimaryButtonText}>
-                  {isSaving ? 'Сохраняем...' : 'Начать записи'}
+                  {isSaving ? 'Сохраняем...' : 'Продолжить'}
                 </Text>
               </Pressable>
             </View>
