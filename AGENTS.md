@@ -458,6 +458,24 @@ On `/sleep-plan`, first-run can offer two calm paths:
 - choose and confirm a base plan, which creates/activates `target_day_plan` and marks onboarding `plan_saved`;
 - `Пока просто записывать сны`, which marks onboarding `tracking_only` and leaves `target_day_plan` empty.
 
+Use a dedicated `src/app/first-run.tsx` route as the clean-install entry screen when onboarding is `not_started`. The main `/` screen should check `getOnboardingState(db)` before loading child profile, target plans, selected-day sessions, snapshots, recommendations, feeding data, or notification-derived state; if the state is `not_started`, replace navigation with `/first-run` so parents do not see the overloaded empty home screen.
+
+Keep `/first-run` intentionally smaller than `/sleep-plan`. It may show only:
+- title `План дня для сна малыша`;
+- one short value statement;
+- 2-3 example outputs such as next sleep, current awake time, and bedtime;
+- primary action `Выбрать План дня`;
+- secondary action `Пока просто записывать сны`;
+- `Как это работает` as a bottom sheet, not a separate help route.
+
+Do not put forecasts, scenario cards, retrospective, temporary modes, feeding, notifications, export/import, local-storage explanations, or detailed help on `/first-run`. The screen's job is to choose the next onboarding path, not to teach the full app.
+
+From `/first-run`, `Выбрать План дня` should navigate to `/sleep-plan` with explicit parameters such as `source=first-run` and `returnTo=home`. `/sleep-plan` should still require the existing explicit preset confirmation; after a plan is saved from this first-run path, replace navigation with `/` so the parent lands on the main sleep screen with the chosen plan. Do not create a plan merely by opening `/sleep-plan`.
+
+From `/first-run`, `Пока просто записывать сны` should open a short local name prompt, save the child name through the existing profile repository, mark onboarding with `completeOnboardingTrackingOnly(db)`, and then replace navigation with `/`. It should not ask for birth date, notifications, feeding setup, export/import, or plan details.
+
+Do not request or trigger notification permission while onboarding is `not_started` or `tracking_only`. Sleep reminder synchronization must return before loading fallback target plans or calling the shared notification permission helper unless onboarding is `plan_saved`; otherwise a fallback `DEFAULT_SLEEP_PLAN` can accidentally cause a notification permission prompt before the parent has chosen a plan.
+
 When `onboardingState === 'tracking_only'` and no active plan exists, `/sleep-plan` should show a valid empty-plan management state, not force the preset flow again and not show loading copy forever. The parent must still be able to create a plan later.
 
 When adding or changing onboarding persistence, bump `DATABASE_VERSION`, keep the fresh schema and migration idempotent with `CREATE TABLE IF NOT EXISTS` / additive changes, and do not use `DROP TABLE`, database resets, or `DELETE FROM` user data. Cover:

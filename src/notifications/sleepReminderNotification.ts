@@ -4,7 +4,7 @@ import { Platform } from 'react-native';
 import { colors } from '@/constants/theme';
 import { buildNextSleepReminder } from '@/core/sleepReminders';
 import { addMinutes, buildTodaySleepSnapshot, getDayStart } from '@/core/sleepCalculations';
-import { getTargetDayPlan, listSleepSessionsInRange } from '@/db';
+import { getOnboardingState, getTargetDayPlan, listSleepSessionsInRange } from '@/db';
 import {
   ensureExpoNotificationHandlerConfigured,
   hasNotificationPermission,
@@ -69,6 +69,12 @@ export async function syncSleepReminderNotificationFromDatabase(
   now = new Date(),
 ) {
   try {
+    const onboardingState = await getOnboardingState(db);
+
+    if (onboardingState !== 'plan_saved') {
+      return;
+    }
+
     const Notifications = await ensureSleepReminderNotificationsReady();
 
     if (!Notifications) {
@@ -127,4 +133,3 @@ export async function syncSleepReminderNotificationFromDatabase(
     // Notification state should never block sleep logging.
   }
 }
-

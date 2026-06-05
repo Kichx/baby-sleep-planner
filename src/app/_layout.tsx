@@ -32,6 +32,12 @@ export default function RootLayout() {
             }}
           />
           <Stack.Screen
+            name="first-run"
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
             name="profile"
             options={{
               title: 'Профиль',

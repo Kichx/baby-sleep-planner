@@ -92,6 +92,7 @@ import {
   getLatestBottleFeeding,
   getChildProfile,
   getLatestSleepSession,
+  getOnboardingState,
   getSleepDayPlan,
   listSleepDayTemporaryModes,
   listTargetDayPlans,
@@ -178,6 +179,7 @@ const DEFAULT_TIMER_REFRESH_MS = 30_000;
 const ACTIVE_SLEEP_DETAIL_REFRESH_MS = 1_000;
 const TIMELINE_ROW_HEIGHT = 62;
 const MAX_PAST_DAY_FEEDBACK_LINES = 3;
+const FIRST_RUN_ROUTE = '/first-run' as Href;
 const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
 const SLEEP_RETROSPECTIVE_ROUTE = '/sleep-retrospective' as Href;
 const BOTTLE_FEEDING_ROUTE = '/bottle-feeding' as Href;
@@ -889,6 +891,17 @@ export default function TodaySleepScreen() {
         setIsLoading(true);
 
         try {
+          const onboardingState = await getOnboardingState(db);
+
+          if (onboardingState === 'not_started') {
+            if (isActive) {
+              router.replace(FIRST_RUN_ROUTE);
+              setIsLoading(false);
+            }
+
+            return;
+          }
+
           const loadedData = await loadMainScreenData(selectedDate, loadedAt);
 
           if (isActive) {
@@ -911,7 +924,7 @@ export default function TodaySleepScreen() {
       return () => {
         isActive = false;
       };
-    }, [loadMainScreenData, selectedDate]),
+    }, [db, loadMainScreenData, router, selectedDate]),
   );
 
   const dayType = useMemo(() => getSelectedDayType(selectedDate, now), [now, selectedDate]);

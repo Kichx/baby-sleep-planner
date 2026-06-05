@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
-import { Stack, type Href, useRouter } from 'expo-router';
+import { Stack, type Href, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import {
   KeyboardAvoidingView,
@@ -303,6 +303,7 @@ interface ChildProfilePromptModalProps {
 
 const NAP_COUNT_OPTIONS = [1, 2, 3, 4, 5] as const;
 const DEFAULT_PLAN_NAME = 'Основной';
+const HOME_ROUTE = '/' as Href;
 const OFFICIAL_SLEEP_INFO_ROUTE = '/info?article=official-sleep-guidelines' as Href;
 const PRACTICAL_SLEEP_INFO_ROUTE = '/info?article=practical-sleep-guidelines' as Href;
 const WAKE_WINDOW_INFO_ROUTE = '/info?article=wake-window-guidelines' as Href;
@@ -314,6 +315,14 @@ const WAKE_UP_TOLERANCE_MINUTES = 10;
 
 function padTimePart(value: number): string {
   return value.toString().padStart(2, '0');
+}
+
+function getSearchParamValue(value: string | string[] | undefined): string | null {
+  if (Array.isArray(value)) {
+    return value[0] ?? null;
+  }
+
+  return value ?? null;
 }
 
 function formatClockMinutes(minutes: number): string {
@@ -2257,6 +2266,10 @@ function ChildProfilePromptModal({
 export default function SleepPlanScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
+  const searchParams = useLocalSearchParams<{
+    returnTo?: string | string[];
+    source?: string | string[];
+  }>();
   const scrollViewRef = useRef<ScrollView | null>(null);
   const planSectionYRef = useRef<number | null>(null);
   const planEditorYRef = useRef<number | null>(null);
@@ -2291,6 +2304,9 @@ export default function SleepPlanScreen() {
   const [isTemporaryModeSaving, setIsTemporaryModeSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [profilePromptError, setProfilePromptError] = useState<string | null>(null);
+  const shouldReturnHomeAfterFirstRun =
+    getSearchParamValue(searchParams.source) === 'first-run' &&
+    getSearchParamValue(searchParams.returnTo) === 'home';
 
   useEffect(() => {
     let isMounted = true;
@@ -2851,6 +2867,10 @@ export default function SleepPlanScreen() {
         // Notification sync is best-effort; plan selection should stay local and usable.
       }
 
+      if (shouldReturnHomeAfterFirstRun) {
+        router.replace(HOME_ROUTE);
+      }
+
       return true;
     } catch {
       setErrorMessage('Не удалось создать базовый план');
@@ -2879,6 +2899,10 @@ export default function SleepPlanScreen() {
       setActiveEditor(null);
       setNameEditorMode(null);
       setIsNapDropdownOpen(false);
+
+      if (shouldReturnHomeAfterFirstRun) {
+        router.replace(HOME_ROUTE);
+      }
     } catch {
       setErrorMessage('Не удалось сохранить стартовый выбор');
     } finally {
