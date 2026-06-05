@@ -468,6 +468,12 @@ Keep `/first-run` intentionally smaller than `/sleep-plan`. It may show only:
 - secondary action `Пока просто записывать сны`;
 - `Как это работает` as a bottom sheet, not a separate help route.
 
+The `/first-run` `Как это работает` bottom sheet should stay short and practical:
+- explain that the parent chooses a `План дня`;
+- explain that the app counts current wake time and suggests the next sleep;
+- explain that a day can be handled flexibly with softer scenarios after a difficult night or early wake-up.
+Use `Понятно` as the primary close action. An optional `Выбрать План дня` secondary action should close the sheet and navigate to `/sleep-plan?source=first-run&returnTo=home`. Closing the sheet must not write onboarding state, create a plan, write temporary modes, or navigate to `/info`. Do not use the word `идеальный` here and do not add medical, scientific, or research explanations.
+
 Do not put forecasts, scenario cards, retrospective, temporary modes, feeding, notifications, export/import, local-storage explanations, or detailed help on `/first-run`. The screen's job is to choose the next onboarding path, not to teach the full app.
 
 From `/first-run`, `Выбрать План дня` should navigate to `/sleep-plan` with explicit parameters such as `source=first-run` and `returnTo=home`. `/sleep-plan` should still require the existing explicit preset confirmation; after a plan is saved from this first-run path, replace navigation with `/` so the parent lands on the main sleep screen with the chosen plan. Do not create a plan merely by opening `/sleep-plan`.

@@ -22,8 +22,8 @@ import { completeOnboardingTrackingOnly, updateChildProfile } from '@/db';
 const HOME_ROUTE = '/' as Href;
 const SLEEP_PLAN_ROUTE = {
   params: {
-    returnTo: 'home',
     source: 'first-run',
+    returnTo: 'home',
   },
   pathname: '/sleep-plan',
 } as const;
