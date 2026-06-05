@@ -113,6 +113,10 @@ const CHILD_PROFILE_COLUMNS = [
 
 const APP_SETTINGS_COLUMNS = [
   {
+    definition: 'evening_plan_prompt_dismissed_date_key TEXT',
+    name: 'evening_plan_prompt_dismissed_date_key',
+  },
+  {
     definition: 'tracking_only_bridge_dismissed_date_key TEXT',
     name: 'tracking_only_bridge_dismissed_date_key',
   },

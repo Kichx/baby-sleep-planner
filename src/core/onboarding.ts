@@ -1,4 +1,6 @@
-import type { AppSettings, OnboardingState } from '@/types/appSettings';
+import type { AppSettings, OnboardingMode, OnboardingState } from '@/types/appSettings';
+
+export const EVENING_PLAN_PROMPT_START_MINUTES = 18 * 60;
 
 interface DeriveOnboardingStateInput {
   appSettings: Pick<AppSettings, 'onboardingMode'> | null;
@@ -18,4 +20,34 @@ export function deriveOnboardingState({
   }
 
   return 'not_started';
+}
+
+interface ShouldShowEveningPlanPromptInput {
+  dismissedDateKey: string | null;
+  hasActiveTargetDayPlan: boolean;
+  isSelectedDateToday: boolean;
+  nowMinutesFromMidnight: number;
+  onboardingMode: OnboardingMode | null;
+  sleepDayDateKey: string | null;
+  sleepSessionCount: number;
+}
+
+export function shouldShowEveningPlanPrompt({
+  dismissedDateKey,
+  hasActiveTargetDayPlan,
+  isSelectedDateToday,
+  nowMinutesFromMidnight,
+  onboardingMode,
+  sleepDayDateKey,
+  sleepSessionCount,
+}: ShouldShowEveningPlanPromptInput): boolean {
+  return (
+    onboardingMode === 'tracking_only' &&
+    !hasActiveTargetDayPlan &&
+    isSelectedDateToday &&
+    sleepSessionCount > 0 &&
+    nowMinutesFromMidnight >= EVENING_PLAN_PROMPT_START_MINUTES &&
+    sleepDayDateKey !== null &&
+    dismissedDateKey !== sleepDayDateKey
+  );
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { deriveOnboardingState } from '@/core/onboarding';
+import { deriveOnboardingState, shouldShowEveningPlanPrompt } from '@/core/onboarding';
 
 describe('onboarding state derivation', () => {
   it('treats an empty first-run database as not started', () => {
@@ -37,5 +37,34 @@ describe('onboarding state derivation', () => {
         hasActiveTargetDayPlan: true,
       }),
     ).toBe('plan_saved');
+  });
+});
+
+describe('evening plan prompt visibility', () => {
+  const baseInput = {
+    dismissedDateKey: null,
+    hasActiveTargetDayPlan: false,
+    isSelectedDateToday: true,
+    nowMinutesFromMidnight: 18 * 60,
+    onboardingMode: 'tracking_only' as const,
+    sleepDayDateKey: '2026-06-05',
+    sleepSessionCount: 1,
+  };
+
+  it('shows for tracking-only users in the evening after a sleep record exists', () => {
+    expect(shouldShowEveningPlanPrompt(baseInput)).toBe(true);
+  });
+
+  it.each([
+    ['plan is already active', { hasActiveTargetDayPlan: true }],
+    ['selected date is not today', { isSelectedDateToday: false }],
+    ['there are no sleep records', { sleepSessionCount: 0 }],
+    ['local time is before 18:00', { nowMinutesFromMidnight: 17 * 60 + 59 }],
+    ['prompt was dismissed for this sleep day', { dismissedDateKey: '2026-06-05' }],
+    ['sleep day key is missing', { sleepDayDateKey: null }],
+    ['onboarding is plan-saved', { onboardingMode: 'plan_saved' as const }],
+    ['onboarding is not started', { onboardingMode: null }],
+  ])('hides when %s', (_caseName, override) => {
+    expect(shouldShowEveningPlanPrompt({ ...baseInput, ...override })).toBe(false);
   });
 });

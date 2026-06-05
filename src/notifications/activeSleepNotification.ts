@@ -3,7 +3,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { colors } from '@/constants/theme';
 import { formatLocalClock } from '@/core/localDateTime';
-import { getActiveSleepSession } from '@/db';
+import { getActiveSleepSession, getOnboardingState } from '@/db';
 import {
   canUseAndroidNativeNotifications,
   ensureExpoNotificationHandlerConfigured,
@@ -162,6 +162,12 @@ export async function syncActiveSleepNotificationFromDatabase(
   now = new Date(),
 ) {
   try {
+    const onboardingState = await getOnboardingState(db);
+
+    if (onboardingState !== 'plan_saved') {
+      return;
+    }
+
     const activeSession = await getActiveSleepSession(db);
 
     if (activeSession) {

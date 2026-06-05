@@ -442,15 +442,15 @@ The app has an explicit app-level onboarding state. A clean database with no `ap
 Keep onboarding state separate from child profile, sleep sessions, target plans, temporary modes, snapshots, and backup/import format unless a later task explicitly asks for those formats to change. The current minimal storage is `app_settings`:
 - `onboarding_completed_at`;
 - `onboarding_mode`, where valid saved modes are `tracking_only` and `plan_saved`;
-- `evening_plan_prompt_dismissed_date_key` for a future evening-plan prompt;
-- `tracking_only_bridge_dismissed_date_key` for hiding the main-screen plan bridge only for one local day.
+- `evening_plan_prompt_dismissed_date_key` for hiding the main-screen evening plan prompt only for one sleep-day;
+- `tracking_only_bridge_dismissed_date_key` is legacy state for the old always-visible tracking-only bridge and must not drive new main-screen plan prompts unless a later task explicitly revives that behavior.
 
 Use the existing app settings repository for app-level flags:
 - `getOnboardingState(db)` for derived state;
 - `completeOnboardingTrackingOnly(db)` after the parent chooses `Пока просто записывать сны`;
 - `markOnboardingPlanSaved(db)` after an explicit target day plan save/activation;
-- `dismissEveningPlanPrompt(db, dateKey)` if the evening prompt is implemented later;
-- `dismissTrackingOnlyBridgePrompt(db, dateKey)` when the parent taps `Скрыть пока` on the main-screen tracking-only bridge.
+- `dismissEveningPlanPrompt(db, dateKey)` when the parent taps `Не сегодня` on the main-screen evening plan prompt;
+- `dismissTrackingOnlyBridgePrompt(db, dateKey)` only for legacy bridge compatibility.
 
 Keep derivation pure in `src/core/onboarding.ts`. `deriveOnboardingState` must treat an existing active `target_day_plan` as `plan_saved` so old databases with a plan do not return to first-run, but it must treat an empty plan list without app settings as `not_started`.
 
@@ -491,26 +491,31 @@ For the `/first-run` tracking-only name prompt:
 - `Пропустить` is a completion action that writes `tracking_only` and replaces navigation with `/`, not a modal cancel;
 - do not call `updateChildProfile` from this prompt, because it can accidentally reset birth date or unrelated profile fields.
 
-Do not request or trigger notification permission while onboarding is `not_started` or `tracking_only`. Sleep reminder synchronization must return before loading fallback target plans or calling the shared notification permission helper unless onboarding is `plan_saved`; otherwise a fallback `DEFAULT_SLEEP_PLAN` can accidentally cause a notification permission prompt before the parent has chosen a plan.
+Do not request or trigger notification permission while onboarding is `not_started` or `tracking_only`. Sleep reminder and active-sleep notification synchronization must return before loading fallback target plans, active sessions, or calling the shared notification permission helper unless onboarding is `plan_saved`; otherwise tracking-only sleep logging can accidentally cause a notification permission prompt before the parent has chosen a plan.
 
-When `onboardingState === 'tracking_only'` and no active `target_day_plan` exists, the main `/` screen must render a real tracking-only bridge state instead of plan-based recommendations from fallback `DEFAULT_SLEEP_PLAN`.
+When `onboardingState === 'tracking_only'` and no active `target_day_plan` exists, the main `/` screen must render a real tracking-only factual state instead of plan-based recommendations from fallback `DEFAULT_SLEEP_PLAN`.
 
-In this main-screen bridge state:
-- `loadMainScreenData` or the nearest view-model layer should expose `hasActiveTargetPlan`, `onboardingMode`, and `isTrackingOnlyBridge`;
+In this main-screen tracking-only state:
+- `loadMainScreenData` or the nearest view-model layer should expose `hasActiveTargetPlan`, `onboardingMode`, and `eveningPlanPromptDismissedDateKey`;
 - show the current factual sleep/awake status when it can be derived from real sleep sessions, the `Начать сон` / `Завершить сон` action, `Внести сон`, the factual timeline, and a simple empty hint when there are no sleep records;
-- show a calm card titled `План дня пока не выбран` with primary `Выбрать План дня` linking to `/sleep-plan?source=tracking-bridge&returnTo=home` and secondary `Скрыть пока`;
-- `Скрыть пока` writes only `tracking_only_bridge_dismissed_date_key` for the current local day and must not complete or leave tracking-only mode.
+- show the evening plan prompt only when all conditions are true: `onboarding_mode = tracking_only`, no active `target_day_plan`, selected date is today, at least one sleep record exists in the current sleep-day, local time is `18:00` or later, and `evening_plan_prompt_dismissed_date_key` is not the current sleep-day key;
+- keep the prompt text exactly calm and optional: title `Уже есть первые записи сна`, primary `Выбрать План дня`, secondary `Не сегодня`;
+- `Выбрать План дня` routes to `/sleep-plan?source=evening-prompt&returnTo=home`;
+- `Не сегодня` writes only `evening_plan_prompt_dismissed_date_key` for the current sleep-day and must not complete or leave tracking-only mode, create plans, write temporary modes, or request notifications.
 
-In this main-screen bridge state, do not show `Следующий сон`, `Прогноз ночи`, `До цели бодрств.`, `Сценарии`, `Проверка и расчёт`, temporary-mode badges, early-wake suggestions, share text based on a plan, or any forecast/recommendation derived from fallback `DEFAULT_SLEEP_PLAN`.
+Keep evening prompt visibility in pure core code such as `shouldShowEveningPlanPrompt(...)` in `src/core/onboarding.ts`; the UI should pass already-derived facts such as current sleep-day key, sleep session count, local minutes from midnight, onboarding mode, active-plan state, and dismissed key.
 
-When `onboardingState === 'tracking_only'` and no active plan exists, `/sleep-plan` should show a valid empty-plan management state, not force the preset flow again and not show loading copy forever. The parent must still be able to create a plan later.
+In this main-screen tracking-only state, do not show `Следующий сон`, `Прогноз ночи`, `До цели бодрств.`, `Сценарии`, `Проверка и расчёт`, temporary-mode badges, early-wake suggestions, share text based on a plan, or any forecast/recommendation derived from fallback `DEFAULT_SLEEP_PLAN`.
+
+When `onboardingState === 'tracking_only'` and no active plan exists, `/sleep-plan` should show a valid empty-plan management state for ordinary visits, but `/sleep-plan?source=evening-prompt&returnTo=home` should open the existing explicit preset flow so `Выбрать План дня` from the evening card is actionable. After the parent explicitly saves a plan from that route, replace navigation with `/`.
 
 When adding or changing onboarding persistence, bump `DATABASE_VERSION`, keep the fresh schema and migration idempotent with `CREATE TABLE IF NOT EXISTS` / additive changes, and do not use `DROP TABLE`, database resets, or `DELETE FROM` user data. Cover:
 - pure onboarding derivation: `not_started`, `tracking_only`, `plan_saved`, and old database with active plan;
 - schema/migration guard for `app_settings`;
 - `tracking_only` save;
-- tracking-only bridge dismissal for one local day without writing `target_day_plan`;
+- evening plan prompt visibility and dismissal for one sleep-day without writing `target_day_plan`;
 - `target_day_plan` save/activation marks `plan_saved`;
+- notification synchronization does not request permissions in `not_started` or `tracking_only`;
 - fallback plan reads do not insert into `target_day_plan`.
 
 ## Implementation lessons from date-based UI work

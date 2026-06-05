@@ -46,9 +46,11 @@ import {
   formatLocalClock,
   formatLocalDateLabel,
   getLocalCalendarDayDiff,
+  getLocalMinutesFromMidnight,
   isSameLocalCalendarDay,
   startOfLocalCalendarDay,
 } from '@/core/localDateTime';
+import { shouldShowEveningPlanPrompt } from '@/core/onboarding';
 import {
   dateFromSleepDayDateKey,
   formatSleepDayDateKey,
@@ -87,7 +89,7 @@ import {
   createSleepSession,
   deleteBottleFeeding,
   deleteSleepSession,
-  dismissTrackingOnlyBridgePrompt,
+  dismissEveningPlanPrompt,
   dismissSleepDayTemporaryModeSuggestion,
   enableSleepDayTemporaryMode,
   getAppSettings,
@@ -166,11 +168,10 @@ interface LoadedSelectedDayData {
 
 interface LoadedMainScreenData extends LoadedSelectedDayData {
   availablePlans: TargetDayPlan[];
+  eveningPlanPromptDismissedDateKey: string | null;
   hasActiveTargetPlan: boolean;
-  isTrackingOnlyBridge: boolean;
   onboardingMode: OnboardingMode | null;
   profile: ChildProfile;
-  trackingOnlyBridgeDismissedDateKey: string | null;
 }
 
 interface SessionDayGroup {
@@ -188,8 +189,8 @@ const TIMELINE_ROW_HEIGHT = 62;
 const MAX_PAST_DAY_FEEDBACK_LINES = 3;
 const FIRST_RUN_ROUTE = '/first-run' as Href;
 const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
-const TRACKING_BRIDGE_SLEEP_PLAN_ROUTE =
-  '/sleep-plan?source=tracking-bridge&returnTo=home' as Href;
+const EVENING_PROMPT_SLEEP_PLAN_ROUTE =
+  '/sleep-plan?source=evening-prompt&returnTo=home' as Href;
 const SLEEP_RETROSPECTIVE_ROUTE = '/sleep-retrospective' as Href;
 const BOTTLE_FEEDING_ROUTE = '/bottle-feeding' as Href;
 const OFFICIAL_SLEEP_SOURCE_SUMMARY =
@@ -724,8 +725,7 @@ export default function TodaySleepScreen() {
   const [availablePlans, setAvailablePlans] = useState<TargetDayPlan[]>([]);
   const [hasActiveTargetPlan, setHasActiveTargetPlan] = useState(false);
   const [onboardingMode, setOnboardingMode] = useState<OnboardingMode | null>(null);
-  const [isTrackingOnlyBridge, setIsTrackingOnlyBridge] = useState(false);
-  const [trackingOnlyBridgeDismissedDateKey, setTrackingOnlyBridgeDismissedDateKey] =
+  const [eveningPlanPromptDismissedDateKey, setEveningPlanPromptDismissedDateKey] =
     useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [now, setNow] = useState(() => new Date());
@@ -875,12 +875,11 @@ export default function TodaySleepScreen() {
       return {
         ...selectedDayData,
         availablePlans: plans,
+        eveningPlanPromptDismissedDateKey:
+          appSettings.eveningPlanPromptDismissedDateKey,
         hasActiveTargetPlan: hasActivePlan,
-        isTrackingOnlyBridge: loadedOnboardingMode === 'tracking_only' && !hasActivePlan,
         onboardingMode: loadedOnboardingMode,
         profile,
-        trackingOnlyBridgeDismissedDateKey:
-          appSettings.trackingOnlyBridgeDismissedDateKey,
       };
     },
     [db, loadSelectedDayData],
@@ -909,9 +908,8 @@ export default function TodaySleepScreen() {
     setAvailablePlans(loadedData.availablePlans);
     setHasActiveTargetPlan(loadedData.hasActiveTargetPlan);
     setOnboardingMode(loadedData.onboardingMode);
-    setIsTrackingOnlyBridge(loadedData.isTrackingOnlyBridge);
-    setTrackingOnlyBridgeDismissedDateKey(
-      loadedData.trackingOnlyBridgeDismissedDateKey,
+    setEveningPlanPromptDismissedDateKey(
+      loadedData.eveningPlanPromptDismissedDateKey,
     );
     applySelectedDayData(loadedData, currentNow);
   }
@@ -1197,16 +1195,20 @@ export default function TodaySleepScreen() {
     : isSleeping
       ? 'Завершить сон'
       : 'Начать сон';
-  const currentDateKey = formatSleepDayDateKey(now);
+  const currentSleepDayDateKey = sleepDayPlan?.sleepDayDate ?? null;
   const shouldShowPlanBasedUi = hasActiveTargetPlan;
   const hasSelectedSleepRecords = selectedSessionsForDay.length > 0;
   const hasCurrentStatusFact =
     isSleeping || selectedSessionsForDay.some((session) => session.endedAt !== null);
-  const shouldShowTrackingOnlyBridgeCard =
-    isToday &&
-    isTrackingOnlyBridge &&
-    onboardingMode === 'tracking_only' &&
-    trackingOnlyBridgeDismissedDateKey !== currentDateKey;
+  const shouldShowEveningPlanPromptCard = shouldShowEveningPlanPrompt({
+    dismissedDateKey: eveningPlanPromptDismissedDateKey,
+    hasActiveTargetDayPlan: hasActiveTargetPlan,
+    isSelectedDateToday: isToday,
+    nowMinutesFromMidnight: getLocalMinutesFromMidnight(now),
+    onboardingMode,
+    sleepDayDateKey: currentSleepDayDateKey,
+    sleepSessionCount: selectedSessionsForDay.length,
+  });
   const hasPastDayRecords = daySummary.sleepSessionCount > 0;
   const pastDayTotalSleepMinutes = daySummary.totalDaySleepMinutes + daySummary.totalNightSleepMinutes;
   const pastDayOfficialSleepCheck = useMemo(
@@ -1331,8 +1333,8 @@ export default function TodaySleepScreen() {
     router.push(SLEEP_PLAN_ROUTE);
   }
 
-  function openTrackingBridgeSleepPlan() {
-    router.push(TRACKING_BRIDGE_SLEEP_PLAN_ROUTE);
+  function openEveningPromptSleepPlan() {
+    router.push(EVENING_PROMPT_SLEEP_PLAN_ROUTE);
   }
 
   function openRetrospective() {
@@ -1387,24 +1389,24 @@ export default function TodaySleepScreen() {
     void syncSleepNotificationsFromDatabase(db, actionAt).catch(() => undefined);
   }
 
-  async function handleDismissTrackingOnlyBridge() {
-    if (!isToday || !isTrackingOnlyBridge) {
+  async function handleDismissEveningPlanPrompt() {
+    if (!isToday || !currentSleepDayDateKey) {
       return;
     }
 
     const actionAt = new Date();
-    const dateKey = formatSleepDayDateKey(actionAt);
-    const previousDismissedDateKey = trackingOnlyBridgeDismissedDateKey;
+    const dateKey = currentSleepDayDateKey;
+    const previousDismissedDateKey = eveningPlanPromptDismissedDateKey;
 
     setIsSaving(true);
     setErrorMessage(null);
     setNow(actionAt);
-    setTrackingOnlyBridgeDismissedDateKey(dateKey);
+    setEveningPlanPromptDismissedDateKey(dateKey);
 
     try {
-      await dismissTrackingOnlyBridgePrompt(db, dateKey);
+      await dismissEveningPlanPrompt(db, dateKey);
     } catch {
-      setTrackingOnlyBridgeDismissedDateKey(previousDismissedDateKey);
+      setEveningPlanPromptDismissedDateKey(previousDismissedDateKey);
       setErrorMessage('Не удалось скрыть подсказку');
     } finally {
       setIsSaving(false);
@@ -1657,34 +1659,35 @@ export default function TodaySleepScreen() {
     }
   }
 
-  function renderTrackingOnlyBridgeCard() {
-    if (!shouldShowTrackingOnlyBridgeCard) {
+  function renderEveningPlanPromptCard() {
+    if (!shouldShowEveningPlanPromptCard) {
       return null;
     }
 
     return (
-      <View style={styles.trackingBridgeCard}>
-        <Text style={styles.trackingBridgeTitle}>План дня пока не выбран</Text>
-        <Text style={styles.trackingBridgeText}>
-          Можно просто записывать сны. Когда будете готовы, приложение начнёт подсказывать
-          следующий сон, бодрствование и примерный отбой.
+      <View style={styles.eveningPlanPromptCard}>
+        <Text style={styles.eveningPlanPromptTitle}>Уже есть первые записи сна</Text>
+        <Text style={styles.eveningPlanPromptText}>
+          {
+            'Если выбрать План дня, приложение сможет подсказывать следующий сон, примерный отбой и мягко сравнивать день с ориентиром.'
+          }
         </Text>
-        <View style={styles.trackingBridgeActions}>
+        <View style={styles.eveningPlanPromptActions}>
           <PrimaryButton
             compact
             disabled={isLoading || isSaving}
             label="Выбрать План дня"
-            onPress={openTrackingBridgeSleepPlan}
-            style={styles.trackingBridgeButton}
-            textStyle={styles.trackingBridgeButtonText}
+            onPress={openEveningPromptSleepPlan}
+            style={styles.eveningPlanPromptButton}
+            textStyle={styles.eveningPlanPromptButtonText}
           />
           <PrimaryButton
             compact
             disabled={isLoading || isSaving}
-            label="Скрыть пока"
-            onPress={handleDismissTrackingOnlyBridge}
-            style={styles.trackingBridgeButton}
-            textStyle={styles.trackingBridgeButtonText}
+            label="Не сегодня"
+            onPress={handleDismissEveningPlanPrompt}
+            style={styles.eveningPlanPromptButton}
+            textStyle={styles.eveningPlanPromptButtonText}
             variant="secondary"
           />
         </View>
@@ -1876,7 +1879,7 @@ export default function TodaySleepScreen() {
             </View>
           </View>
 
-          {renderTrackingOnlyBridgeCard()}
+          {renderEveningPlanPromptCard()}
 
           {isToday || !hasActiveTargetPlan ? null : renderSleepDayPlanBar()}
 
@@ -2742,7 +2745,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
-  trackingBridgeCard: {
+  eveningPlanPromptCard: {
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.primarySoft,
@@ -2750,27 +2753,27 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     gap: spacing.sm,
   },
-  trackingBridgeTitle: {
+  eveningPlanPromptTitle: {
     color: colors.text,
     fontSize: 18,
     fontWeight: '900',
   },
-  trackingBridgeText: {
+  eveningPlanPromptText: {
     color: colors.textMuted,
     fontSize: 15,
     fontWeight: '700',
     lineHeight: 21,
   },
-  trackingBridgeActions: {
+  eveningPlanPromptActions: {
     flexDirection: 'row',
     gap: spacing.sm,
   },
-  trackingBridgeButton: {
+  eveningPlanPromptButton: {
     flex: 1,
     minHeight: 50,
     paddingHorizontal: spacing.sm,
   },
-  trackingBridgeButtonText: {
+  eveningPlanPromptButtonText: {
     fontSize: 15,
   },
   trackingOnlyEmptyCard: {

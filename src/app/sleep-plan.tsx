@@ -2309,11 +2309,13 @@ export default function SleepPlanScreen() {
   const [isTemporaryModeSaving, setIsTemporaryModeSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [profilePromptError, setProfilePromptError] = useState<string | null>(null);
+  const routeSource = getSearchParamValue(searchParams.source);
   const isFirstRunPlanSelection =
-    onboardingState === 'not_started' &&
-    getSearchParamValue(searchParams.source) === 'first-run';
-  const shouldReturnHomeAfterFirstRun =
-    isFirstRunPlanSelection &&
+    onboardingState === 'not_started' && routeSource === 'first-run';
+  const isEveningPromptPlanSelection =
+    onboardingState === 'tracking_only' && routeSource === 'evening-prompt';
+  const shouldReturnHomeAfterPlanChoice =
+    (isFirstRunPlanSelection || isEveningPromptPlanSelection) &&
     getSearchParamValue(searchParams.returnTo) === 'home';
 
   useEffect(() => {
@@ -2364,7 +2366,8 @@ export default function SleepPlanScreen() {
   );
   const activePlan = useMemo(() => plans.find((plan) => plan.isActive) ?? null, [plans]);
   const isPresetFlowVisible =
-    (!activePlan && onboardingState === 'not_started') || isPresetFlowOpen;
+    (!activePlan && (onboardingState === 'not_started' || isEveningPromptPlanSelection)) ||
+    isPresetFlowOpen;
   const isPresetManualMode = isPresetFlowVisible && presetFlowMode === 'manual';
   const todaySleepDayKey = useMemo(
     () => (activePlan ? getSleepDayDateKeyForDate(new Date(), activePlan.plan) : null),
@@ -2878,7 +2881,7 @@ export default function SleepPlanScreen() {
         // Notification sync is best-effort; plan selection should stay local and usable.
       }
 
-      if (shouldReturnHomeAfterFirstRun) {
+      if (shouldReturnHomeAfterPlanChoice) {
         router.replace(HOME_ROUTE);
       }
 
@@ -2911,7 +2914,7 @@ export default function SleepPlanScreen() {
       setNameEditorMode(null);
       setIsNapDropdownOpen(false);
 
-      if (shouldReturnHomeAfterFirstRun) {
+      if (shouldReturnHomeAfterPlanChoice) {
         router.replace(HOME_ROUTE);
       }
     } catch {

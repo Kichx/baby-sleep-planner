@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   completeOnboardingTrackingOnly,
+  dismissEveningPlanPrompt,
   dismissTrackingOnlyBridgePrompt,
   getOnboardingState,
   markOnboardingPlanSaved,
@@ -31,7 +32,27 @@ class FakeAppSettingsDatabase {
       return;
     }
 
-    if (sql.includes('tracking_only_bridge_dismissed_date_key')) {
+    if (
+      sql.includes('evening_plan_prompt_dismissed_date_key') &&
+      !sql.includes("'tracking_only'") &&
+      !sql.includes("'plan_saved'")
+    ) {
+      this.appSettingsRow = {
+        evening_plan_prompt_dismissed_date_key: String(params[1]),
+        id: String(params[0]),
+        onboarding_completed_at: this.appSettingsRow?.onboarding_completed_at ?? null,
+        onboarding_mode: this.appSettingsRow?.onboarding_mode ?? null,
+        tracking_only_bridge_dismissed_date_key:
+          this.appSettingsRow?.tracking_only_bridge_dismissed_date_key ?? null,
+      };
+
+      return;
+    }
+
+    if (
+      sql.includes('tracking_only_bridge_dismissed_date_key') &&
+      !sql.includes('onboarding_mode')
+    ) {
       this.appSettingsRow = {
         evening_plan_prompt_dismissed_date_key:
           this.appSettingsRow?.evening_plan_prompt_dismissed_date_key ?? null,
@@ -139,6 +160,20 @@ describe('app settings repository', () => {
     expect(settings).toMatchObject({
       onboardingMode: 'tracking_only',
       trackingOnlyBridgeDismissedDateKey: '2026-06-05',
+    });
+    await expect(getOnboardingState(db)).resolves.toBe('tracking_only');
+    expect(db.runSqls.join('\n')).not.toContain('INSERT INTO target_day_plan');
+  });
+
+  it('dismisses the evening plan prompt for one sleep day without changing onboarding mode', async () => {
+    const db = createFakeDatabase();
+
+    await completeOnboardingTrackingOnly(db);
+    const settings = await dismissEveningPlanPrompt(db, '2026-06-05');
+
+    expect(settings).toMatchObject({
+      eveningPlanPromptDismissedDateKey: '2026-06-05',
+      onboardingMode: 'tracking_only',
     });
     await expect(getOnboardingState(db)).resolves.toBe('tracking_only');
     expect(db.runSqls.join('\n')).not.toContain('INSERT INTO target_day_plan');
