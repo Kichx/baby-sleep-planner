@@ -169,8 +169,11 @@ describe('sleep repository target plan fallback', () => {
     expect(db.runSqls.join('\n')).not.toContain('INSERT INTO target_day_plan');
   });
 
-  it('marks onboarding as plan saved after an explicit target day plan save', async () => {
+  it('creates target_day_plan only after an explicit target day plan save', async () => {
     const db = createFakeDatabase();
+
+    await expect(listTargetDayPlans(db)).resolves.toEqual([]);
+    expect(db.targetPlanRows).toHaveLength(0);
 
     const createdPlan = await createTargetDayPlan(db, {
       eveningRulesMode: 'auto',

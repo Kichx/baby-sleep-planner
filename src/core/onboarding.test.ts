@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { deriveOnboardingState, shouldShowEveningPlanPrompt } from '@/core/onboarding';
+import {
+  deriveOnboardingState,
+  getSleepPlanChoiceNavigationAction,
+  shouldShowEveningPlanPrompt,
+} from '@/core/onboarding';
 
 describe('onboarding state derivation', () => {
   it('treats an empty first-run database as not started', () => {
@@ -66,5 +70,52 @@ describe('evening plan prompt visibility', () => {
     ['onboarding is not started', { onboardingMode: null }],
   ])('hides when %s', (_caseName, override) => {
     expect(shouldShowEveningPlanPrompt({ ...baseInput, ...override })).toBe(false);
+  });
+
+  it('shows again for the next sleep day after a previous-day dismiss', () => {
+    expect(
+      shouldShowEveningPlanPrompt({
+        ...baseInput,
+        dismissedDateKey: '2026-06-04',
+        sleepDayDateKey: '2026-06-05',
+      }),
+    ).toBe(true);
+  });
+});
+
+describe('sleep-plan choice navigation', () => {
+  it('returns replace-home action after first-run plan save with home return target', () => {
+    expect(
+      getSleepPlanChoiceNavigationAction({
+        onboardingState: 'not_started',
+        returnTo: 'home',
+        source: 'first-run',
+      }),
+    ).toEqual({
+      href: '/',
+      type: 'replace',
+    });
+  });
+
+  it('returns replace-home action after evening prompt plan save with home return target', () => {
+    expect(
+      getSleepPlanChoiceNavigationAction({
+        onboardingState: 'tracking_only',
+        returnTo: 'home',
+        source: 'evening-prompt',
+      }),
+    ).toEqual({
+      href: '/',
+      type: 'replace',
+    });
+  });
+
+  it.each([
+    ['ordinary sleep-plan route', { onboardingState: 'plan_saved' as const, returnTo: null, source: null }],
+    ['first-run source after onboarding is no longer not_started', { onboardingState: 'plan_saved' as const, returnTo: 'home', source: 'first-run' }],
+    ['first-run source without home return target', { onboardingState: 'not_started' as const, returnTo: null, source: 'first-run' }],
+    ['evening source before tracking-only state', { onboardingState: 'not_started' as const, returnTo: 'home', source: 'evening-prompt' }],
+  ])('does not navigate for %s', (_caseName, input) => {
+    expect(getSleepPlanChoiceNavigationAction(input)).toBeNull();
   });
 });

@@ -526,6 +526,18 @@ When adding or changing onboarding persistence, bump `DATABASE_VERSION`, keep th
 - first manual sleep entry without a plan does not import/configure notification scheduling or ask for permission;
 - fallback plan reads do not insert into `target_day_plan`.
 
+Keep first-run/tracking-only view decisions in pure core helpers when possible. For the main `/` screen, use a small view-state helper such as `deriveMainScreenSleepUiState(...)` to make the permanent boundary explicit: no active `target_day_plan` hides plan predictions, but start/stop sleep, manual sleep entry, and the factual timeline stay available.
+
+Keep `/sleep-plan` return behavior after preset/manual plan save in pure onboarding/navigation decision code such as `getSleepPlanChoiceNavigationAction(...)`. `source=first-run&returnTo=home` should replace to `/` only while onboarding is still `not_started`; `source=evening-prompt&returnTo=home` should replace to `/` only while onboarding is `tracking_only`. Ordinary `/sleep-plan` visits and stale query params after onboarding is complete must stay in normal plan management.
+
+When adding tests for first-run/tracking-only flows, prefer fast pure/repository tests over fragile React Native render tests unless the visual tree itself changed. Cover:
+- onboarding state derivation and repository transitions;
+- fallback plan reads without `target_day_plan` writes;
+- explicit plan save/activation as the only target-plan creation path;
+- main-screen no-plan UI state: predictions hidden, factual actions and timeline available;
+- evening prompt morning/no-session/evening/dismissed/plan-saved cases;
+- `/sleep-plan` first-run/evening-prompt return navigation and ordinary non-return flow.
+
 ## Implementation lessons from date-based UI work
 
 When adding date navigation or history screens, verify every date mode explicitly:

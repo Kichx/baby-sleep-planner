@@ -50,6 +50,7 @@ import {
   isSameLocalCalendarDay,
   startOfLocalCalendarDay,
 } from '@/core/localDateTime';
+import { deriveMainScreenSleepUiState } from '@/core/mainScreenFlow';
 import { shouldShowEveningPlanPrompt } from '@/core/onboarding';
 import {
   dateFromSleepDayDateKey,
@@ -1210,8 +1211,13 @@ export default function TodaySleepScreen() {
       ? 'Завершить сон'
       : 'Начать сон';
   const currentSleepDayDateKey = sleepDayPlan?.sleepDayDate ?? null;
-  const shouldShowPlanBasedUi = hasActiveTargetPlan;
-  const hasSelectedSleepRecords = selectedSessionsForDay.length > 0;
+  const mainScreenSleepUi = deriveMainScreenSleepUiState({
+    hasActiveTargetPlan,
+    isSelectedDateToday: isToday,
+    selectedSleepSessionCount: selectedSessionsForDay.length,
+  });
+  const shouldShowPlanBasedUi = mainScreenSleepUi.showPlanBasedPredictions;
+  const hasSelectedSleepRecords = mainScreenSleepUi.hasActualSleepRecords;
   const hasCurrentStatusFact =
     isSleeping || selectedSessionsForDay.some((session) => session.endedAt !== null);
   const shouldShowEveningPlanPromptCard = shouldShowEveningPlanPrompt({

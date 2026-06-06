@@ -36,6 +36,7 @@ import {
   getChildNameValidationError,
   normalizeChildName,
 } from '@/core/childProfile';
+import { getSleepPlanChoiceNavigationAction } from '@/core/onboarding';
 import {
   calculateTotalSleepRangeFromWakeRange,
   checkTotalSleepRangeAgainstOfficialGuideline,
@@ -308,7 +309,6 @@ interface ChildProfilePromptModalProps {
 
 const NAP_COUNT_OPTIONS = [1, 2, 3, 4, 5] as const;
 const DEFAULT_PLAN_NAME = 'Основной';
-const HOME_ROUTE = '/' as Href;
 const OFFICIAL_SLEEP_INFO_ROUTE = '/info?article=official-sleep-guidelines' as Href;
 const PRACTICAL_SLEEP_INFO_ROUTE = '/info?article=practical-sleep-guidelines' as Href;
 const WAKE_WINDOW_INFO_ROUTE = '/info?article=wake-window-guidelines' as Href;
@@ -2310,13 +2310,14 @@ export default function SleepPlanScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [profilePromptError, setProfilePromptError] = useState<string | null>(null);
   const routeSource = getSearchParamValue(searchParams.source);
-  const isFirstRunPlanSelection =
-    onboardingState === 'not_started' && routeSource === 'first-run';
+  const routeReturnTo = getSearchParamValue(searchParams.returnTo);
   const isEveningPromptPlanSelection =
     onboardingState === 'tracking_only' && routeSource === 'evening-prompt';
-  const shouldReturnHomeAfterPlanChoice =
-    (isFirstRunPlanSelection || isEveningPromptPlanSelection) &&
-    getSearchParamValue(searchParams.returnTo) === 'home';
+  const sleepPlanChoiceNavigationAction = getSleepPlanChoiceNavigationAction({
+    onboardingState,
+    returnTo: routeReturnTo,
+    source: routeSource,
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -2881,8 +2882,8 @@ export default function SleepPlanScreen() {
         // Notification sync is best-effort; plan selection should stay local and usable.
       }
 
-      if (shouldReturnHomeAfterPlanChoice) {
-        router.replace(HOME_ROUTE);
+      if (sleepPlanChoiceNavigationAction?.type === 'replace') {
+        router.replace(sleepPlanChoiceNavigationAction.href as Href);
       }
 
       return true;
@@ -2914,8 +2915,8 @@ export default function SleepPlanScreen() {
       setNameEditorMode(null);
       setIsNapDropdownOpen(false);
 
-      if (shouldReturnHomeAfterPlanChoice) {
-        router.replace(HOME_ROUTE);
+      if (sleepPlanChoiceNavigationAction?.type === 'replace') {
+        router.replace(sleepPlanChoiceNavigationAction.href as Href);
       }
     } catch {
       setErrorMessage('Не удалось сохранить стартовый выбор');
