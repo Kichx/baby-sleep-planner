@@ -54,6 +54,14 @@ function clearBottleFeedingReminderSuppressionState(): void {
   };
 }
 
+export function resetBottleFeedingReminderNotificationRuntimeState(): void {
+  clearBottleFeedingReminderSuppressionState();
+  latestPresentationContext = {
+    isSleeping: false,
+    notifyDuringSleep: true,
+  };
+}
+
 function configureBottleFeedingReminderPresentationGuard(): void {
   if (isBottleFeedingReminderPresentationGuardConfigured) {
     return;

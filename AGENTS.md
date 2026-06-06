@@ -883,6 +883,30 @@ When changing backup or restore logic, add focused tests for backup parsing/vali
 - returning to the main screen uses restored profile, active plan, and sleep sessions;
 - `android.package` and `DATABASE_NAME` are unchanged.
 
+## Implementation lessons from full application reset
+
+Full application reset is a deliberately destructive profile/settings feature, not an ordinary settings reset. Keep the entry point only on `/profile` in the bottom "Опасная зона" block, with the button text "Сбросить приложение". Do not expose this action on the main sleep screen, `/sleep-plan`, onboarding, data transfer, or debug-style surfaces unless a later task explicitly asks for that.
+
+The reset UI must require two confirmations:
+- first: explain that sleep records, План дня, child profile, feedings, temporary modes, and local settings will be deleted and that the action cannot be undone;
+- second: offer "Сделать резервную копию", "Удалить всё", and "Отмена";
+- backup must run the existing export flow and then return to the reset confirmation, but must never automatically continue into deletion.
+
+Keep the destructive database operation in one data-layer method such as `resetApplicationData(db)`. It should run inside a SQLite transaction, delete child-dependent tables before `child_profile`, clear `app_settings`, leave the database/schema valid, and not delete the database file. Do not call helpers such as `getChildProfile`, `getTargetDayPlan`, `getSleepDayPlan`, or export/restore bootstrap paths inside reset if they can create default profile or plan rows.
+
+After a successful reset, cancel all local scheduled/displayed notifications, clear notification runtime state such as active sleep and bottle-feeding reminder suppression, clear screen state, close modals, and navigate with `router.replace('/first-run')`. System notification permission is OS-owned and must not be treated as resettable app data.
+
+If reset fails, do not navigate away, do not clear UI state as if reset succeeded, and show a calm error such as "Не удалось сбросить данные. Попробуйте ещё раз." Log the error for development diagnostics.
+
+Before considering reset behavior done, verify:
+- `child_profile`, `sleep_sessions`, active sleep, `target_day_plan`, `sleep_day_plan_snapshot`, `sleep_day_temporary_mode`, `bottle_feedings`, and `app_settings` are cleared;
+- onboarding derives `not_started`;
+- `DEFAULT_SLEEP_PLAN` is not persisted into `target_day_plan` after reset or after fallback plan reads;
+- reset is idempotent;
+- fresh-schema reset stays valid;
+- scheduled sleep and feeding notifications are cancelled;
+- `/profile` routes to `/first-run` after success and does not leave old sessions/timers visible.
+
 ## Implementation lessons from sleep-day temporary modes
 
 Temporary sleep-day modes are a day-level sleep context, not a target plan setting. Keep `soft_day` and `early_wake` in the separate `sleep_day_temporary_mode` table and domain type. Enabling, disabling, or dismissing a temporary mode must not mutate `target_day_plan`, active-plan state, sleep sessions, sleep-day plan snapshots, bottle feeding rows, or notifications unless a later task explicitly asks for that behavior.

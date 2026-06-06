@@ -14,7 +14,7 @@ interface PrimaryButtonProps {
   onPress?: () => void;
   disabled?: boolean;
   compact?: boolean;
-  variant?: 'primary' | 'secondary';
+  variant?: 'primary' | 'secondary' | 'destructive';
   style?: StyleProp<ViewStyle>;
   textStyle?: StyleProp<TextStyle>;
 }
@@ -37,8 +37,12 @@ export function PrimaryButton({
         styles.button,
         compact ? styles.compactButton : null,
         variant === 'secondary' ? styles.secondaryButton : null,
+        variant === 'destructive' ? styles.destructiveButton : null,
         pressed && !disabled && variant === 'primary' ? styles.primaryButtonPressed : null,
         pressed && !disabled && variant === 'secondary' ? styles.secondaryButtonPressed : null,
+        pressed && !disabled && variant === 'destructive'
+          ? styles.destructiveButtonPressed
+          : null,
         disabled ? styles.buttonDisabled : null,
         style,
       ]}>
@@ -47,6 +51,7 @@ export function PrimaryButton({
           styles.label,
           compact ? styles.compactLabel : null,
           variant === 'secondary' ? styles.secondaryLabel : null,
+          variant === 'destructive' ? styles.destructiveLabel : null,
           textStyle,
         ]}>
         {label}
@@ -73,11 +78,17 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
     backgroundColor: colors.surface,
   },
+  destructiveButton: {
+    backgroundColor: colors.danger,
+  },
   primaryButtonPressed: {
     backgroundColor: colors.primaryPressed,
   },
   secondaryButtonPressed: {
     backgroundColor: colors.primarySoft,
+  },
+  destructiveButtonPressed: {
+    backgroundColor: colors.dangerPressed,
   },
   buttonDisabled: {
     opacity: 0.6,
@@ -92,5 +103,8 @@ const styles = StyleSheet.create({
   },
   secondaryLabel: {
     color: colors.primary,
+  },
+  destructiveLabel: {
+    color: colors.surface,
   },
 });

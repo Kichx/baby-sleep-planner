@@ -52,6 +52,11 @@ export function setBottleFeedingReminderPresentationSuppressionHandler(
   bottleFeedingReminderSuppressionHandler = handler;
 }
 
+export function resetExpoNotificationRuntimeState(): void {
+  didRequestPermissions = false;
+  bottleFeedingReminderSuppressionHandler = null;
+}
+
 export async function ensureExpoNotificationHandlerConfigured(): Promise<NotificationsModule | null> {
   const Notifications = await loadExpoNotificationsModule();
 

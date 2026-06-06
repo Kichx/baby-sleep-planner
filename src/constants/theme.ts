@@ -10,6 +10,7 @@ export const colors = {
   warning: '#B7791F',
   warningSoft: '#F7E5C4',
   danger: '#B42318',
+  dangerPressed: '#8F1B13',
   dangerSoft: '#FDE8E4',
   border: '#DED7CD',
 } as const;

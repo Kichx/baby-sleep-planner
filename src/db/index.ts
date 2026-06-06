@@ -12,6 +12,7 @@ export {
   deleteProfilePhotoCopy,
   saveProfilePhotoCopy,
 } from '@/db/profilePhotoStorage';
+export { resetApplicationData } from '@/db/resetApplicationData';
 export {
   completeOnboardingTrackingOnly,
   dismissEveningPlanPrompt,

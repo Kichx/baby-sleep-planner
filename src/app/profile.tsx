@@ -9,6 +9,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import {
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -39,6 +40,7 @@ import {
   deleteProfilePhotoCopy,
   getChildProfile,
   parseAppDataBackup,
+  resetApplicationData,
   restoreAppDataBackup,
   saveProfilePhotoCopy,
   serializeAppDataBackup,
@@ -46,10 +48,16 @@ import {
   updateChildProfile,
   updateChildProfilePhotoUri,
 } from '@/db';
-import { syncSleepNotificationsFromDatabase } from '@/notifications/sleepNotifications';
+import {
+  cancelAllLocalSleepNotifications,
+  syncSleepNotificationsFromDatabase,
+} from '@/notifications/sleepNotifications';
 
 const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
 const INFO_ROUTE = '/info' as Href;
+const FIRST_RUN_ROUTE = '/first-run' as Href;
+
+type ResetConfirmationStep = 'hidden' | 'first' | 'second';
 
 function formatBirthDate(date: Date): string {
   return new Intl.DateTimeFormat('ru-RU', {
@@ -213,6 +221,9 @@ export default function ProfileScreen() {
   const [isFeatureSaving, setIsFeatureSaving] = useState(false);
   const [isPhotoSaving, setIsPhotoSaving] = useState(false);
   const [isDataTransferRunning, setIsDataTransferRunning] = useState(false);
+  const [resetConfirmationStep, setResetConfirmationStep] =
+    useState<ResetConfirmationStep>('hidden');
+  const [isResetting, setIsResetting] = useState(false);
   const [bottleFeedingEnabled, setBottleFeedingEnabled] = useState(false);
   const [bottleFeedingPromptDismissed, setBottleFeedingPromptDismissed] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -228,7 +239,8 @@ export default function ProfileScreen() {
   const hasProfileChanges =
     profileNameError === null &&
     (trimmedDraftName !== profileName || draftBirthDate !== birthDate);
-  const isBusy = isLoading || isSaving || isPhotoSaving || isDataTransferRunning;
+  const isBusy =
+    isLoading || isSaving || isPhotoSaving || isDataTransferRunning || isResetting;
   const isToggleDisabled = isBusy || isFeatureSaving;
   const versionLine = buildApplicationVersionLine();
 
@@ -459,7 +471,7 @@ export default function ProfileScreen() {
     }
   }
 
-  async function handleExportData() {
+  async function handleExportData(): Promise<boolean> {
     setIsDataTransferRunning(true);
     setMessage(null);
     setErrorMessage(null);
@@ -482,8 +494,10 @@ export default function ProfileScreen() {
         mimeType: APP_DATA_BACKUP_MIME_TYPE,
       });
       setMessage('Файл экспорта подготовлен');
+      return true;
     } catch (error) {
       setErrorMessage(getTransferErrorMessage(error, 'Не удалось выгрузить данные'));
+      return false;
     } finally {
       setIsDataTransferRunning(false);
     }
@@ -570,6 +584,65 @@ export default function ProfileScreen() {
 
   function openInfo() {
     router.push(INFO_ROUTE);
+  }
+
+  function openResetConfirmation() {
+    if (isBusy) {
+      return;
+    }
+
+    setMessage(null);
+    setErrorMessage(null);
+    setResetConfirmationStep('first');
+  }
+
+  function closeResetConfirmation() {
+    if (isResetting) {
+      return;
+    }
+
+    setResetConfirmationStep('hidden');
+  }
+
+  function continueResetConfirmation() {
+    setResetConfirmationStep('second');
+  }
+
+  async function handleBackupBeforeReset() {
+    await handleExportData();
+    setResetConfirmationStep('second');
+  }
+
+  async function handleResetApplication() {
+    if (isResetting) {
+      return;
+    }
+
+    const previousPhotoUri = profilePhotoUri;
+
+    setIsResetting(true);
+    setMessage(null);
+    setErrorMessage(null);
+
+    try {
+      await resetApplicationData(db);
+      await cancelAllLocalSleepNotifications();
+      deleteProfilePhotoCopy(previousPhotoUri);
+      applyProfile({
+        birthDate: null,
+        bottleFeedingEnabled: false,
+        bottleFeedingPromptDismissed: false,
+        name: DEFAULT_CHILD_NAME,
+        photoUri: null,
+      });
+      setResetConfirmationStep('hidden');
+      router.replace(FIRST_RUN_ROUTE);
+    } catch (error) {
+      console.error(error);
+      setErrorMessage('Не удалось сбросить данные. Попробуйте ещё раз.');
+    } finally {
+      setIsResetting(false);
+    }
   }
 
   return (
@@ -777,7 +850,9 @@ export default function ProfileScreen() {
                     compact
                     disabled={isBusy}
                     label={isDataTransferRunning ? 'Готовим...' : 'Выгрузить'}
-                    onPress={handleExportData}
+                    onPress={() => {
+                      void handleExportData();
+                    }}
                   />
                   <PrimaryButton
                     compact
@@ -811,9 +886,118 @@ export default function ProfileScreen() {
                 <Text style={styles.planLinkArrow}>{'>'}</Text>
               </Pressable>
             </View>
+
+            <View style={styles.dangerSection}>
+              <Text style={styles.dangerSectionTitle}>Опасная зона</Text>
+              <View style={styles.dangerBlock}>
+                <View style={styles.transferTextBlock}>
+                  <Text style={styles.dangerTitle}>Полный сброс приложения</Text>
+                  <Text style={styles.dangerText}>
+                    Удалит профиль, записи сна, План дня, кормления и локальные настройки.
+                  </Text>
+                </View>
+                <PrimaryButton
+                  compact
+                  disabled={isBusy}
+                  label="Сбросить приложение"
+                  onPress={openResetConfirmation}
+                  variant="destructive"
+                />
+              </View>
+            </View>
           </SafeAreaView>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <Modal
+        animationType="slide"
+        transparent
+        visible={resetConfirmationStep !== 'hidden'}
+        onRequestClose={closeResetConfirmation}>
+        <View style={styles.modalRoot}>
+          <Pressable
+            disabled={isResetting}
+            style={styles.modalBackdrop}
+            onPress={closeResetConfirmation}
+          />
+          <View style={styles.bottomSheet}>
+            {resetConfirmationStep === 'first' ? (
+              <>
+                <Text style={styles.sheetTitle}>Сбросить приложение?</Text>
+                <Text style={styles.sheetText}>
+                  Будут удалены все записи сна, План дня, профиль ребёнка, кормления,
+                  временные режимы и локальные настройки. Это действие нельзя отменить.
+                </Text>
+                {errorMessage ? <Text style={styles.sheetError}>{errorMessage}</Text> : null}
+                <View style={styles.sheetActions}>
+                  <PrimaryButton
+                    compact
+                    disabled={isResetting}
+                    label="Продолжить"
+                    onPress={continueResetConfirmation}
+                    style={styles.sheetActionButton}
+                    textStyle={styles.sheetActionButtonText}
+                    variant="destructive"
+                  />
+                  <PrimaryButton
+                    compact
+                    disabled={isResetting}
+                    label="Отмена"
+                    onPress={closeResetConfirmation}
+                    style={styles.sheetActionButton}
+                    textStyle={styles.sheetActionButtonText}
+                    variant="secondary"
+                  />
+                </View>
+              </>
+            ) : (
+              <>
+                <Text style={styles.sheetTitle}>Удалить все данные?</Text>
+                <Text style={styles.sheetText}>
+                  Приложение вернётся к первому запуску. Перед сбросом можно сделать
+                  резервную копию.
+                </Text>
+                {errorMessage ? <Text style={styles.sheetError}>{errorMessage}</Text> : null}
+                <View style={styles.sheetActionsVertical}>
+                  <PrimaryButton
+                    compact
+                    disabled={isDataTransferRunning || isResetting}
+                    label={
+                      isDataTransferRunning ? 'Готовим копию...' : 'Сделать резервную копию'
+                    }
+                    onPress={() => {
+                      void handleBackupBeforeReset();
+                    }}
+                    style={styles.sheetFullWidthButton}
+                    textStyle={styles.sheetActionButtonText}
+                    variant="secondary"
+                  />
+                  <PrimaryButton
+                    compact
+                    disabled={isDataTransferRunning || isResetting}
+                    label={isResetting ? 'Удаляем...' : 'Удалить всё'}
+                    onPress={() => {
+                      void handleResetApplication();
+                    }}
+                    style={styles.sheetFullWidthButton}
+                    textStyle={styles.sheetActionButtonText}
+                    variant="destructive"
+                  />
+                  <PrimaryButton
+                    compact
+                    disabled={isResetting}
+                    label="Отмена"
+                    onPress={closeResetConfirmation}
+                    style={styles.sheetFullWidthButton}
+                    textStyle={styles.sheetActionButtonText}
+                    variant="secondary"
+                  />
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </>
   );
 }
@@ -1108,6 +1292,34 @@ const styles = StyleSheet.create({
   transferActions: {
     gap: spacing.sm,
   },
+  dangerSection: {
+    gap: spacing.sm,
+    paddingTop: spacing.sm,
+  },
+  dangerSectionTitle: {
+    color: colors.danger,
+    fontSize: 19,
+    fontWeight: '900',
+  },
+  dangerBlock: {
+    gap: spacing.md,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.danger,
+    padding: spacing.md,
+    backgroundColor: colors.dangerSoft,
+  },
+  dangerTitle: {
+    color: colors.danger,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  dangerText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
   aboutBlock: {
     minHeight: 76,
     justifyContent: 'center',
@@ -1143,5 +1355,60 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primarySoft,
     fontSize: 15,
     fontWeight: '800',
+  },
+  modalRoot: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(32, 32, 29, 0.36)',
+  },
+  bottomSheet: {
+    gap: spacing.md,
+    borderTopLeftRadius: radius.md,
+    borderTopRightRadius: radius.md,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.xl,
+    backgroundColor: colors.surface,
+  },
+  sheetTitle: {
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: '900',
+    lineHeight: 28,
+  },
+  sheetText: {
+    color: colors.textMuted,
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 23,
+  },
+  sheetError: {
+    color: colors.danger,
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 20,
+  },
+  sheetActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  sheetActionsVertical: {
+    gap: spacing.sm,
+  },
+  sheetActionButton: {
+    flex: 1,
+    minHeight: 50,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+  },
+  sheetFullWidthButton: {
+    minHeight: 50,
+    borderRadius: radius.sm,
+  },
+  sheetActionButtonText: {
+    fontSize: 15,
   },
 });
