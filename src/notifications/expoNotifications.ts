@@ -6,6 +6,8 @@ type NotificationsModule = typeof ExpoNotifications;
 type NotificationPresentationSuppressionHandler = (
   notification: ExpoNotifications.Notification,
 ) => boolean | Promise<boolean>;
+type NotificationPermissionResponse =
+  Awaited<ReturnType<NotificationsModule['getPermissionsAsync']>>;
 
 export type { NotificationsModule };
 
@@ -95,9 +97,45 @@ export async function hasNotificationPermission(
 ): Promise<boolean> {
   const existingPermissions = await Notifications.getPermissionsAsync();
 
+  return isNotificationPermissionGranted(Notifications, existingPermissions);
+}
+
+function isNotificationPermissionGranted(
+  Notifications: NotificationsModule,
+  permissions: NotificationPermissionResponse,
+): boolean {
+  return (
+    permissions.granted ||
+    permissions.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL
+  );
+}
+
+export async function canAskForNotificationPermission(): Promise<boolean> {
+  const Notifications = await loadExpoNotificationsModule();
+
+  if (!Notifications) {
+    return false;
+  }
+
+  const existingPermissions = await Notifications.getPermissionsAsync();
+
+  return (
+    !isNotificationPermissionGranted(Notifications, existingPermissions) &&
+    existingPermissions.canAskAgain !== false
+  );
+}
+
+export async function requestNotificationPermission(): Promise<boolean> {
+  const Notifications = await loadExpoNotificationsModule();
+
+  if (!Notifications) {
+    return false;
+  }
+
+  const existingPermissions = await Notifications.getPermissionsAsync();
+
   if (
-    existingPermissions.granted ||
-    existingPermissions.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL
+    isNotificationPermissionGranted(Notifications, existingPermissions)
   ) {
     return true;
   }
@@ -109,8 +147,5 @@ export async function hasNotificationPermission(
   didRequestPermissions = true;
   const requestedPermissions = await Notifications.requestPermissionsAsync();
 
-  return (
-    requestedPermissions.granted ||
-    requestedPermissions.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL
-  );
+  return isNotificationPermissionGranted(Notifications, requestedPermissions);
 }

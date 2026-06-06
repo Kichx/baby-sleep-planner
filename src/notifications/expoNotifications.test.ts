@@ -87,4 +87,89 @@ describe('expo notification module loading', () => {
     expect(canUseAndroidNativeNotifications()).toBe(true);
     expect(notificationModuleFactory).toHaveBeenCalledTimes(1);
   });
+
+  it('checks notification permission without requesting it', async () => {
+    const { hasNotificationPermission, loadExpoNotificationsModule } = await loadSubject({
+      appOwnership: 'standalone',
+      platform: 'android',
+    });
+    const Notifications = await loadExpoNotificationsModule();
+
+    if (!Notifications) {
+      throw new Error('Expected notifications module');
+    }
+
+    vi.mocked(Notifications.getPermissionsAsync).mockResolvedValue({
+      canAskAgain: true,
+      expires: 'never',
+      granted: false,
+      status: 'denied',
+    } as Awaited<ReturnType<typeof Notifications.getPermissionsAsync>>);
+
+    await expect(hasNotificationPermission(Notifications)).resolves.toBe(false);
+
+    expect(Notifications.getPermissionsAsync).toHaveBeenCalledTimes(1);
+    expect(Notifications.requestPermissionsAsync).not.toHaveBeenCalled();
+  });
+
+  it('requests notification permission only through the explicit helper', async () => {
+    const { requestNotificationPermission, loadExpoNotificationsModule } = await loadSubject({
+      appOwnership: 'standalone',
+      platform: 'android',
+    });
+    const Notifications = await loadExpoNotificationsModule();
+
+    if (!Notifications) {
+      throw new Error('Expected notifications module');
+    }
+
+    vi.mocked(Notifications.getPermissionsAsync).mockResolvedValue({
+      canAskAgain: true,
+      expires: 'never',
+      granted: false,
+      status: 'denied',
+    } as Awaited<ReturnType<typeof Notifications.getPermissionsAsync>>);
+    vi.mocked(Notifications.requestPermissionsAsync).mockResolvedValue({
+      canAskAgain: true,
+      expires: 'never',
+      granted: true,
+      status: 'granted',
+    } as Awaited<ReturnType<typeof Notifications.requestPermissionsAsync>>);
+
+    await expect(requestNotificationPermission()).resolves.toBe(true);
+
+    expect(Notifications.getPermissionsAsync).toHaveBeenCalledTimes(1);
+    expect(Notifications.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports whether the app can still ask for notification permission', async () => {
+    const { canAskForNotificationPermission, loadExpoNotificationsModule } =
+      await loadSubject({
+        appOwnership: 'standalone',
+        platform: 'android',
+      });
+    const Notifications = await loadExpoNotificationsModule();
+
+    if (!Notifications) {
+      throw new Error('Expected notifications module');
+    }
+
+    vi.mocked(Notifications.getPermissionsAsync).mockResolvedValue({
+      canAskAgain: true,
+      expires: 'never',
+      granted: false,
+      status: 'denied',
+    } as Awaited<ReturnType<typeof Notifications.getPermissionsAsync>>);
+
+    await expect(canAskForNotificationPermission()).resolves.toBe(true);
+
+    vi.mocked(Notifications.getPermissionsAsync).mockResolvedValue({
+      canAskAgain: false,
+      expires: 'never',
+      granted: false,
+      status: 'denied',
+    } as Awaited<ReturnType<typeof Notifications.getPermissionsAsync>>);
+
+    await expect(canAskForNotificationPermission()).resolves.toBe(false);
+  });
 });

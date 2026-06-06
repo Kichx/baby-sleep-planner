@@ -108,6 +108,10 @@ import {
   updateSleepSession,
 } from '@/db';
 import { syncSleepNotificationsFromDatabase } from '@/notifications/sleepNotifications';
+import {
+  canAskForNotificationPermission,
+  requestNotificationPermission,
+} from '@/notifications/expoNotifications';
 import type { OnboardingMode } from '@/types/appSettings';
 import type { BottleFeeding } from '@/types/bottleFeeding';
 import type {
@@ -727,6 +731,16 @@ export default function TodaySleepScreen() {
   const [onboardingMode, setOnboardingMode] = useState<OnboardingMode | null>(null);
   const [eveningPlanPromptDismissedDateKey, setEveningPlanPromptDismissedDateKey] =
     useState<string | null>(null);
+  const [
+    isNotificationPermissionPromptDismissed,
+    setIsNotificationPermissionPromptDismissed,
+  ] = useState(false);
+  const [
+    shouldShowNotificationPermissionPrompt,
+    setShouldShowNotificationPermissionPrompt,
+  ] = useState(false);
+  const [isRequestingNotificationPermission, setIsRequestingNotificationPermission] =
+    useState(false);
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [now, setNow] = useState(() => new Date());
   const [isLoading, setIsLoading] = useState(true);
@@ -1306,6 +1320,43 @@ export default function TodaySleepScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    let isActive = true;
+
+    if (
+      !isToday ||
+      !hasActiveTargetPlan ||
+      onboardingMode !== 'plan_saved' ||
+      isNotificationPermissionPromptDismissed
+    ) {
+      setShouldShowNotificationPermissionPrompt(false);
+      return () => {
+        isActive = false;
+      };
+    }
+
+    canAskForNotificationPermission()
+      .then((canAsk) => {
+        if (isActive) {
+          setShouldShowNotificationPermissionPrompt(canAsk);
+        }
+      })
+      .catch(() => {
+        if (isActive) {
+          setShouldShowNotificationPermissionPrompt(false);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [
+    hasActiveTargetPlan,
+    isNotificationPermissionPromptDismissed,
+    isToday,
+    onboardingMode,
+  ]);
+
   function openEditEditor(session: SleepSession) {
     setEditorState({
       mode: 'edit',
@@ -1659,6 +1710,76 @@ export default function TodaySleepScreen() {
     }
   }
 
+  async function handleEnableNotificationPermission() {
+    if (isRequestingNotificationPermission) {
+      return;
+    }
+
+    const actionAt = new Date();
+
+    setIsRequestingNotificationPermission(true);
+    setNow(actionAt);
+
+    try {
+      await syncSleepNotificationsFromDatabase(db, actionAt).catch(() => undefined);
+      const isGranted = await requestNotificationPermission();
+
+      setIsNotificationPermissionPromptDismissed(true);
+      setShouldShowNotificationPermissionPrompt(false);
+
+      if (isGranted) {
+        syncNotificationsInBackground(new Date());
+      }
+    } catch {
+      setIsNotificationPermissionPromptDismissed(true);
+      setShouldShowNotificationPermissionPrompt(false);
+    } finally {
+      setIsRequestingNotificationPermission(false);
+    }
+  }
+
+  function handleDismissNotificationPermissionPrompt() {
+    setIsNotificationPermissionPromptDismissed(true);
+    setShouldShowNotificationPermissionPrompt(false);
+  }
+
+  function renderNotificationPermissionPromptCard() {
+    if (!shouldShowNotificationPermissionPrompt) {
+      return null;
+    }
+
+    return (
+      <View style={styles.notificationPermissionPromptCard}>
+        <Text style={styles.notificationPermissionPromptTitle}>
+          Напоминать о следующем сне?
+        </Text>
+        <Text style={styles.notificationPermissionPromptText}>
+          Можем мягко напоминать перед дневным сном и отбоем. Если не включать,
+          план и записи продолжат работать локально.
+        </Text>
+        <View style={styles.notificationPermissionPromptActions}>
+          <PrimaryButton
+            compact
+            disabled={isLoading || isSaving || isRequestingNotificationPermission}
+            label={isRequestingNotificationPermission ? 'Включаем...' : 'Включить'}
+            onPress={handleEnableNotificationPermission}
+            style={styles.notificationPermissionPromptButton}
+            textStyle={styles.notificationPermissionPromptButtonText}
+          />
+          <PrimaryButton
+            compact
+            disabled={isLoading || isSaving || isRequestingNotificationPermission}
+            label="Позже"
+            onPress={handleDismissNotificationPermissionPrompt}
+            style={styles.notificationPermissionPromptButton}
+            textStyle={styles.notificationPermissionPromptButtonText}
+            variant="secondary"
+          />
+        </View>
+      </View>
+    );
+  }
+
   function renderEveningPlanPromptCard() {
     if (!shouldShowEveningPlanPromptCard) {
       return null;
@@ -1880,6 +2001,7 @@ export default function TodaySleepScreen() {
           </View>
 
           {renderEveningPlanPromptCard()}
+          {renderNotificationPermissionPromptCard()}
 
           {isToday || !hasActiveTargetPlan ? null : renderSleepDayPlanBar()}
 
@@ -2774,6 +2896,37 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
   },
   eveningPlanPromptButtonText: {
+    fontSize: 15,
+  },
+  notificationPermissionPromptCard: {
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primarySoft,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+    gap: spacing.sm,
+  },
+  notificationPermissionPromptTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  notificationPermissionPromptText: {
+    color: colors.textMuted,
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 21,
+  },
+  notificationPermissionPromptActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  notificationPermissionPromptButton: {
+    flex: 1,
+    minHeight: 50,
+    paddingHorizontal: spacing.sm,
+  },
+  notificationPermissionPromptButtonText: {
     fontSize: 15,
   },
   trackingOnlyEmptyCard: {

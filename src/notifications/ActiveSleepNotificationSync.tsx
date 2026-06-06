@@ -2,6 +2,7 @@ import { useCallback, useEffect } from 'react';
 import { AppState } from 'react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 
+import { getOnboardingState } from '@/db';
 import {
   ACTIVE_SLEEP_NOTIFICATION_REFRESH_MS,
   configureActiveSleepNotificationHandler,
@@ -16,12 +17,22 @@ export function ActiveSleepNotificationSync() {
     void syncSleepNotificationsFromDatabase(db);
   }, [db]);
 
+  const configureNotificationHandler = useCallback(() => {
+    void getOnboardingState(db)
+      .then((onboardingState) => {
+        if (onboardingState === 'plan_saved') {
+          configureActiveSleepNotificationHandler();
+        }
+      })
+      .catch(() => undefined);
+  }, [db]);
+
   const refreshActiveSleepNotification = useCallback(() => {
     void syncActiveSleepNotificationFromDatabase(db);
   }, [db]);
 
   useEffect(() => {
-    configureActiveSleepNotificationHandler();
+    configureNotificationHandler();
     syncNotification();
 
     const timer = setInterval(
@@ -38,7 +49,7 @@ export function ActiveSleepNotificationSync() {
       clearInterval(timer);
       appStateSubscription.remove();
     };
-  }, [refreshActiveSleepNotification, syncNotification]);
+  }, [configureNotificationHandler, refreshActiveSleepNotification, syncNotification]);
 
   return null;
 }

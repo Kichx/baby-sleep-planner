@@ -11,7 +11,12 @@ import {
   type BottleFeedingReminderDecision,
   type BottleFeedingReminderPlannerState,
 } from '@/core/bottleFeedingReminders';
-import { getActiveSleepSession, getChildProfile, getLatestBottleFeeding } from '@/db';
+import {
+  getActiveSleepSession,
+  getChildProfile,
+  getLatestBottleFeeding,
+  getOnboardingState,
+} from '@/db';
 import {
   ensureExpoNotificationHandlerConfigured,
   hasNotificationPermission,
@@ -180,6 +185,12 @@ export async function syncBottleFeedingReminderNotificationFromDatabase(
   } = {},
 ) {
   try {
+    const onboardingState = await getOnboardingState(db);
+
+    if (onboardingState !== 'plan_saved') {
+      return;
+    }
+
     const [profile, latestFeeding, activeSleepSession] = await Promise.all([
       getChildProfile(db),
       getLatestBottleFeeding(db),

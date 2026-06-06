@@ -8,6 +8,7 @@ const dbMocks = vi.hoisted(() => ({
   getActiveSleepSession: vi.fn(),
   getChildProfile: vi.fn(),
   getLatestBottleFeeding: vi.fn(),
+  getOnboardingState: vi.fn(),
 }));
 
 const notificationMocks = vi.hoisted(() => {
@@ -126,12 +127,33 @@ describe('bottle feeding reminder notification sync', () => {
     notificationMocks.loadExpoNotificationsModule.mockResolvedValue(
       notificationMocks.Notifications,
     );
+    dbMocks.getOnboardingState.mockResolvedValue('plan_saved');
     dbMocks.getChildProfile.mockResolvedValue(profile());
     dbMocks.getLatestBottleFeeding.mockResolvedValue(
       feeding('latest-feeding', '2026-06-01T06:00:00.000Z', 120),
     );
     dbMocks.getActiveSleepSession.mockResolvedValue(null);
   });
+
+  it.each(['not_started', 'tracking_only'] as const)(
+    'does not request notification permission while onboarding is %s',
+    async (onboardingState) => {
+      dbMocks.getOnboardingState.mockResolvedValue(onboardingState);
+      const { syncBottleFeedingReminderNotificationFromDatabase } = await loadSubject();
+
+      await syncBottleFeedingReminderNotificationFromDatabase(
+        db,
+        new Date('2026-06-01T08:00:00.000Z'),
+      );
+
+      expect(dbMocks.getOnboardingState).toHaveBeenCalledTimes(1);
+      expect(dbMocks.getChildProfile).not.toHaveBeenCalled();
+      expect(dbMocks.getLatestBottleFeeding).not.toHaveBeenCalled();
+      expect(dbMocks.getActiveSleepSession).not.toHaveBeenCalled();
+      expect(notificationMocks.ensureExpoNotificationHandlerConfigured).not.toHaveBeenCalled();
+      expect(notificationMocks.hasNotificationPermission).not.toHaveBeenCalled();
+    },
+  );
 
   it('does not schedule a reminder for a new user with bottle feeding disabled', async () => {
     dbMocks.getChildProfile.mockResolvedValue(

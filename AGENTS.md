@@ -493,6 +493,12 @@ For the `/first-run` tracking-only name prompt:
 
 Do not request or trigger notification permission while onboarding is `not_started` or `tracking_only`. Sleep reminder and active-sleep notification synchronization must return before loading fallback target plans, active sessions, or calling the shared notification permission helper unless onboarding is `plan_saved`; otherwise tracking-only sleep logging can accidentally cause a notification permission prompt before the parent has chosen a plan.
 
+Keep notification permission checks and permission requests separate. `hasNotificationPermission(...)` must be a read-only check that calls `getPermissionsAsync()` only; it must not call `requestPermissionsAsync()`. The system permission prompt may be triggered only from an explicit parent action such as a calm in-app prompt after `target_day_plan` has been saved/activated and onboarding is `plan_saved`.
+
+The root notification sync component must also respect onboarding state. Do not configure notification handlers, Android channels, active-sleep notification modules, sleep reminders, or bottle-feeding reminders on app startup until `getOnboardingState(db)` is `plan_saved`. A manual sleep entry, active sleep start/stop, tracking-only onboarding completion, profile save, feeding write, or restore/import must not accidentally create a notification channel or request notification permission before a plan exists.
+
+After the first successful plan save/activation, the main `/` screen may show one calm optional notification prompt. `Включить` may call the explicit permission request helper and then best-effort notification sync; `Позже`, system denial, or sync failure must only hide/skip notification setup for the current UI flow and must not break the saved plan, local sleep logging, or tracking-only history.
+
 When `onboardingState === 'tracking_only'` and no active `target_day_plan` exists, the main `/` screen must render a real tracking-only factual state instead of plan-based recommendations from fallback `DEFAULT_SLEEP_PLAN`.
 
 In this main-screen tracking-only state:
@@ -516,6 +522,8 @@ When adding or changing onboarding persistence, bump `DATABASE_VERSION`, keep th
 - evening plan prompt visibility and dismissal for one sleep-day without writing `target_day_plan`;
 - `target_day_plan` save/activation marks `plan_saved`;
 - notification synchronization does not request permissions in `not_started` or `tracking_only`;
+- notification permission helpers keep read-only checks separate from explicit requests;
+- first manual sleep entry without a plan does not import/configure notification scheduling or ask for permission;
 - fallback plan reads do not insert into `target_day_plan`.
 
 ## Implementation lessons from date-based UI work
