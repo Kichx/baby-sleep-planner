@@ -345,6 +345,25 @@ When changing this integration, cover at least:
 - recommendation does not appear when `early_wake` is enabled;
 - today UI still has no standalone summed-WB card.
 
+## Implementation lessons from first active plan with no sleep records
+
+When a parent chooses a permanent target day plan for the first time and returns to the main `/` screen later in the same day, the app may have an active plan but no sleep records for the current sleep day. Do not treat this as a real all-day awake interval from `plan.dayStartMinutes`.
+
+For today's active-plan/no-records state:
+- do not show plan-based prediction cards, recommendation scenarios, `onTrackLabel`, remaining-awake metrics, nap counts, or predicted bedtime as if they were factual;
+- show a calm onboarding state such as `План готов` / `Сегодня ещё без оценки`;
+- offer simple actions to `Внести сон` and start the nearest sleep, with the start button label allowed to become `Начать ночь` when `inferSleepKindForStart(now, effectivePlan)` returns `night`;
+- keep this state UI-only: do not write `target_day_plan`, `sleep_day_temporary_mode`, saved snapshots, history, schema, export/import data, or app settings merely because the user skipped backfilling today's sleep;
+- once the first sleep record exists, return to normal effective-plan calculations automatically.
+
+Keep the branch decision in a pure helper such as `src/core/mainScreenFlow.ts`, and let `src/app/index.tsx` only render the resulting state. Future or past selected days with an active plan may still show plan-oriented views according to their existing screen rules; the no-data calming state is specifically for today after plan selection.
+
+When changing this area, cover at least:
+- active plan + today + zero selected sleep records shows the calm no-data state instead of plan predictions;
+- active plan + today + at least one sleep record restores normal predictions;
+- no active plan + zero records still uses the tracking-only empty state;
+- non-today plan views are not accidentally hidden by the today-only no-data state.
+
 ## Implementation lessons from main screen performance optimization
 
 On the main `/` screen, do not load child profile, target plans, and selected-day sleep data as separate focus effects that trigger each other through a reload counter. Load profile first, then selected-day data with the fresh profile settings, then plan list in one coordinated focus load so birth-date/age-dependent UI does not visibly update after the first render.

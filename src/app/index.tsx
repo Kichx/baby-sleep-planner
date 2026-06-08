@@ -1214,9 +1214,15 @@ export default function TodaySleepScreen() {
     selectedSleepSessionCount: selectedSessionsForDay.length,
   });
   const shouldShowPlanBasedUi = mainScreenSleepUi.showPlanBasedPredictions;
+  const shouldShowPlanStartNoDataHint = mainScreenSleepUi.showPlanStartNoDataHint;
   const hasSelectedSleepRecords = mainScreenSleepUi.hasActualSleepRecords;
   const hasCurrentStatusFact =
     isSleeping || selectedSessionsForDay.some((session) => session.endedAt !== null);
+  const shouldShowHeroPlaceholder = !shouldShowPlanBasedUi && !hasCurrentStatusFact;
+  const planStartSleepNowLabel =
+    shouldShowPlanStartNoDataHint && inferSleepKindForStart(now, sleepPlan) === 'night'
+      ? 'Начать ночь'
+      : 'Начать сон';
   const shouldShowEveningPlanPromptCard = shouldShowEveningPlanPrompt({
     dismissedDateKey: eveningPlanPromptDismissedDateKey,
     hasActiveTargetDayPlan: hasActiveTargetPlan,
@@ -1834,6 +1840,44 @@ export default function TodaySleepScreen() {
     );
   }
 
+  function renderPlanStartNoDataHint() {
+    if (isLoading || !shouldShowPlanStartNoDataHint) {
+      return null;
+    }
+
+    return (
+      <View style={styles.planStartNoDataCard}>
+        <Text style={styles.planStartNoDataTitle}>Сегодня ещё без оценки</Text>
+        <Text style={styles.planStartNoDataText}>
+          План выбран, но за сегодня пока нет записей сна. Без них день не оцениваем.
+        </Text>
+        <Text style={styles.planStartNoDataText}>
+          Можно внести дневные сны по одному. Если восстанавливать день не хочется,
+          начните с ближайшего сна или ночи.
+        </Text>
+        <View style={styles.planStartNoDataActions}>
+          <PrimaryButton
+            compact
+            disabled={isLoading || isSaving}
+            label="Внести сон"
+            onPress={openCreateEditor}
+            style={styles.planStartNoDataButton}
+            textStyle={styles.planStartNoDataButtonText}
+          />
+          <PrimaryButton
+            compact
+            disabled={isLoading || isSaving}
+            label={planStartSleepNowLabel}
+            onPress={handleSleepButtonPress}
+            style={styles.planStartNoDataButton}
+            textStyle={styles.planStartNoDataButtonText}
+            variant="secondary"
+          />
+        </View>
+      </View>
+    );
+  }
+
   function renderDateShortcut(label: string, dayOffset: -1 | 0) {
     const targetDate = dayOffset === 0 ? now : addCalendarDays(now, dayOffset);
     const isActive =
@@ -2021,7 +2065,9 @@ export default function TodaySleepScreen() {
                   <Text style={styles.currentStatus}>
                     {isLoading
                       ? 'Загрузка'
-                      : !shouldShowPlanBasedUi && !hasCurrentStatusFact
+                      : shouldShowPlanStartNoDataHint
+                        ? 'План готов'
+                      : shouldShowHeroPlaceholder
                         ? 'Пока нет записей'
                         : isSleeping
                           ? 'Спит'
@@ -2030,14 +2076,14 @@ export default function TodaySleepScreen() {
                 </View>
                 <CurrentTimerText
                   currentDurationMinutes={snapshot.currentDurationMinutes}
-                  isLoading={
-                    isLoading || (!shouldShowPlanBasedUi && !hasCurrentStatusFact)
-                  }
+                  isLoading={isLoading || shouldShowHeroPlaceholder}
                   isSleeping={isSleeping}
                   statusStartedAt={snapshot.statusStartedAt}
                 />
                 <Text numberOfLines={1} style={styles.currentHelper}>
-                  {!shouldShowPlanBasedUi && !hasCurrentStatusFact
+                  {shouldShowPlanStartNoDataHint
+                    ? 'сегодня ещё без оценки'
+                    : shouldShowHeroPlaceholder
                     ? 'начните сон или внесите запись'
                     : `с ${formatClock(snapshot.statusStartedAt)}`}
                 </Text>
@@ -2076,23 +2122,25 @@ export default function TodaySleepScreen() {
                 </View>
               ) : null}
 
-              <View style={styles.actionRow}>
-                <PrimaryButton
-                  compact
-                  disabled={isLoading || isSaving}
-                  label={buttonLabel}
-                  onPress={handleSleepButtonPress}
-                  style={styles.timerButton}
-                />
-                <PrimaryButton
-                  compact
-                  disabled={isLoading || isSaving}
-                  label="Внести сон"
-                  onPress={openCreateEditor}
-                  style={styles.manualButton}
-                  variant="secondary"
-                />
-              </View>
+              {shouldShowPlanStartNoDataHint ? null : (
+                <View style={styles.actionRow}>
+                  <PrimaryButton
+                    compact
+                    disabled={isLoading || isSaving}
+                    label={buttonLabel}
+                    onPress={handleSleepButtonPress}
+                    style={styles.timerButton}
+                  />
+                  <PrimaryButton
+                    compact
+                    disabled={isLoading || isSaving}
+                    label="Внести сон"
+                    onPress={openCreateEditor}
+                    style={styles.manualButton}
+                    variant="secondary"
+                  />
+                </View>
+              )}
 
               {shouldShowPlanBasedUi ? (
                 <>
@@ -2202,6 +2250,8 @@ export default function TodaySleepScreen() {
                     </View>
                   </View>
                 </>
+              ) : shouldShowPlanStartNoDataHint ? (
+                renderPlanStartNoDataHint()
               ) : (
                 renderTrackingOnlyEmptyHint()
               )}
@@ -3017,6 +3067,37 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     lineHeight: 20,
+  },
+  planStartNoDataCard: {
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primarySoft,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+    gap: spacing.sm,
+  },
+  planStartNoDataTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  planStartNoDataText: {
+    color: colors.textMuted,
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 21,
+  },
+  planStartNoDataActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  planStartNoDataButton: {
+    flex: 1,
+    minHeight: 50,
+    paddingHorizontal: spacing.sm,
+  },
+  planStartNoDataButtonText: {
+    fontSize: 15,
   },
   actionRow: {
     flexDirection: 'row',
