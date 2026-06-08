@@ -219,4 +219,31 @@ describe('day feed sorting', () => {
     });
     expect(countDayFeedRecords(items)).toBe(2);
   });
+
+  it('keeps the feed sleep-only when bottle feedings are hidden by the caller', () => {
+    const rangeStart = new Date('2026-06-03T03:00:00.000Z');
+    const rangeEnd = new Date('2026-06-04T03:00:00.000Z');
+    const nap = buildSleepSession({
+      endedAt: '2026-06-03T10:10:00.000Z',
+      id: 'nap',
+      startedAt: '2026-06-03T09:30:00.000Z',
+    });
+
+    const items = buildDayFeedItems({
+      feedings: [],
+      now: new Date('2026-06-03T11:00:00.000Z'),
+      rangeEnd,
+      rangeStart,
+      sessions: [nap],
+      standaloneFeedings: [],
+    });
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      id: 'nap',
+      type: 'sleep',
+    });
+    expect(items[0].type === 'sleep' ? items[0].sleepFeedings : []).toEqual([]);
+    expect(countDayFeedRecords(items)).toBe(1);
+  });
 });

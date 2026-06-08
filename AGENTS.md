@@ -345,6 +345,23 @@ After local sleep or feeding writes, update the local UI first and run notificat
 
 When optimizing `/`, preserve the existing effective-plan boundaries: no schema changes, no `target_day_plan` rewrites, no temporary-mode writes except the explicit parent action, and no new standalone summed-WB card.
 
+## Implementation lessons from main screen timeline filtering
+
+The lower general `Таймлайн` list on the main `/` screen should be sleep-first and should not mix bottle feeding records into the default view. This keeps the screen focused on the sleep-planning task and avoids overwhelming parents with too many rows.
+
+When bottle feeding is enabled, show a compact local filter/switch such as `Кормления` near the `Таймлайн` title. The default state is off. When off, the list must hide both standalone bottle feeding rows and bottle feedings nested inside sleep rows. When on, the same list may show standalone feedings and nested feedings inside sleep rows.
+
+This filter is UI state only. Do not write it to SQLite, `child_profile`, app settings, sleep-day plans, temporary modes, snapshots, history, export/import data, or notification state unless a later task explicitly asks for persistence.
+
+Keep the separate bottle feeding card, editor, reminders, settings, and share summary behavior intact. The timeline filter should only affect what is displayed in the lower general timeline list and its visible record count.
+
+For implementation, prefer passing an empty feeding array into the existing day-feed composition path when feedings are hidden instead of duplicating timeline rendering logic. When changing this area, cover at least:
+- default timeline count and rows are sleep-only;
+- enabling the filter includes standalone feedings;
+- enabling the filter includes feedings nested inside sleep;
+- disabling the filter removes nested feeding rows as well as standalone rows;
+- the mini sleep timeline remains sleep-only.
+
 ## Implementation lessons from `/sleep-plan` active state simplification
 
 The active state of `/sleep-plan` should stay a calm parent-facing overview before plan management. When an active plan exists, keep the first-level order:
@@ -654,13 +671,13 @@ For a "selected day plus previous day" sleep log, load the database range from `
 
 Use the same open-session guard as the day filter: an active session should end at `min(now, rangeEnd)` before deciding whether it overlaps a displayed range. This prevents active sleep from appearing in tomorrow or later future-day views.
 
-On the main screen, the mixed sleep/feed record section is named "Таймлайн". Keep it as an operational feed, not an analytics table.
+On the main screen, the sleep/feed-capable record section is named "Таймлайн". Keep it as an operational feed, not an analytics table. By default it shows sleep only; bottle feeding rows appear only when the local `Кормления` filter is enabled.
 
-For the main two-day mixed timeline, group sleep rows by displayed overlap with the selected sleep-day window, not only by raw `startedAt`. A night sleep that started yesterday and ends in the selected day should appear in the selected day's group because that is where the parent sees the wake-up context. For sleep that crosses midnight, show enough date context in the time range, for example `22:10 вчера - 06:40 сегодня`, so parents can understand the overnight transition without opening the editor.
+For the main two-day timeline, group sleep rows by displayed overlap with the selected sleep-day window, not only by raw `startedAt`. A night sleep that started yesterday and ends in the selected day should appear in the selected day's group because that is where the parent sees the wake-up context. For sleep that crosses midnight, show enough date context in the time range, for example `22:10 вчера - 06:40 сегодня`, so parents can understand the overnight transition without opening the editor.
 
-When mixing sleep and bottle-feeding rows on the main screen, use one explicit display item model, such as `src/core/dayFeed.ts`, instead of separate ad hoc sort/group logic in React. Keep a display `sortAt` separate from the persisted `startedAt`: bottle feedings sort by their `startedAt`; sleep rows sort by `max(session.startedAt, groupStart)` so clipped overnight sleep is ordered by its visible place in that day. Sort rows newest-first inside each day group, with the records closest to "now" at the top. If two records have the same visible time, keep sleep before feeding. Cover this with focused core tests such as `src/core/dayFeed.test.ts`.
+When the `Кормления` filter mixes sleep and bottle-feeding rows on the main screen, use one explicit display item model, such as `src/core/dayFeed.ts`, instead of separate ad hoc sort/group logic in React. Keep a display `sortAt` separate from the persisted `startedAt`: bottle feedings sort by their `startedAt`; sleep rows sort by `max(session.startedAt, groupStart)` so clipped overnight sleep is ordered by its visible place in that day. Sort rows newest-first inside each day group, with the records closest to "now" at the top. If two records have the same visible time, keep sleep before feeding. Cover this with focused core tests such as `src/core/dayFeed.test.ts`.
 
-For the main mixed timeline, standalone bottle-feeding rows should be grouped by the local calendar day, not by the sleep-day boundary. A feeding at 04:00 today should appear under "Сегодня" even if the selected sleep day started yesterday. However, sleep nesting has priority over standalone calendar grouping: if a feeding timestamp falls inside a displayed sleep interval, show it inside that sleep card and do not duplicate it as a separate row in either day group. Pass a broader nearby-feeding set into the core day-feed builder for nesting candidates, and pass a separately filtered standalone-feeding set for the rows that may appear independently. This prevents an overnight feeding before midnight from being stranded under "Вчера" when the parent is looking at the selected-day night sleep.
+When the `Кормления` filter is enabled, standalone bottle-feeding rows should be grouped by the local calendar day, not by the sleep-day boundary. A feeding at 04:00 today should appear under "Сегодня" even if the selected sleep day started yesterday. However, sleep nesting has priority over standalone calendar grouping: if a feeding timestamp falls inside a displayed sleep interval, show it inside that sleep card and do not duplicate it as a separate row in either day group. Pass a broader nearby-feeding set into the core day-feed builder for nesting candidates, and pass a separately filtered standalone-feeding set for the rows that may appear independently. This prevents an overnight feeding before midnight from being stranded under "Вчера" when the parent is looking at the selected-day night sleep.
 
 If a record list can edit sessions from both the selected day and the previous day, pass that expanded set to the editor overlap checks. Keep the editor reference date tied to the actual session being edited, such as the session end time or `now` for an active session.
 

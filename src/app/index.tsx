@@ -721,6 +721,7 @@ export default function TodaySleepScreen() {
   const [bottleFeedingTopUpThresholdMl, setBottleFeedingTopUpThresholdMl] = useState(
     DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML,
   );
+  const [showFeedingsInTimeline, setShowFeedingsInTimeline] = useState(false);
   const [sleepPlan, setSleepPlan] = useState(DEFAULT_SLEEP_PLAN);
   const [sleepDayPlan, setSleepDayPlan] = useState<SleepDayPlan | null>(null);
   const [sleepDayTemporaryModes, setSleepDayTemporaryModes] = useState<
@@ -1019,10 +1020,15 @@ export default function TodaySleepScreen() {
     [actualTodayDayStart, nearbySessions, now, selectedDayEnd, selectedDayStart],
   );
   const sessionDayGroups = useMemo<SessionDayGroup[]>(() => {
+    const shouldShowBottleFeedingsInTimeline =
+      bottleFeedingEnabled && showFeedingsInTimeline;
+    const timelineBottleFeedings = shouldShowBottleFeedingsInTimeline
+      ? nearbyBottleFeedings
+      : [];
     const previousDayStart = addMinutes(selectedDayStart, -DAY_MINUTES);
     const previousDate = addCalendarDays(selectedDate, -1);
     const selectedGroupSessions = selectedSessionsForDay;
-    const selectedGroupFeedings = bottleFeedingEnabled
+    const selectedGroupFeedings = shouldShowBottleFeedingsInTimeline
       ? filterBottleFeedingsInCalendarDay(nearbyBottleFeedings, selectedDate)
       : [];
     const previousGroupSessions = nearbySessions.filter((session) => {
@@ -1036,11 +1042,11 @@ export default function TodaySleepScreen() {
 
       return sleepSessionOverlapsDay(session, previousDayStart, selectedDayStart, now);
     });
-    const previousGroupFeedings = bottleFeedingEnabled
+    const previousGroupFeedings = shouldShowBottleFeedingsInTimeline
       ? filterBottleFeedingsInCalendarDay(nearbyBottleFeedings, previousDate)
       : [];
     const selectedNestedFeedingIds = new Set(
-      nearbyBottleFeedings
+      timelineBottleFeedings
         .filter((feeding) =>
           selectedGroupSessions.some((session) =>
             isBottleFeedingInsideSleep(feeding, session, now, selectedDayEnd),
@@ -1049,7 +1055,7 @@ export default function TodaySleepScreen() {
         .map((feeding) => feeding.id),
     );
     const previousNestedFeedingIds = new Set(
-      nearbyBottleFeedings
+      timelineBottleFeedings
         .filter((feeding) =>
           previousGroupSessions.some((session) =>
             isBottleFeedingInsideSleep(feeding, session, now, selectedDayStart),
@@ -1067,7 +1073,7 @@ export default function TodaySleepScreen() {
     return [
       {
         items: buildDayFeedItems({
-          feedings: nearbyBottleFeedings,
+          feedings: timelineBottleFeedings,
           now,
           rangeEnd: selectedDayEnd,
           rangeStart: selectedDayStart,
@@ -1080,7 +1086,7 @@ export default function TodaySleepScreen() {
       },
       {
         items: buildDayFeedItems({
-          feedings: nearbyBottleFeedings,
+          feedings: timelineBottleFeedings,
           now,
           rangeEnd: selectedDayStart,
           rangeStart: previousDayStart,
@@ -1101,6 +1107,7 @@ export default function TodaySleepScreen() {
     selectedDayEnd,
     selectedDayStart,
     selectedSessionsForDay,
+    showFeedingsInTimeline,
     actualTodayDayStart,
   ]);
   const displayedSessionCount = useMemo(
@@ -2341,7 +2348,38 @@ export default function TodaySleepScreen() {
               <Text style={[styles.sectionTitle, styles.sectionHeaderTitle]}>
                 Таймлайн
               </Text>
-              <Text style={styles.sectionMeta}>{displayedSessionCountLabel}</Text>
+              <View style={styles.timelineHeaderActions}>
+                {bottleFeedingEnabled ? (
+                  <Pressable
+                    accessibilityLabel={
+                      showFeedingsInTimeline
+                        ? 'Скрыть кормления в таймлайне'
+                        : 'Показать кормления в таймлайне'
+                    }
+                    accessibilityRole="switch"
+                    accessibilityState={{ checked: showFeedingsInTimeline }}
+                    onPress={() => setShowFeedingsInTimeline((value) => !value)}
+                    style={({ pressed }) => [
+                      styles.timelineFilterButton,
+                      showFeedingsInTimeline
+                        ? styles.timelineFilterButtonActive
+                        : null,
+                      pressed ? styles.timelineFilterButtonPressed : null,
+                    ]}>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.timelineFilterButtonText,
+                        showFeedingsInTimeline
+                          ? styles.timelineFilterButtonTextActive
+                          : null,
+                      ]}>
+                      Кормления
+                    </Text>
+                  </Pressable>
+                ) : null}
+                <Text style={styles.sectionMeta}>{displayedSessionCountLabel}</Text>
+              </View>
             </View>
             <View style={styles.sessionList}>
               {sessionDayGroups.map((group) => (
@@ -3072,6 +3110,37 @@ const styles = StyleSheet.create({
   },
   sectionHeaderTitle: {
     flex: 1,
+  },
+  timelineHeaderActions: {
+    maxWidth: '56%',
+    flexShrink: 0,
+    alignItems: 'flex-end',
+    gap: spacing.xs,
+  },
+  timelineFilterButton: {
+    minHeight: 32,
+    maxWidth: '100%',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.sm,
+    backgroundColor: colors.surface,
+  },
+  timelineFilterButtonActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  timelineFilterButtonPressed: {
+    backgroundColor: colors.surfaceMuted,
+  },
+  timelineFilterButtonText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  timelineFilterButtonTextActive: {
+    color: colors.primary,
   },
   sectionMeta: {
     color: colors.textMuted,
