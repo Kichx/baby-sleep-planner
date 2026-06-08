@@ -2246,7 +2246,7 @@ export default function TodaySleepScreen() {
               </View>
 
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Таймлайн</Text>
+                <Text style={styles.sectionTitle}>Всё по порядку</Text>
                 <SleepDayTimeline dayStart={selectedDayStart} segments={timelineSegments} />
               </View>
 
@@ -2319,7 +2319,7 @@ export default function TodaySleepScreen() {
               </View>
 
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Таймлайн</Text>
+                <Text style={styles.sectionTitle}>Всё по порядку</Text>
                 <SleepDayTimeline dayStart={selectedDayStart} segments={timelineSegments} />
               </View>
 
@@ -2337,15 +2337,15 @@ export default function TodaySleepScreen() {
             <View style={styles.sectionHeader}>
               <View style={styles.timelineTitleRow}>
                 <Text style={[styles.sectionTitle, styles.timelineTitleText]}>
-                  Таймлайн
+                  Всё по порядку
                 </Text>
               </View>
               {bottleFeedingEnabled ? (
                 <Pressable
                   accessibilityLabel={
                     showFeedingsInTimeline
-                      ? 'Скрыть кормления в таймлайне'
-                      : 'Показать кормления в таймлайне'
+                      ? 'Скрыть кормления в списке «Всё по порядку»'
+                      : 'Показать кормления в списке «Всё по порядку»'
                   }
                   accessibilityRole="switch"
                   accessibilityState={{ checked: showFeedingsInTimeline }}

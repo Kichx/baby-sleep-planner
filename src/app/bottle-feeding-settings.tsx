@@ -587,7 +587,7 @@ export default function BottleFeedingSettingsScreen() {
               <View style={styles.reminderTextBlock}>
                 <Text style={styles.reminderTitle}>Доешка</Text>
                 <Text style={styles.reminderDescription}>
-                  {topUpThresholdLine}. Пометка появится в таймлайне.
+                  {topUpThresholdLine}. Пометка появится в списке «Всё по порядку».
                 </Text>
               </View>
               <View

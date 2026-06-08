@@ -371,7 +371,7 @@ export default function BottleFeedingScreen() {
 
           <View style={styles.timelineSection}>
             <View style={styles.timelineHeader}>
-              <Text style={styles.timelineTitle}>Таймлайн</Text>
+              <Text style={styles.timelineTitle}>Всё по порядку</Text>
               <Text style={styles.timelineMeta}>{displayedFeedingCountLabel}</Text>
             </View>
             <View style={styles.feedList}>
