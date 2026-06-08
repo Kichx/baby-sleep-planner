@@ -1,9 +1,11 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Stack, type Href, useFocusEffect, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BottomSheetSafeArea } from '@/components/BottomSheetSafeArea';
+import { PrimaryButton } from '@/components/PrimaryButton';
 import { SleepRetrospectiveIcon } from '@/components/SleepRetrospectiveIcon';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
@@ -21,7 +23,11 @@ import {
 import {
   buildSleepRetrospectiveDay,
   buildSleepRetrospectivePeriodSummary,
+  buildSleepRetrospectivePeriodStats,
+  type SleepRetrospectiveAwakeTrendPoint,
   type SleepRetrospectiveDay,
+  type SleepRetrospectivePeriodStats,
+  type SleepRetrospectiveSleepTrendPoint,
   type SleepRetrospectiveStatus,
 } from '@/core/sleepRetrospective';
 import { buildEffectiveSleepDayPlan } from '@/core/sleepPlan';
@@ -46,6 +52,7 @@ type RetrospectiveScreenDay = SleepRetrospectiveDay & {
 
 const DAY_MINUTES = 24 * 60;
 const PERIOD_OPTIONS: PeriodDays[] = [7, 14, 21];
+const MIN_VISIBLE_BAR_PERCENT = 4;
 
 function formatDuration(minutes: number): string {
   const safeMinutes = Math.max(0, Math.round(minutes));
@@ -84,6 +91,10 @@ function formatClock(date: Date | null): string {
   return date ? formatLocalClock(date) : '--';
 }
 
+function formatChartDate(date: Date): string {
+  return formatLocalDateLabel(date, { day: 'numeric', month: 'short' });
+}
+
 function formatAwakeDelta(deltaMinutes: number): string {
   if (Math.abs(deltaMinutes) <= 30) {
     return 'близко к плану';
@@ -92,6 +103,16 @@ function formatAwakeDelta(deltaMinutes: number): string {
   const sign = deltaMinutes > 0 ? '+' : '-';
 
   return `${sign}${formatDuration(Math.abs(deltaMinutes))} к плану`;
+}
+
+function formatAwakeDeltaShort(deltaMinutes: number): string {
+  if (Math.abs(deltaMinutes) <= 30) {
+    return 'в плане';
+  }
+
+  const sign = deltaMinutes > 0 ? '+' : '-';
+
+  return `${sign}${formatDuration(Math.abs(deltaMinutes))}`;
 }
 
 function formatCardDate(date: Date, now: Date): string {
@@ -157,6 +178,249 @@ function buildTargetPlanFromSleepDayPlan(dayPlan: SleepDayPlan): TargetDayPlan {
   };
 }
 
+function getSleepTrendMaxMinutes(points: SleepRetrospectiveSleepTrendPoint[]): number {
+  const maxRecordedTotal = Math.max(
+    0,
+    ...points.filter((point) => point.hasRecords).map((point) => point.totalSleepMinutes),
+  );
+
+  return Math.max(1, maxRecordedTotal);
+}
+
+function getAwakeTrendMaxMinutes(points: SleepRetrospectiveAwakeTrendPoint[]): number {
+  const maxRecordedDelta = Math.max(
+    0,
+    ...points
+      .filter((point) => point.hasRecords)
+      .map((point) => Math.abs(point.awakeDeltaMinutes)),
+  );
+
+  return Math.max(30, maxRecordedDelta);
+}
+
+function getStatusBarColor(status: SleepRetrospectiveStatus): string {
+  switch (status) {
+    case 'onTrack':
+      return colors.primary;
+    case 'shifted':
+      return colors.warning;
+    case 'stronglyShifted':
+      return colors.danger;
+    case 'empty':
+      return colors.border;
+  }
+}
+
+function MetricGrid({ stats }: { stats: SleepRetrospectivePeriodStats }) {
+  return (
+    <View style={styles.metricGrid}>
+      {stats.metricCards.map((metric) => (
+        <View key={metric.label} style={styles.metricCard}>
+          <Text numberOfLines={1} style={styles.metricLabel}>
+            {metric.label}
+          </Text>
+          <Text
+            adjustsFontSizeToFit
+            minimumFontScale={0.82}
+            numberOfLines={1}
+            style={styles.metricValue}>
+            {metric.value}
+          </Text>
+          <Text numberOfLines={1} style={styles.metricDetail}>
+            {metric.detail}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function SleepTrendChart({ points }: { points: SleepRetrospectiveSleepTrendPoint[] }) {
+  const maxMinutes = getSleepTrendMaxMinutes(points);
+
+  if (points.length === 0) {
+    return <Text style={styles.chartEmptyText}>Пока нет дней для графика.</Text>;
+  }
+
+  return (
+    <View style={styles.chartRows}>
+      {points.map((point) => {
+        const totalWidth = point.hasRecords
+          ? Math.max(
+              MIN_VISIBLE_BAR_PERCENT,
+              Math.round((point.totalSleepMinutes / maxMinutes) * 100),
+            )
+          : 0;
+
+        return (
+          <View key={point.date.toISOString()} style={styles.chartRow}>
+            <Text numberOfLines={1} style={styles.chartDate}>
+              {formatChartDate(point.date)}
+            </Text>
+            <View style={styles.sleepBarTrack}>
+              {point.hasRecords ? (
+                <View style={[styles.sleepBarFill, { width: `${totalWidth}%` }]}>
+                  {point.totalNightSleepMinutes > 0 ? (
+                    <View
+                      style={[
+                        styles.sleepBarSegment,
+                        styles.sleepNightSegment,
+                        { flex: point.totalNightSleepMinutes },
+                      ]}
+                    />
+                  ) : null}
+                  {point.totalDaySleepMinutes > 0 ? (
+                    <View
+                      style={[
+                        styles.sleepBarSegment,
+                        styles.sleepDaySegment,
+                        { flex: point.totalDaySleepMinutes },
+                      ]}
+                    />
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+            <Text numberOfLines={1} style={styles.chartValue}>
+              {point.hasRecords ? formatDuration(point.totalSleepMinutes) : '--'}
+            </Text>
+          </View>
+        );
+      })}
+      <View style={styles.chartLegend}>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, styles.sleepNightSegment]} />
+          <Text style={styles.legendText}>Ночь</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, styles.sleepDaySegment]} />
+          <Text style={styles.legendText}>День</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function AwakeTrendChart({ points }: { points: SleepRetrospectiveAwakeTrendPoint[] }) {
+  const maxMinutes = getAwakeTrendMaxMinutes(points);
+
+  if (points.length === 0) {
+    return <Text style={styles.chartEmptyText}>Пока нет дней для графика.</Text>;
+  }
+
+  return (
+    <View style={styles.chartRows}>
+      {points.map((point) => {
+        const delta = point.awakeDeltaMinutes;
+        const barWidth = point.hasRecords
+          ? Math.round((Math.abs(delta) / maxMinutes) * 100)
+          : 0;
+        const visibleBarWidth =
+          barWidth > 0 ? Math.max(MIN_VISIBLE_BAR_PERCENT, barWidth) : 0;
+        const barColor = getStatusBarColor(point.status);
+
+        return (
+          <View key={point.date.toISOString()} style={styles.chartRow}>
+            <Text numberOfLines={1} style={styles.chartDate}>
+              {formatChartDate(point.date)}
+            </Text>
+            <View style={styles.awakeBarTrack}>
+              <View style={[styles.awakeBarHalf, styles.awakeBarLeftHalf]}>
+                {point.hasRecords && delta < 0 ? (
+                  <View
+                    style={[
+                      styles.awakeBarFill,
+                      { backgroundColor: barColor, width: `${visibleBarWidth}%` },
+                    ]}
+                  />
+                ) : null}
+              </View>
+              <View style={styles.awakeBarCenter} />
+              <View style={[styles.awakeBarHalf, styles.awakeBarRightHalf]}>
+                {point.hasRecords && delta > 0 ? (
+                  <View
+                    style={[
+                      styles.awakeBarFill,
+                      { backgroundColor: barColor, width: `${visibleBarWidth}%` },
+                    ]}
+                  />
+                ) : null}
+              </View>
+            </View>
+            <Text numberOfLines={1} style={styles.chartValue}>
+              {point.hasRecords ? formatAwakeDeltaShort(delta) : '--'}
+            </Text>
+          </View>
+        );
+      })}
+      <Text style={styles.chartNote}>Слева меньше бодрствования, справа больше цели.</Text>
+    </View>
+  );
+}
+
+function PeriodStatsModal({
+  onClose,
+  stats,
+  visible,
+}: {
+  onClose: () => void;
+  stats: SleepRetrospectivePeriodStats;
+  visible: boolean;
+}) {
+  return (
+    <Modal
+      animationType="slide"
+      navigationBarTranslucent
+      onRequestClose={onClose}
+      statusBarTranslucent
+      transparent
+      visible={visible}>
+      <View style={styles.modalOverlay}>
+        <BottomSheetSafeArea style={styles.statsSheet}>
+          <View style={styles.sheetHandle} />
+          <View style={styles.sheetHeader}>
+            <View style={styles.sheetTitleBlock}>
+              <Text style={styles.sheetTitle}>Сводная информация</Text>
+              <Text style={styles.sheetPeriod}>{stats.periodLabel}</Text>
+            </View>
+            <Pressable accessibilityRole="button" onPress={onClose} style={styles.closeButton}>
+              <Text style={styles.closeButtonText}>Закрыть</Text>
+            </Pressable>
+          </View>
+
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            style={styles.statsScroll}
+            contentContainerStyle={styles.statsContent}>
+            <View style={styles.statsIntroCard}>
+              <Text style={styles.statsHeadline}>{stats.headline}</Text>
+              <Text style={styles.statsDetail}>{stats.detailLine}</Text>
+            </View>
+
+            <MetricGrid stats={stats} />
+
+            <View style={styles.chartPanel}>
+              <Text style={styles.chartTitle}>Сон по дням</Text>
+              <Text style={styles.chartSubtitle}>
+                Сколько сна было в сутки и какая часть пришлась на день.
+              </Text>
+              <SleepTrendChart points={stats.sleepTrend} />
+            </View>
+
+            <View style={styles.chartPanel}>
+              <Text style={styles.chartTitle}>Бодрствование к плану</Text>
+              <Text style={styles.chartSubtitle}>
+                Быстрый способ увидеть, повторяется ли сдвиг режима.
+              </Text>
+              <AwakeTrendChart points={stats.awakeTrend} />
+            </View>
+          </ScrollView>
+        </BottomSheetSafeArea>
+      </View>
+    </Modal>
+  );
+}
+
 export default function SleepRetrospectiveScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
@@ -165,6 +429,7 @@ export default function SleepRetrospectiveScreen() {
   const [now, setNow] = useState(() => new Date());
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isStatsVisible, setIsStatsVisible] = useState(false);
 
   const loadRetrospective = useCallback(async (shouldApply: () => boolean) => {
     const loadedAt = new Date();
@@ -257,6 +522,10 @@ export default function SleepRetrospectiveScreen() {
     () => buildSleepRetrospectivePeriodSummary(days, periodDays),
     [days, periodDays],
   );
+  const periodStats = useMemo(
+    () => buildSleepRetrospectivePeriodStats(days, periodDays),
+    [days, periodDays],
+  );
 
   function openDay(day: RetrospectiveScreenDay) {
     router.push(`/?date=${day.dateKey}` as Href);
@@ -308,6 +577,14 @@ export default function SleepRetrospectiveScreen() {
             </Text>
             <Text style={styles.summaryDetail}>{periodSummary.detailLine}</Text>
             <Text style={styles.summaryQuiet}>{periodSummary.quietLine}</Text>
+            <PrimaryButton
+              compact
+              label="Сводная информация"
+              onPress={() => setIsStatsVisible(true)}
+              style={styles.summaryButton}
+              textStyle={styles.summaryButtonText}
+              variant="secondary"
+            />
           </View>
 
           <View style={styles.dayList}>
@@ -372,6 +649,11 @@ export default function SleepRetrospectiveScreen() {
           </View>
         </SafeAreaView>
       </ScrollView>
+      <PeriodStatsModal
+        onClose={() => setIsStatsVisible(false)}
+        stats={periodStats}
+        visible={isStatsVisible}
+      />
     </>
   );
 }
@@ -479,6 +761,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     lineHeight: 20,
+  },
+  summaryButton: {
+    minHeight: 48,
+    marginTop: spacing.sm,
+    borderRadius: radius.sm,
+  },
+  summaryButtonText: {
+    fontSize: 16,
+    fontWeight: '900',
   },
   dayList: {
     gap: spacing.sm,
@@ -592,5 +883,254 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     lineHeight: 19,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(32, 32, 29, 0.36)',
+  },
+  statsSheet: {
+    maxHeight: '92%',
+    gap: spacing.md,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xl,
+    backgroundColor: colors.background,
+  },
+  sheetHandle: {
+    width: 46,
+    height: 4,
+    alignSelf: 'center',
+    borderRadius: 2,
+    backgroundColor: colors.border,
+  },
+  sheetHeader: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  sheetTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  sheetTitle: {
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: '900',
+    lineHeight: 27,
+  },
+  sheetPeriod: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  closeButton: {
+    minHeight: 44,
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+  },
+  closeButtonText: {
+    color: colors.primary,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  statsScroll: {
+    flexShrink: 1,
+  },
+  statsContent: {
+    gap: spacing.md,
+    paddingBottom: spacing.xs,
+  },
+  statsIntroCard: {
+    gap: spacing.xs,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  statsHeadline: {
+    color: colors.text,
+    fontSize: 19,
+    fontWeight: '900',
+    lineHeight: 24,
+  },
+  statsDetail: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 20,
+  },
+  metricGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  metricCard: {
+    width: '48%',
+    minHeight: 100,
+    justifyContent: 'space-between',
+    gap: spacing.xs,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  metricLabel: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  metricValue: {
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: '900',
+    lineHeight: 27,
+  },
+  metricDetail: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  chartPanel: {
+    gap: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  chartTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+    lineHeight: 23,
+  },
+  chartSubtitle: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 19,
+  },
+  chartRows: {
+    gap: spacing.xs,
+  },
+  chartRow: {
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  chartDate: {
+    width: 48,
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  chartValue: {
+    width: 64,
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
+  chartEmptyText: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 19,
+  },
+  sleepBarTrack: {
+    flex: 1,
+    minWidth: 0,
+    height: 14,
+    overflow: 'hidden',
+    borderRadius: 7,
+    backgroundColor: colors.surfaceMuted,
+  },
+  sleepBarFill: {
+    height: '100%',
+    minWidth: 2,
+    flexDirection: 'row',
+    overflow: 'hidden',
+    borderRadius: 7,
+  },
+  sleepBarSegment: {
+    minWidth: 2,
+  },
+  sleepNightSegment: {
+    backgroundColor: colors.primary,
+  },
+  sleepDaySegment: {
+    backgroundColor: colors.warning,
+  },
+  chartLegend: {
+    minHeight: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingTop: spacing.xs,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  legendDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+  },
+  legendText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  awakeBarTrack: {
+    flex: 1,
+    minWidth: 0,
+    height: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  awakeBarHalf: {
+    flex: 1,
+    height: 8,
+    justifyContent: 'center',
+    backgroundColor: colors.surfaceMuted,
+  },
+  awakeBarLeftHalf: {
+    alignItems: 'flex-end',
+    borderTopLeftRadius: 4,
+    borderBottomLeftRadius: 4,
+  },
+  awakeBarRightHalf: {
+    alignItems: 'flex-start',
+    borderTopRightRadius: 4,
+    borderBottomRightRadius: 4,
+  },
+  awakeBarCenter: {
+    width: 2,
+    height: 18,
+    borderRadius: 1,
+    backgroundColor: colors.border,
+  },
+  awakeBarFill: {
+    height: 8,
+    borderRadius: 4,
+  },
+  chartNote: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 17,
+    paddingTop: spacing.xs,
   },
 });

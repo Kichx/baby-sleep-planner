@@ -976,6 +976,31 @@ Current UI consumers should keep temporary modes narrow:
 
 Temporary-mode UI should stay compact and calm near the relevant screen-day decision. It should reduce parent decision load, offer a safe default action, and keep `target_day_plan` unchanged unless the parent explicitly edits the permanent plan.
 
+## Implementation lessons from sleep retrospective summary statistics
+
+The `/sleep-retrospective` screen is a calm history view, not an analytics dashboard. Keep the first-level screen focused on period selector, compact period summary, and the daily list. Put richer statistics behind the secondary `Сводная информация` action for the selected period.
+
+Keep retrospective statistics in pure core code such as `src/core/sleepRetrospective.ts`. UI should render already prepared labels, metric cards, and trend points; it should not duplicate average, sorting, status, or empty-state math inside React components.
+
+Useful summary metrics for this app are limited to sleep-planning context:
+- average total sleep per 24-hour sleep-day;
+- average daytime sleep and average naps per day;
+- average night sleep;
+- approximate average wake window;
+- simple trends for total sleep split into night/day and awake-time drift against the plan.
+
+Avoid turning history into complex analytics. Do not add medical claims, official-norm comparisons, feeding/diaper/growth metrics, cloud-backed reports, or heavy chart dependencies unless a later task explicitly asks for them. Prefer simple React Native `View`-based visualizations for compact trends when they are enough.
+
+For `/sleep-retrospective` summary UI, use a bottom sheet or comparable secondary surface with bottom safe-area handling through `BottomSheetSafeArea`/`SafeAreaView edges={['bottom']}`. The sheet must remain scrollable and usable in a narrow Android/Web viewport, and the close action plus the lowest visible content must not be hidden by the navigation area.
+
+When changing retrospective statistics, cover at least:
+- empty selected period;
+- average total/day/night sleep and naps per day;
+- approximate wake-window calculation;
+- chronological trend ordering even when screen days are loaded newest first;
+- readable empty trend rows;
+- narrow-viewport smoke-test for the summary sheet.
+
 When adding or changing temporary mode behavior, update Confluence along with code. At minimum update the page "Временные режимы sleep-day" plus any affected screen pages such as "Экран: Сон сегодня", "Экран: План дня", "Экран: Ретроспектива сна", "Экран: Профиль", and the technical/project map pages. After Confluence writes, read the pages back in markdown and verify Russian headings and key bullets are readable.
 
 When a feature moves from "not implemented yet" to implemented, search affected Confluence pages for stale negative statements such as "пока не отображается", "отдельного UI пока нет", or "если будет добавлено позже". Replace them in the same documentation pass so future implementation work does not follow outdated boundaries.

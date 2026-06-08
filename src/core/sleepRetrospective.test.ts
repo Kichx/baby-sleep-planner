@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildSleepRetrospectiveDay,
   buildSleepRetrospectivePeriodSummary,
+  buildSleepRetrospectivePeriodStats,
 } from '@/core/sleepRetrospective';
 import type {
   SleepDaySummary,
@@ -167,5 +168,66 @@ describe('buildSleepRetrospectivePeriodSummary', () => {
 
     expect(summary.periodLabel).toBe('За 14 дней');
     expect(summary.primaryLine).toBe('Пока нет завершённых дней с записями');
+  });
+});
+
+describe('buildSleepRetrospectivePeriodStats', () => {
+  it('calculates calm averages and chronological trend points', () => {
+    const recentDay = buildSleepRetrospectiveDay({
+      date: new Date('2026-05-27T09:00:00.000Z'),
+      summary: daySummary({
+        completedNaps: 2,
+        targetAwakeDeltaMinutes: -30,
+        totalAwakeMinutes: 600,
+        totalDaySleepMinutes: 120,
+        totalNightSleepMinutes: 660,
+      }),
+    });
+    const olderDay = buildSleepRetrospectiveDay({
+      date: new Date('2026-05-26T09:00:00.000Z'),
+      summary: daySummary({
+        completedNaps: 3,
+        targetAwakeDeltaMinutes: 30,
+        totalAwakeMinutes: 660,
+        totalDaySleepMinutes: 180,
+        totalNightSleepMinutes: 600,
+      }),
+    });
+
+    const stats = buildSleepRetrospectivePeriodStats([recentDay, olderDay], 7);
+
+    expect(stats.recordedDays).toBe(2);
+    expect(stats.averageTotalSleepMinutes).toBe(780);
+    expect(stats.averageDaySleepMinutes).toBe(150);
+    expect(stats.averageNightSleepMinutes).toBe(630);
+    expect(stats.averageAwakeMinutes).toBe(630);
+    expect(stats.averageNapsPerDay).toBe(2.5);
+    expect(stats.averageWakeWindowMinutes).toBe(183);
+    expect(stats.headline).toBe('В среднем 13 ч сна за сутки');
+    expect(stats.detailLine).toBe('Есть данные за 2 дня из 7.');
+    expect(stats.metricCards[1]).toEqual({
+      detail: '2,5 сна/день',
+      label: 'Дневной сон',
+      value: '2 ч 30 мин',
+    });
+    expect(stats.sleepTrend.map((point) => point.date.toISOString())).toEqual([
+      '2026-05-26T09:00:00.000Z',
+      '2026-05-27T09:00:00.000Z',
+    ]);
+    expect(stats.awakeTrend.map((point) => point.awakeDeltaMinutes)).toEqual([30, -30]);
+  });
+
+  it('keeps an empty stats period explicit', () => {
+    const stats = buildSleepRetrospectivePeriodStats([], 14);
+
+    expect(stats.recordedDays).toBe(0);
+    expect(stats.averageTotalSleepMinutes).toBeNull();
+    expect(stats.headline).toBe('Пока мало данных');
+    expect(stats.detailLine).toBe('Сводка появится после нескольких записанных дней.');
+    expect(stats.metricCards[0]).toEqual({
+      detail: 'после записей',
+      label: 'Сон за сутки',
+      value: '--',
+    });
   });
 });

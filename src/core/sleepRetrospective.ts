@@ -32,7 +32,9 @@ export interface SleepRetrospectiveDay {
   status: SleepRetrospectiveStatus;
   statusLabel: string;
   temporaryModeBadges: SleepRetrospectiveTemporaryModeBadge[];
+  totalAwakeMinutes: number;
   totalDaySleepMinutes: number;
+  totalNightSleepMinutes: number;
   wakeUpAt: Date | null;
 }
 
@@ -50,6 +52,43 @@ export interface SleepRetrospectivePeriodSummary {
   quietLine: string;
 }
 
+export interface SleepRetrospectiveMetricCard {
+  detail: string;
+  label: string;
+  value: string;
+}
+
+export interface SleepRetrospectiveSleepTrendPoint {
+  date: Date;
+  hasRecords: boolean;
+  totalDaySleepMinutes: number;
+  totalNightSleepMinutes: number;
+  totalSleepMinutes: number;
+}
+
+export interface SleepRetrospectiveAwakeTrendPoint {
+  awakeDeltaMinutes: number;
+  date: Date;
+  hasRecords: boolean;
+  status: SleepRetrospectiveStatus;
+}
+
+export interface SleepRetrospectivePeriodStats {
+  averageAwakeMinutes: number | null;
+  averageDaySleepMinutes: number | null;
+  averageNapsPerDay: number | null;
+  averageNightSleepMinutes: number | null;
+  averageTotalSleepMinutes: number | null;
+  averageWakeWindowMinutes: number | null;
+  awakeTrend: SleepRetrospectiveAwakeTrendPoint[];
+  detailLine: string;
+  headline: string;
+  metricCards: SleepRetrospectiveMetricCard[];
+  periodLabel: string;
+  recordedDays: number;
+  sleepTrend: SleepRetrospectiveSleepTrendPoint[];
+}
+
 const SHIFT_TOLERANCE_MINUTES = 30;
 const STRONG_SHIFT_MINUTES = 90;
 
@@ -64,6 +103,32 @@ function formatDayCount(value: number): string {
         : 'дней';
 
   return `${value} ${suffix}`;
+}
+
+function formatDuration(minutes: number): string {
+  const safeMinutes = Math.max(0, Math.round(minutes));
+  const hours = Math.floor(safeMinutes / 60);
+  const restMinutes = safeMinutes % 60;
+
+  if (hours === 0) {
+    return `${restMinutes} мин`;
+  }
+
+  if (restMinutes === 0) {
+    return `${hours} ч`;
+  }
+
+  return `${hours} ч ${restMinutes} мин`;
+}
+
+function formatAverageCount(value: number): string {
+  const rounded = Math.round(value * 10) / 10;
+
+  if (Number.isInteger(rounded)) {
+    return String(rounded);
+  }
+
+  return rounded.toFixed(1).replace('.', ',');
 }
 
 function formatShiftedDayLine(value: number, reason: string): string {
@@ -285,7 +350,9 @@ export function buildSleepRetrospectiveDay(
     status,
     statusLabel: getStatusLabel(status),
     temporaryModeBadges,
+    totalAwakeMinutes: input.summary.totalAwakeMinutes,
     totalDaySleepMinutes: input.summary.totalDaySleepMinutes,
+    totalNightSleepMinutes: input.summary.totalNightSleepMinutes,
     wakeUpAt: input.summary.wakeUpAt,
   };
 }
@@ -327,5 +394,142 @@ export function buildSleepRetrospectivePeriodSummary(
         : strongCount > 0
           ? 'Главное - смотреть на повторяющиеся дни, а не на один сложный вечер.'
           : 'Один неровный день не ломает режим. Важнее повторяющийся рисунок.',
+  };
+}
+
+function average(values: number[]): number | null {
+  if (values.length === 0) {
+    return null;
+  }
+
+  return Math.round(values.reduce((total, value) => total + value, 0) / values.length);
+}
+
+function getAverageNapsPerDay(days: SleepRetrospectiveDay[]): number | null {
+  if (days.length === 0) {
+    return null;
+  }
+
+  return days.reduce((total, day) => total + day.completedNaps, 0) / days.length;
+}
+
+function getApproximateWakeWindowMinutes(day: SleepRetrospectiveDay): number {
+  const hasEveningWindow = day.bedtimeAt !== null;
+  const wakeWindowCount = Math.max(1, day.completedNaps + (hasEveningWindow ? 1 : 0));
+
+  return Math.round(day.totalAwakeMinutes / wakeWindowCount);
+}
+
+function buildMetricCards(input: {
+  averageAwakeMinutes: number | null;
+  averageDaySleepMinutes: number | null;
+  averageNapsPerDay: number | null;
+  averageNightSleepMinutes: number | null;
+  averageTotalSleepMinutes: number | null;
+  averageWakeWindowMinutes: number | null;
+}): SleepRetrospectiveMetricCard[] {
+  if (
+    input.averageAwakeMinutes === null ||
+    input.averageDaySleepMinutes === null ||
+    input.averageNapsPerDay === null ||
+    input.averageNightSleepMinutes === null ||
+    input.averageTotalSleepMinutes === null ||
+    input.averageWakeWindowMinutes === null
+  ) {
+    return [
+      { detail: 'после записей', label: 'Сон за сутки', value: '--' },
+      { detail: 'днём', label: 'Дневной сон', value: '--' },
+      { detail: 'ночью', label: 'Ночной сон', value: '--' },
+      { detail: 'примерно', label: 'Среднее ВБ', value: '--' },
+    ];
+  }
+
+  return [
+    {
+      detail: 'в среднем',
+      label: 'Сон за сутки',
+      value: formatDuration(input.averageTotalSleepMinutes),
+    },
+    {
+      detail: `${formatAverageCount(input.averageNapsPerDay)} сна/день`,
+      label: 'Дневной сон',
+      value: formatDuration(input.averageDaySleepMinutes),
+    },
+    {
+      detail: 'в среднем',
+      label: 'Ночной сон',
+      value: formatDuration(input.averageNightSleepMinutes),
+    },
+    {
+      detail: `бодрств. ${formatDuration(input.averageAwakeMinutes)}`,
+      label: 'Среднее ВБ',
+      value: formatDuration(input.averageWakeWindowMinutes),
+    },
+  ];
+}
+
+export function buildSleepRetrospectivePeriodStats(
+  days: SleepRetrospectiveDay[],
+  periodDays: number,
+): SleepRetrospectivePeriodStats {
+  const daysWithRecords = days.filter((day) => day.hasRecords);
+  const chronologicalDays = [...days].sort(
+    (first, second) => first.date.getTime() - second.date.getTime(),
+  );
+  const averageDaySleepMinutes = average(
+    daysWithRecords.map((day) => day.totalDaySleepMinutes),
+  );
+  const averageNightSleepMinutes = average(
+    daysWithRecords.map((day) => day.totalNightSleepMinutes),
+  );
+  const averageTotalSleepMinutes = average(
+    daysWithRecords.map((day) => day.totalDaySleepMinutes + day.totalNightSleepMinutes),
+  );
+  const averageAwakeMinutes = average(daysWithRecords.map((day) => day.totalAwakeMinutes));
+  const averageWakeWindowMinutes = average(
+    daysWithRecords.map(getApproximateWakeWindowMinutes),
+  );
+  const averageNapsPerDay = getAverageNapsPerDay(daysWithRecords);
+  const periodLabel = `За ${periodDays} дней`;
+  const metricCards = buildMetricCards({
+    averageAwakeMinutes,
+    averageDaySleepMinutes,
+    averageNapsPerDay,
+    averageNightSleepMinutes,
+    averageTotalSleepMinutes,
+    averageWakeWindowMinutes,
+  });
+
+  return {
+    averageAwakeMinutes,
+    averageDaySleepMinutes,
+    averageNapsPerDay,
+    averageNightSleepMinutes,
+    averageTotalSleepMinutes,
+    averageWakeWindowMinutes,
+    awakeTrend: chronologicalDays.map((day) => ({
+      awakeDeltaMinutes: day.awakeDeltaMinutes,
+      date: day.date,
+      hasRecords: day.hasRecords,
+      status: day.status,
+    })),
+    detailLine:
+      daysWithRecords.length === 0
+        ? 'Сводка появится после нескольких записанных дней.'
+        : `Есть данные за ${formatDayCount(daysWithRecords.length)} из ${periodDays}.`,
+    headline:
+      averageTotalSleepMinutes === null
+        ? 'Пока мало данных'
+        : `В среднем ${formatDuration(averageTotalSleepMinutes)} сна за сутки`,
+    metricCards,
+    periodLabel,
+    recordedDays: daysWithRecords.length,
+    sleepTrend: chronologicalDays.map((day) => ({
+      date: day.date,
+      hasRecords: day.hasRecords,
+      totalDaySleepMinutes: day.totalDaySleepMinutes,
+      totalNightSleepMinutes: day.totalNightSleepMinutes,
+      totalSleepMinutes: day.totalDaySleepMinutes + day.totalNightSleepMinutes,
+    })),
   };
 }
