@@ -155,6 +155,7 @@ interface PlanCardProps {
 interface BasePlanPresetFlowProps {
   agePresetCatalog: AgeSleepPlanPresetTemplateCatalog | null;
   canClose: boolean;
+  canChooseTrackingOnly: boolean;
   disabled: boolean;
   flowMode: PresetFlowMode;
   hasBirthDate: boolean;
@@ -252,9 +253,12 @@ interface TodayPlanSectionProps {
 interface PlanChecksSectionProps {
   baseAwakeRange: PlanMinuteRange | null;
   checks: SleepPlanChecks;
+  disabled: boolean;
+  isAgeMissing: boolean;
   isExpanded: boolean;
   onOpenOfficialInfo: () => void;
   onOpenPracticalInfo: () => void;
+  onOpenProfilePrompt: () => void;
   onOpenWakeWindowInfo: () => void;
   onToggle: () => void;
   todayAwakeRange: PlanMinuteRange | null;
@@ -1356,14 +1360,18 @@ function PlanCheckDetailBlock({
 function PlanChecksSection({
   baseAwakeRange,
   checks,
+  disabled,
+  isAgeMissing,
   isExpanded,
   onOpenOfficialInfo,
   onOpenPracticalInfo,
+  onOpenProfilePrompt,
   onOpenWakeWindowInfo,
   onToggle,
   todayAwakeRange,
 }: PlanChecksSectionProps) {
   const hasTodayAwakeComparison = baseAwakeRange !== null && todayAwakeRange !== null;
+  const ageMissingStatus = isAgeMissing ? 'нужен возраст' : null;
 
   return (
     <View style={styles.section}>
@@ -1375,20 +1383,39 @@ function PlanChecksSection({
         <View style={styles.planCheckStatusList}>
           <PlanCheckStatusRow
             label="Сон за сутки"
-            status={checks.officialSleep.summaryLabel}
+            status={ageMissingStatus ?? checks.officialSleep.summaryLabel}
             tone={checks.officialSleep.tone}
           />
           <PlanCheckStatusRow
             label="Дневной сон"
-            status={checks.daySleep.summaryLabel}
+            status={ageMissingStatus ?? checks.daySleep.summaryLabel}
             tone={checks.daySleep.tone}
           />
           <PlanCheckStatusRow
             label="Бодрствование"
-            status={checks.wakeWindows.summaryLabel}
+            status={ageMissingStatus ?? checks.wakeWindows.summaryLabel}
             tone={checks.wakeWindows.tone}
           />
         </View>
+
+        {isAgeMissing ? (
+          <View style={styles.planCheckAgePrompt}>
+            <Text style={styles.planCheckAgePromptText}>
+              Укажите возраст ребёнка, чтобы сравнить план с подходящими ориентирами сна.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              disabled={disabled}
+              onPress={onOpenProfilePrompt}
+              style={({ pressed }) => [
+                styles.planCheckAgePromptButton,
+                pressed && !disabled ? styles.guidelineSecondaryButtonPressed : null,
+                disabled ? styles.disabledCard : null,
+              ]}>
+              <Text style={styles.planCheckAgePromptButtonText}>Указать возраст</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         <Pressable
           accessibilityRole="button"
@@ -1899,6 +1926,7 @@ function ManualPresetDraftCard({
 function BasePlanPresetFlow({
   agePresetCatalog,
   canClose,
+  canChooseTrackingOnly,
   disabled,
   flowMode,
   hasBirthDate,
@@ -2096,7 +2124,7 @@ function BasePlanPresetFlow({
             </Pressable>
           ) : null}
 
-          {!canClose ? (
+          {canChooseTrackingOnly ? (
             <Pressable
               accessibilityRole="button"
               disabled={disabled}
@@ -2221,7 +2249,7 @@ function ChildProfilePromptModal({
           <View style={styles.nameDialog}>
             <Text style={styles.nameDialogTitle}>Профиль ребёнка</Text>
             <Text style={styles.nameDialogText}>
-              Сохраним имя и дату рождения, затем вернёмся к выбору базового плана.
+              Сохраним имя и дату рождения, чтобы подбирать возрастные ориентиры сна.
             </Text>
             {errorMessage ? <Text style={styles.nameDialogError}>{errorMessage}</Text> : null}
             <View style={styles.profilePromptForm}>
@@ -2390,9 +2418,9 @@ export default function SleepPlanScreen() {
     [plans, selectedPlanId],
   );
   const activePlan = useMemo(() => plans.find((plan) => plan.isActive) ?? null, [plans]);
-  const isPresetFlowVisible =
-    (!activePlan && (onboardingState === 'not_started' || isEveningPromptPlanSelection)) ||
-    isPresetFlowOpen;
+  const isPresetFlowVisible = !activePlan || isPresetFlowOpen;
+  const canChooseTrackingOnlyFromPresetFlow =
+    !activePlan && (onboardingState === 'not_started' || isEveningPromptPlanSelection);
   const isPresetManualMode = isPresetFlowVisible && presetFlowMode === 'manual';
   const todaySleepDayKey = useMemo(
     () => (activePlan ? getSleepDayDateKeyForDate(new Date(), activePlan.plan) : null),
@@ -3514,6 +3542,7 @@ export default function SleepPlanScreen() {
             <BasePlanPresetFlow
               agePresetCatalog={agePresetCatalog}
               canClose={activePlan !== null}
+              canChooseTrackingOnly={canChooseTrackingOnlyFromPresetFlow}
               disabled={isLoading || isSaving || isProfilePromptSaving}
               flowMode={presetFlowMode}
               hasBirthDate={childBirthDateValue !== null}
@@ -3603,9 +3632,12 @@ export default function SleepPlanScreen() {
               <PlanChecksSection
                 baseAwakeRange={baseAwakeRangeForChecks}
                 checks={planChecks}
+                disabled={isLoading || isSaving || isProfilePromptSaving}
+                isAgeMissing={childAgeMonths === null}
                 isExpanded={isChecksExpanded}
                 onOpenOfficialInfo={() => router.push(OFFICIAL_SLEEP_INFO_ROUTE)}
                 onOpenPracticalInfo={() => router.push(PRACTICAL_SLEEP_INFO_ROUTE)}
+                onOpenProfilePrompt={openProfilePrompt}
                 onOpenWakeWindowInfo={() => router.push(WAKE_WINDOW_INFO_ROUTE)}
                 onToggle={() => setIsChecksExpanded((isExpanded) => !isExpanded)}
                 todayAwakeRange={todayAwakeRangeForChecks}
@@ -3981,20 +4013,20 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xl,
   },
   presetFlow: {
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   presetFlowHeader: {
-    minHeight: 44,
+    minHeight: 40,
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   presetFlowTitle: {
     color: colors.text,
-    fontSize: 24,
-    lineHeight: 29,
-    fontWeight: '900',
+    fontSize: 21,
+    lineHeight: 26,
+    fontWeight: '800',
   },
   presetCloseButton: {
     minHeight: 36,
@@ -4007,40 +4039,40 @@ const styles = StyleSheet.create({
   },
   presetCloseButtonText: {
     color: colors.primary,
-    fontSize: 14,
-    fontWeight: '900',
+    fontSize: 13,
+    fontWeight: '800',
   },
   presetBirthDateBlock: {
-    gap: spacing.sm,
+    gap: spacing.xs,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.md,
+    padding: spacing.sm,
     backgroundColor: colors.surface,
   },
   presetList: {
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   presetTemplateSections: {
-    gap: spacing.lg,
+    gap: spacing.md,
   },
   presetTemplateSection: {
     gap: spacing.sm,
   },
   presetTemplateSectionTitle: {
     color: colors.text,
-    fontSize: 18,
-    lineHeight: 23,
-    fontWeight: '900',
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: '800',
   },
   presetTemplateSectionCaption: {
     color: colors.textMuted,
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: '700',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
   },
   presetAgeDropdownButton: {
-    minHeight: 48,
+    minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -4054,13 +4086,13 @@ const styles = StyleSheet.create({
   presetAgeDropdownButtonText: {
     flexShrink: 1,
     color: colors.primary,
-    fontSize: 16,
-    fontWeight: '900',
+    fontSize: 14,
+    fontWeight: '800',
   },
   presetAgeDropdownButtonIcon: {
     color: colors.primary,
-    fontSize: 18,
-    fontWeight: '900',
+    fontSize: 16,
+    fontWeight: '800',
   },
   presetAgeDropdownMenu: {
     overflow: 'hidden',
@@ -4070,7 +4102,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   presetAgeDropdownItem: {
-    minHeight: 44,
+    minHeight: 40,
     justifyContent: 'center',
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
@@ -4081,19 +4113,19 @@ const styles = StyleSheet.create({
   },
   presetAgeDropdownItemText: {
     color: colors.text,
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '700',
   },
   presetAgeDropdownItemTextSelected: {
     color: colors.primary,
     fontWeight: '900',
   },
   presetTemplateCard: {
-    gap: spacing.sm,
+    gap: spacing.xs,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.md,
+    padding: spacing.sm,
     backgroundColor: colors.surface,
   },
   presetTemplateCardRecommended: {
@@ -4110,24 +4142,24 @@ const styles = StyleSheet.create({
   presetTemplateTitle: {
     flexShrink: 1,
     color: colors.text,
-    fontSize: 18,
-    lineHeight: 23,
-    fontWeight: '900',
+    fontSize: 16,
+    lineHeight: 21,
+    fontWeight: '800',
   },
   presetTemplateMeaning: {
     color: colors.text,
-    fontSize: 15,
-    lineHeight: 21,
-    fontWeight: '800',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
   },
   presetTemplateFacts: {
     gap: spacing.xs,
   },
   presetTemplateFact: {
     color: colors.textMuted,
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: '800',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
   },
   presetWhyBlock: {
     gap: 4,
@@ -4139,17 +4171,17 @@ const styles = StyleSheet.create({
   },
   presetWhyTitle: {
     color: colors.text,
-    fontSize: 13,
-    fontWeight: '900',
+    fontSize: 12,
+    fontWeight: '800',
   },
   presetWhyText: {
     color: colors.textMuted,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '700',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '600',
   },
   presetPrimaryButton: {
-    minHeight: 46,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.sm,
@@ -4158,11 +4190,11 @@ const styles = StyleSheet.create({
   },
   presetPrimaryButtonText: {
     color: colors.surface,
-    fontSize: 16,
-    fontWeight: '900',
+    fontSize: 15,
+    fontWeight: '800',
   },
   presetSecondaryButton: {
-    minHeight: 44,
+    minHeight: 40,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.sm,
@@ -4173,8 +4205,8 @@ const styles = StyleSheet.create({
   },
   presetSecondaryButtonText: {
     color: colors.primary,
-    fontSize: 15,
-    fontWeight: '900',
+    fontSize: 14,
+    fontWeight: '800',
   },
   presetPlainButton: {
     minHeight: 40,
@@ -4184,15 +4216,15 @@ const styles = StyleSheet.create({
   },
   presetPlainButtonText: {
     color: colors.primary,
-    fontSize: 15,
-    fontWeight: '900',
+    fontSize: 14,
+    fontWeight: '800',
   },
   presetPreviewCard: {
-    gap: spacing.md,
+    gap: spacing.sm,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.md,
+    padding: spacing.sm,
     backgroundColor: colors.surface,
   },
   presetPreviewList: {
@@ -4200,18 +4232,18 @@ const styles = StyleSheet.create({
   },
   presetPreviewRow: {
     color: colors.text,
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: '800',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
   },
   presetActions: {
     gap: spacing.sm,
   },
   presetEmptyText: {
     color: colors.textMuted,
-    fontSize: 15,
-    lineHeight: 21,
-    fontWeight: '700',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
   },
   presetErrorText: {
     color: colors.danger,
@@ -4305,7 +4337,9 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   sectionTitleBlock: {
+    flex: 1,
     gap: spacing.xs,
+    minWidth: 0,
   },
   sectionCaption: {
     color: colors.textMuted,
@@ -4523,6 +4557,35 @@ const styles = StyleSheet.create({
   },
   planCheckStatusTextMuted: {
     color: colors.textMuted,
+  },
+  planCheckAgePrompt: {
+    gap: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.sm,
+    backgroundColor: colors.background,
+  },
+  planCheckAgePromptText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  planCheckAgePromptButton: {
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.primarySoft,
+  },
+  planCheckAgePromptButtonText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '900',
   },
   checksToggleButton: {
     minHeight: 42,
@@ -4967,12 +5030,12 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   ageBandChip: {
-    minHeight: 34,
+    minHeight: 32,
     justifyContent: 'center',
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.xs,
     backgroundColor: colors.surface,
   },
   ageBandChipSelected: {
@@ -4984,8 +5047,8 @@ const styles = StyleSheet.create({
   },
   ageBandChipText: {
     color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: '900',
+    fontSize: 11,
+    fontWeight: '800',
   },
   ageBandChipTextSelected: {
     color: colors.primary,
@@ -4998,8 +5061,8 @@ const styles = StyleSheet.create({
   },
   recommendedBadgeText: {
     color: colors.primary,
-    fontSize: 11,
-    fontWeight: '900',
+    fontSize: 10,
+    fontWeight: '800',
   },
   guidelinePrimaryButtonPressed: {
     backgroundColor: colors.primaryPressed,
@@ -5184,23 +5247,23 @@ const styles = StyleSheet.create({
   nameDialog: {
     width: '100%',
     maxWidth: 420,
-    gap: spacing.md,
+    gap: spacing.sm,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.lg,
+    padding: spacing.md,
     backgroundColor: colors.background,
   },
   nameDialogTitle: {
     color: colors.text,
-    fontSize: 24,
-    fontWeight: '900',
+    fontSize: 21,
+    fontWeight: '800',
   },
   nameDialogText: {
     color: colors.textMuted,
-    fontSize: 15,
-    lineHeight: 21,
-    fontWeight: '700',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
   },
   nameDialogError: {
     borderRadius: radius.sm,
@@ -5233,18 +5296,18 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   profilePromptInput: {
-    minHeight: 52,
+    minHeight: 48,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
     paddingHorizontal: spacing.md,
     color: colors.text,
     backgroundColor: colors.surface,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
   },
   profilePromptBirthDateField: {
-    minHeight: 68,
+    minHeight: 62,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -5266,14 +5329,14 @@ const styles = StyleSheet.create({
   },
   profilePromptBirthDateValue: {
     color: colors.text,
-    fontSize: 17,
-    fontWeight: '900',
+    fontSize: 16,
+    fontWeight: '800',
   },
   profilePromptAgeText: {
     maxWidth: 132,
     color: colors.primary,
-    fontSize: 15,
-    fontWeight: '900',
+    fontSize: 14,
+    fontWeight: '800',
     textAlign: 'right',
   },
   nameDialogActions: {
@@ -5281,7 +5344,7 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   nameSecondaryButton: {
-    minHeight: 46,
+    minHeight: 42,
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -5291,7 +5354,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   namePrimaryButton: {
-    minHeight: 46,
+    minHeight: 42,
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -5303,13 +5366,13 @@ const styles = StyleSheet.create({
   },
   nameSecondaryButtonText: {
     color: colors.text,
-    fontSize: 16,
-    fontWeight: '900',
+    fontSize: 15,
+    fontWeight: '800',
   },
   namePrimaryButtonText: {
     color: colors.surface,
-    fontSize: 16,
-    fontWeight: '900',
+    fontSize: 15,
+    fontWeight: '800',
   },
   sheet: {
     maxHeight: '92%',

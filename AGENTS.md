@@ -401,6 +401,8 @@ Keep `/sleep-plan` guideline checks as a compact `Проверка и расчё
 
 Keep the compact check calculation in pure core code such as `src/core/sleepPlanChecks.ts`. UI should pass the current draft/effective plan into core and render returned labels/ranges; it should not duplicate A/B/C status math in React.
 
+When the child age is unknown on `/sleep-plan`, the compact `Проверка и расчёт` block must explain what is missing instead of showing unexplained `не рассчитано`. Use a short calm status such as `нужен возраст`, show a compact prompt to enter the child's age or birth date, and open the existing local `Профиль ребёнка` prompt. Do not create a plan, write temporary modes, navigate away to `/profile`, or make medical claims from this prompt.
+
 For compact checks, Level A must continue to compare only total sleep over 24 hours against the official guideline. Level B compares practical daytime sleep, and Level C compares practical wake windows. Do not call Level B or Level C an official medical norm, and do not merge them into one combined "sleep norm" status.
 
 Show total awake time (`Бодрствование за 24 часа (ВБ)`) only inside expanded `Проверка и расчёт` on `/sleep-plan`. Do not show summed 24-hour awake time on the main "Сон сегодня" screen; the main screen may show remaining awake time, but not `всего ...` awake time. If temporary modes are active on `/sleep-plan`, the expanded awake-time detail should compare `Обычный план` and `Сегодня`.
@@ -499,6 +501,8 @@ Keep `/first-run` intentionally smaller than `/sleep-plan`. It may show only:
 - secondary action `Пока просто записывать сны`;
 - `Как это работает` as a bottom sheet, not a separate help route.
 
+Keep clean-install first screens visually compact. On `/first-run`, the preset-selection entry state on `/sleep-plan`, preset cards, and the local profile prompt, avoid oversized hero typography and very heavy text weights. Prefer compact headings, short line lengths, calm captions, and dense-but-tappable controls; verify in a narrow Android-like Expo web viewport such as `360x760` that text wraps instead of clipping and bottom actions stay visible above the navigation area.
+
 The `/first-run` `Как это работает` bottom sheet should stay short and practical:
 - explain that the parent chooses a `План дня`;
 - explain that the app counts current wake time and suggests the next sleep;
@@ -542,7 +546,7 @@ Keep evening prompt visibility in pure core code such as `shouldShowEveningPlanP
 
 In this main-screen tracking-only state, do not show `Следующий сон`, `Прогноз ночи`, `До цели бодрств.`, `Сценарии`, `Проверка и расчёт`, temporary-mode badges, early-wake suggestions, share text based on a plan, or any forecast/recommendation derived from fallback `DEFAULT_SLEEP_PLAN`.
 
-When `onboardingState === 'tracking_only'` and no active plan exists, `/sleep-plan` should show a valid empty-plan management state for ordinary visits, but `/sleep-plan?source=evening-prompt&returnTo=home` should open the existing explicit preset flow so `Выбрать План дня` from the evening card is actionable. After the parent explicitly saves a plan from that route, replace navigation with `/`.
+When no active `target_day_plan` exists, `/sleep-plan` should show the explicit base-plan preset selection as the main function, including after the parent previously chose `Пока просто записывать сны`. Do not show an empty `Управлять планами` surface as the first-level state. Keep `Пока просто записывать сны` visible only for true first-run or evening-prompt entry points where it is a meaningful exit; after the parent is already in `tracking_only`, ordinary `/sleep-plan` visits should focus on choosing a template. After the parent explicitly saves a plan from `/sleep-plan?source=evening-prompt&returnTo=home`, replace navigation with `/`.
 
 When adding or changing onboarding persistence, bump `DATABASE_VERSION`, keep the fresh schema and migration idempotent with `CREATE TABLE IF NOT EXISTS` / additive changes, and do not use `DROP TABLE`, database resets, or `DELETE FROM` user data. Cover:
 - pure onboarding derivation: `not_started`, `tracking_only`, `plan_saved`, and old database with active plan;

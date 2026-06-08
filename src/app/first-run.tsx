@@ -140,10 +140,17 @@ export default function FirstRunScreen() {
             {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
 
             <View style={styles.actions}>
-              <PrimaryButton label="Выбрать План дня" onPress={openSleepPlan} />
               <PrimaryButton
+                compact
+                label="Выбрать План дня"
+                onPress={openSleepPlan}
+                textStyle={styles.actionButtonText}
+              />
+              <PrimaryButton
+                compact
                 label="Пока просто записывать сны"
                 onPress={openNamePrompt}
+                textStyle={styles.actionButtonText}
                 variant="secondary"
               />
               <Pressable
@@ -291,33 +298,33 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xl,
   },
   content: {
-    gap: spacing.xl,
+    gap: spacing.lg,
   },
   headerBlock: {
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   title: {
     color: colors.text,
-    fontSize: 34,
-    fontWeight: '900',
-    lineHeight: 40,
+    fontSize: 26,
+    fontWeight: '800',
+    lineHeight: 31,
   },
   text: {
     color: colors.textMuted,
-    fontSize: 18,
-    fontWeight: '700',
-    lineHeight: 26,
+    fontSize: 14,
+    fontWeight: '600',
+    lineHeight: 21,
   },
   exampleBlock: {
-    gap: spacing.sm,
+    gap: spacing.xs,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.md,
+    padding: spacing.sm,
     backgroundColor: colors.surface,
   },
   exampleRow: {
-    minHeight: 34,
+    minHeight: 30,
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
@@ -331,12 +338,16 @@ const styles = StyleSheet.create({
   exampleText: {
     flex: 1,
     color: colors.text,
-    fontSize: 17,
-    fontWeight: '800',
-    lineHeight: 23,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
   },
   actions: {
-    gap: spacing.md,
+    gap: spacing.sm,
+  },
+  actionButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
   },
   errorText: {
     color: colors.danger,
@@ -345,7 +356,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   plainButton: {
-    minHeight: 46,
+    minHeight: 40,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.sm,
@@ -355,8 +366,8 @@ const styles = StyleSheet.create({
   },
   plainButtonText: {
     color: colors.primary,
-    fontSize: 16,
-    fontWeight: '900',
+    fontSize: 14,
+    fontWeight: '800',
   },
   modalRoot: {
     flex: 1,
@@ -367,25 +378,25 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(32, 32, 29, 0.36)',
   },
   bottomSheet: {
-    gap: spacing.md,
+    gap: spacing.sm,
     borderTopLeftRadius: radius.md,
     borderTopRightRadius: radius.md,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
+    paddingTop: spacing.md,
     paddingBottom: spacing.xl,
     backgroundColor: colors.surface,
   },
   sheetTitle: {
     color: colors.text,
-    fontSize: 22,
-    fontWeight: '900',
-    lineHeight: 27,
+    fontSize: 18,
+    fontWeight: '800',
+    lineHeight: 23,
   },
   sheetText: {
     color: colors.textMuted,
-    fontSize: 16,
-    fontWeight: '700',
-    lineHeight: 22,
+    fontSize: 14,
+    fontWeight: '600',
+    lineHeight: 20,
   },
   sheetError: {
     color: colors.danger,
@@ -400,8 +411,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     color: colors.text,
     backgroundColor: colors.background,
-    fontSize: 18,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '700',
   },
   sheetActions: {
     flexDirection: 'row',
@@ -441,37 +452,37 @@ const styles = StyleSheet.create({
   },
   sheetSecondaryButtonText: {
     color: colors.primary,
-    fontSize: 16,
-    fontWeight: '900',
+    fontSize: 14,
+    fontWeight: '800',
   },
   sheetPrimaryButtonText: {
     color: colors.surface,
-    fontSize: 16,
-    fontWeight: '900',
+    fontSize: 14,
+    fontWeight: '800',
   },
   disabled: {
     opacity: 0.6,
   },
   howList: {
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   howStep: {
     flexDirection: 'row',
     gap: spacing.sm,
   },
   stepNumber: {
-    width: 28,
-    height: 28,
+    width: 26,
+    height: 26,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 14,
+    borderRadius: 13,
     backgroundColor: colors.primarySoft,
   },
   stepNumberText: {
     color: colors.primary,
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '900',
-    lineHeight: 20,
+    lineHeight: 19,
   },
   stepTextBlock: {
     flex: 1,
@@ -479,8 +490,8 @@ const styles = StyleSheet.create({
   },
   stepTitle: {
     color: colors.text,
-    fontSize: 16,
-    fontWeight: '900',
-    lineHeight: 22,
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 20,
   },
 });
