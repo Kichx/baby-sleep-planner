@@ -1110,12 +1110,6 @@ export default function TodaySleepScreen() {
     showFeedingsInTimeline,
     actualTodayDayStart,
   ]);
-  const displayedSessionCount = useMemo(
-    () =>
-      sessionDayGroups.reduce((total, group) => total + countDayFeedRecords(group.items), 0),
-    [sessionDayGroups],
-  );
-
   useEffect(() => {
     const routeDate = parseSelectedDateParam(params.date);
 
@@ -1129,10 +1123,6 @@ export default function TodaySleepScreen() {
         : routeDate,
     );
   }, [params.date]);
-  const displayedSessionCountLabel =
-    displayedSessionCount === 0
-      ? 'Пока нет записей'
-      : `Всего ${formatSessionCount(displayedSessionCount)}`;
   const editModalSessions = useMemo(() => {
     const uniqueSessions = new Map<string, SleepSession>();
 
@@ -2345,41 +2335,77 @@ export default function TodaySleepScreen() {
 
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <Text style={[styles.sectionTitle, styles.sectionHeaderTitle]}>
-                Таймлайн
-              </Text>
-              <View style={styles.timelineHeaderActions}>
-                {bottleFeedingEnabled ? (
-                  <Pressable
-                    accessibilityLabel={
+              <View style={styles.timelineTitleRow}>
+                <Text style={[styles.sectionTitle, styles.timelineTitleText]}>
+                  Таймлайн
+                </Text>
+              </View>
+              {bottleFeedingEnabled ? (
+                <Pressable
+                  accessibilityLabel={
+                    showFeedingsInTimeline
+                      ? 'Скрыть кормления в таймлайне'
+                      : 'Показать кормления в таймлайне'
+                  }
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: showFeedingsInTimeline }}
+                  onPress={() => setShowFeedingsInTimeline((value) => !value)}
+                  style={({ pressed }) => [
+                    styles.timelineFilterButton,
+                    showFeedingsInTimeline
+                      ? styles.timelineFilterButtonActive
+                      : null,
+                    pressed ? styles.timelineFilterButtonPressed : null,
+                  ]}>
+                  <View style={styles.timelineFilterBottleIcon}>
+                    <View
+                      style={[
+                        styles.timelineFilterBottleCap,
+                        showFeedingsInTimeline
+                          ? styles.timelineFilterBottleAccentActive
+                          : null,
+                      ]}
+                    />
+                    <View
+                      style={[
+                        styles.timelineFilterBottleBody,
+                        showFeedingsInTimeline
+                          ? styles.timelineFilterBottleAccentActive
+                          : null,
+                      ]}
+                    />
+                  </View>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.timelineFilterButtonText,
                       showFeedingsInTimeline
-                        ? 'Скрыть кормления в таймлайне'
-                        : 'Показать кормления в таймлайне'
-                    }
-                    accessibilityRole="switch"
-                    accessibilityState={{ checked: showFeedingsInTimeline }}
-                    onPress={() => setShowFeedingsInTimeline((value) => !value)}
-                    style={({ pressed }) => [
-                      styles.timelineFilterButton,
-                      showFeedingsInTimeline
-                        ? styles.timelineFilterButtonActive
+                        ? styles.timelineFilterButtonTextActive
                         : null,
-                      pressed ? styles.timelineFilterButtonPressed : null,
+                    ]}>
+                    Кормление
+                  </Text>
+                  <View
+                    style={[
+                      styles.timelineFilterStateBadge,
+                      showFeedingsInTimeline
+                        ? styles.timelineFilterStateBadgeActive
+                        : null,
                     ]}>
                     <Text
-                      numberOfLines={1}
+                      accessibilityElementsHidden
+                      importantForAccessibility="no"
                       style={[
-                        styles.timelineFilterButtonText,
+                        styles.timelineFilterStateBadgeText,
                         showFeedingsInTimeline
-                          ? styles.timelineFilterButtonTextActive
+                          ? styles.timelineFilterStateBadgeTextActive
                           : null,
                       ]}>
-                      Кормления
+                      {showFeedingsInTimeline ? '-' : '+'}
                     </Text>
-                  </Pressable>
-                ) : null}
-                <Text style={styles.sectionMeta}>{displayedSessionCountLabel}</Text>
-              </View>
+                  </View>
+                </Pressable>
+              ) : null}
             </View>
             <View style={styles.sessionList}>
               {sessionDayGroups.map((group) => (
@@ -3099,32 +3125,37 @@ const styles = StyleSheet.create({
   },
   sectionHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   sectionTitle: {
     color: colors.text,
     fontSize: 20,
     fontWeight: '800',
   },
-  sectionHeaderTitle: {
+  timelineTitleRow: {
     flex: 1,
-  },
-  timelineHeaderActions: {
-    maxWidth: '56%',
-    flexShrink: 0,
-    alignItems: 'flex-end',
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.xs,
+  },
+  timelineTitleText: {
+    flexShrink: 1,
   },
   timelineFilterButton: {
     minHeight: 32,
-    maxWidth: '100%',
+    flexShrink: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
+    gap: 5,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: 2,
     backgroundColor: colors.surface,
   },
   timelineFilterButtonActive: {
@@ -3134,19 +3165,60 @@ const styles = StyleSheet.create({
   timelineFilterButtonPressed: {
     backgroundColor: colors.surfaceMuted,
   },
+  timelineFilterBottleIcon: {
+    width: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timelineFilterBottleCap: {
+    width: 7,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: colors.textMuted,
+  },
+  timelineFilterBottleBody: {
+    width: 10,
+    height: 12,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: colors.textMuted,
+    backgroundColor: colors.surface,
+  },
+  timelineFilterBottleAccentActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
   timelineFilterButtonText: {
     color: colors.textMuted,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '900',
   },
   timelineFilterButtonTextActive: {
     color: colors.primary,
   },
-  sectionMeta: {
+  timelineFilterStateBadge: {
+    width: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceMuted,
+  },
+  timelineFilterStateBadgeActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+  timelineFilterStateBadgeText: {
     color: colors.textMuted,
-    fontSize: 13,
-    fontWeight: '800',
-    textAlign: 'right',
+    fontSize: 12,
+    fontWeight: '900',
+    lineHeight: 14,
+  },
+  timelineFilterStateBadgeTextActive: {
+    color: colors.surface,
   },
   scenarioHeader: {
     minHeight: 38,
