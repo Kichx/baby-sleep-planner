@@ -307,7 +307,7 @@ export function buildSleepRetrospectivePeriodSummary(
       detailLine: 'Добавьте несколько дней сна, чтобы увидеть картину режима.',
       periodLabel: `За ${periodDays} дней`,
       primaryLine: 'Пока нет завершённых дней с записями',
-      quietLine: 'Ретроспектива появится без дополнительных настроек.',
+      quietLine: 'История сна появится без дополнительных настроек.',
     };
   }
 

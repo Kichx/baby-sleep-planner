@@ -53,7 +53,7 @@ export default function RootLayout() {
           <Stack.Screen
             name="sleep-retrospective"
             options={{
-              title: 'Ретроспектива сна',
+              title: 'История сна',
             }}
           />
           <Stack.Screen

@@ -264,7 +264,7 @@ export default function SleepRetrospectiveScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Ретроспектива сна' }} />
+      <Stack.Screen options={{ title: 'История сна' }} />
       <ScrollView style={styles.screen} contentContainerStyle={styles.scrollContent}>
         <SafeAreaView edges={['bottom']} style={styles.safeArea}>
           <View style={styles.periodSelector}>

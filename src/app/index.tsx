@@ -1922,7 +1922,7 @@ export default function TodaySleepScreen() {
           headerRight: () => (
             <View style={styles.headerActions}>
               <Pressable
-                accessibilityLabel="Ретроспектива сна"
+                accessibilityLabel="История сна"
                 accessibilityRole="button"
                 hitSlop={8}
                 onPress={openRetrospective}
