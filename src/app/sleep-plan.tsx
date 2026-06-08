@@ -642,6 +642,12 @@ function getTodayPlanTimelineTitle(item: SleepPlanTimelineItem): string {
   }
 }
 
+function getMergedTodayPlanTimelineTitle(item: SleepPlanTimelineItem): string {
+  return item.kind === 'wakeWindow'
+    ? `Подъём · ${getTodayPlanTimelineTitle(item)}`
+    : getTodayPlanTimelineTitle(item);
+}
+
 function getTodayPlanTimelineCaption(
   item: SleepPlanTimelineItem,
   baseWakeUpRange: { endMinutes: number; startMinutes: number } | null = null,
@@ -659,14 +665,7 @@ function getTodayPlanTimelineCaption(
         ? `план ${formatClockRange(item.rangeStartMinutes, item.rangeEndMinutes)}`
         : null;
     case 'wakeWindow':
-      return item.rangeEndMinutes !== null &&
-        item.minDurationMinutes !== null &&
-        item.maxDurationMinutes !== null
-        ? `до ${formatClockMinutes(item.rangeEndMinutes)} · диапазон ${formatDurationRangeShort(
-            item.minDurationMinutes,
-            item.maxDurationMinutes,
-          )}`
-        : null;
+      return item.rangeEndMinutes !== null ? `до ${formatClockMinutes(item.rangeEndMinutes)}` : null;
     case 'nap':
       return item.rangeStartMinutes !== null && item.rangeEndMinutes !== null
         ? formatClockRange(item.rangeStartMinutes, item.rangeEndMinutes)
@@ -674,6 +673,21 @@ function getTodayPlanTimelineCaption(
     case 'night':
       return 'ориентир на отбой';
   }
+}
+
+function getMergedTodayPlanTimelineCaption(
+  item: SleepPlanTimelineItem,
+  wakeUpItem: SleepPlanTimelineItem | null,
+  baseWakeUpRange: { endMinutes: number; startMinutes: number } | null,
+): string | null {
+  if (!wakeUpItem) {
+    return getTodayPlanTimelineCaption(item, item.kind === 'wakeUp' ? baseWakeUpRange : null);
+  }
+
+  const wakeUpCaption = getTodayPlanTimelineCaption(wakeUpItem, baseWakeUpRange);
+  const itemCaption = getTodayPlanTimelineCaption(item);
+
+  return [wakeUpCaption, itemCaption].filter(Boolean).join(' · ') || null;
 }
 
 function getTodayPlanTimelineDetail(item: SleepPlanTimelineItem): string | null {
@@ -1179,19 +1193,18 @@ function TodayPlanTimelineRow({
   baseWakeUpRange,
   isLast,
   item,
+  wakeUpItem,
 }: {
   baseWakeUpRange: { endMinutes: number; startMinutes: number } | null;
   isLast: boolean;
   item: SleepPlanTimelineItem;
+  wakeUpItem: SleepPlanTimelineItem | null;
 }) {
   const badgeLabel = getTodayPlanTimelineBadgeLabel(item);
-  const caption = getTodayPlanTimelineCaption(
-    item,
-    item.kind === 'wakeUp' ? baseWakeUpRange : null,
-  );
+  const caption = getMergedTodayPlanTimelineCaption(item, wakeUpItem, baseWakeUpRange);
   const detailLabel = getTodayPlanTimelineDetail(item);
-  const title = getTodayPlanTimelineTitle(item);
-  const timeLabel = formatClockMinutes(item.startMinutes);
+  const title = wakeUpItem ? getMergedTodayPlanTimelineTitle(item) : getTodayPlanTimelineTitle(item);
+  const timeLabel = formatClockMinutes(wakeUpItem?.startMinutes ?? item.startMinutes);
 
   return (
     <View style={[styles.todayPlanTimelineRow, isLast ? styles.todayPlanTimelineRowLast : null]}>
@@ -1238,6 +1251,15 @@ function TodayPlanTimelineRow({
 
 function TodayPlanSection({ basePlan, isEarlyWakeAdjusted, plan }: TodayPlanSectionProps) {
   const timelineItems = buildSleepPlanTimelineItems(plan);
+  const wakeUpItem = timelineItems[0]?.kind === 'wakeUp' ? timelineItems[0] : null;
+  const shouldMergeWakeUpWithFirstWakeWindow =
+    wakeUpItem !== null && timelineItems[1]?.kind === 'wakeWindow';
+  const timelineRows = shouldMergeWakeUpWithFirstWakeWindow
+    ? timelineItems.slice(1).map((item, index) => ({
+        item,
+        wakeUpItem: index === 0 ? wakeUpItem : null,
+      }))
+    : timelineItems.map((item) => ({ item, wakeUpItem: null }));
   const baseWakeUpRange =
     isEarlyWakeAdjusted && basePlan
       ? {
@@ -1250,12 +1272,13 @@ function TodayPlanSection({ basePlan, isEarlyWakeAdjusted, plan }: TodayPlanSect
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>План на сегодня</Text>
       <View style={styles.todayPlanTimeline}>
-        {timelineItems.map((item, index) => (
+        {timelineRows.map(({ item, wakeUpItem: rowWakeUpItem }, index) => (
           <TodayPlanTimelineRow
             baseWakeUpRange={baseWakeUpRange}
-            isLast={index === timelineItems.length - 1}
+            isLast={index === timelineRows.length - 1}
             item={item}
-            key={item.id}
+            key={rowWakeUpItem ? `${rowWakeUpItem.id}-${item.id}` : item.id}
+            wakeUpItem={rowWakeUpItem}
           />
         ))}
       </View>
