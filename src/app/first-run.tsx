@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BottomSheetSafeArea } from '@/components/BottomSheetSafeArea';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
@@ -168,7 +169,7 @@ export default function FirstRunScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={styles.modalRoot}>
           <Pressable style={styles.modalBackdrop} onPress={closeNamePrompt} />
-          <View style={styles.bottomSheet}>
+          <BottomSheetSafeArea style={styles.bottomSheet}>
             <Text style={styles.sheetTitle}>Как зовут ребёнка?</Text>
             {errorMessage ? <Text style={styles.sheetError}>{errorMessage}</Text> : null}
             <TextInput
@@ -217,7 +218,7 @@ export default function FirstRunScreen() {
                 </Text>
               </Pressable>
             </View>
-          </View>
+          </BottomSheetSafeArea>
         </KeyboardAvoidingView>
       </Modal>
 
@@ -231,7 +232,7 @@ export default function FirstRunScreen() {
             style={styles.modalBackdrop}
             onPress={() => setIsHowItWorksVisible(false)}
           />
-          <View style={styles.bottomSheet}>
+          <BottomSheetSafeArea style={styles.bottomSheet}>
             <Text style={styles.sheetTitle}>Как это работает</Text>
             <View style={styles.howList}>
               {HOW_IT_WORKS_STEPS.map((step, index) => (
@@ -268,7 +269,7 @@ export default function FirstRunScreen() {
                 <Text style={styles.sheetSecondaryButtonText}>Выбрать План дня</Text>
               </Pressable>
             </View>
-          </View>
+          </BottomSheetSafeArea>
         </View>
       </Modal>
     </>

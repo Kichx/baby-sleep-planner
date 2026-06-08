@@ -231,6 +231,18 @@ At minimum, test:
 
 When changing recommendation logic, update or add tests.
 
+## Implementation lessons from Android safe-area handling
+
+Android-first UI must account for the system navigation bar at the bottom of the screen, including devices that use the three-button navigation strip. Bottom buttons, fixed CTAs, bottom sheets, and dialogs must never rely on visual padding alone if they can sit near the bottom edge.
+
+Use `react-native-safe-area-context` for this:
+- keep the root `SafeAreaProvider` in `src/app/_layout.tsx`;
+- wrap bottom sheets and fixed bottom action areas with `SafeAreaView edges={['bottom']}` or the shared `BottomSheetSafeArea` component;
+- for `Modal` screens with `navigationBarTranslucent` or `statusBarTranslucent`, still apply bottom safe-area to the sheet or dialog content that contains actions;
+- avoid duplicating safe-area math inline when a shared wrapper can keep behavior consistent.
+
+When changing a screen with bottom actions, smoke-test the relevant view on Android or at least in a narrow Expo web viewport, and explicitly check that the lowest actionable button remains fully visible and tappable above the navigation area.
+
 ## Implementation lessons from effective sleep day plan work
 
 Temporary day modes such as `soft_day` and `early_wake` are effective-plan overlays for one sleep day. They must not rewrite the permanent `target_day_plan`, saved sleep-day snapshots, SQLite schema, or user history unless a later task explicitly asks for persistence changes.

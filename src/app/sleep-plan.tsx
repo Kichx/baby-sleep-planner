@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BottomSheetSafeArea } from '@/components/BottomSheetSafeArea';
 import { SelectAllTextInput } from '@/components/SelectAllTextInput';
 import { SleepPlanIcon } from '@/components/SleepPlanIcon';
 import { DEFAULT_CHILD_NAME, DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
@@ -2193,7 +2194,7 @@ function ChildProfilePromptModal({
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardAvoider}>
-        <View style={styles.nameOverlay}>
+        <SafeAreaView edges={['bottom']} style={styles.nameOverlay}>
           <View style={styles.nameDialog}>
             <Text style={styles.nameDialogTitle}>Профиль ребёнка</Text>
             <Text style={styles.nameDialogText}>
@@ -2262,7 +2263,7 @@ function ChildProfilePromptModal({
               </Pressable>
             </View>
           </View>
-        </View>
+        </SafeAreaView>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -3784,7 +3785,7 @@ export default function SleepPlanScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.keyboardAvoider}>
           <View style={styles.overlay}>
-            <View style={styles.sheet}>
+            <BottomSheetSafeArea style={styles.sheet}>
               <View style={styles.sheetHeader}>
                 <Text style={styles.sheetTitle}>{sheetTitle}</Text>
                 {nameEditorMode === 'create' ? (
@@ -3814,7 +3815,7 @@ export default function SleepPlanScreen() {
                 contentContainerStyle={styles.sheetContent}>
                 {renderEditorContent()}
               </ScrollView>
-            </View>
+            </BottomSheetSafeArea>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -3829,7 +3830,7 @@ export default function SleepPlanScreen() {
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.keyboardAvoider}>
-          <View style={styles.nameOverlay}>
+          <SafeAreaView edges={['bottom']} style={styles.nameOverlay}>
             <View style={styles.nameDialog}>
               <Text style={styles.nameDialogTitle}>{sheetTitle}</Text>
               <Text style={styles.nameDialogText}>
@@ -3866,7 +3867,7 @@ export default function SleepPlanScreen() {
                 </Pressable>
               </View>
             </View>
-          </View>
+          </SafeAreaView>
         </KeyboardAvoidingView>
       </Modal>
 
@@ -3896,7 +3897,7 @@ export default function SleepPlanScreen() {
         statusBarTranslucent
         transparent
         visible={isDeleteConfirmVisible}>
-        <View style={styles.confirmOverlay}>
+        <SafeAreaView edges={['bottom']} style={styles.confirmOverlay}>
           <View style={styles.confirmDialog}>
             <Text style={styles.confirmTitle}>Удалить план?</Text>
             <Text style={styles.confirmText}>
@@ -3932,7 +3933,7 @@ export default function SleepPlanScreen() {
               </Pressable>
             </View>
           </View>
-        </View>
+        </SafeAreaView>
       </Modal>
     </>
   );

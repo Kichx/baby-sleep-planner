@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 
+import { BottomSheetSafeArea } from '@/components/BottomSheetSafeArea';
 import { SelectAllTextInput } from '@/components/SelectAllTextInput';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
@@ -737,7 +738,7 @@ export function SleepSessionEditorModal({
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardAvoider}>
         <View style={styles.overlay}>
-          <View style={styles.sheet}>
+          <BottomSheetSafeArea style={styles.sheet}>
             <View style={styles.header}>
               <Text style={styles.title}>{modalTitle}</Text>
               <Pressable accessibilityRole="button" onPress={onClose} style={styles.closeButton}>
@@ -811,7 +812,7 @@ export function SleepSessionEditorModal({
                 <Text style={styles.saveButtonText}>{saveLabel}</Text>
               </Pressable>
             </View>
-          </View>
+          </BottomSheetSafeArea>
         </View>
       </KeyboardAvoidingView>
     </Modal>

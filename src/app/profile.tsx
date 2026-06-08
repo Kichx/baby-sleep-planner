@@ -22,6 +22,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { buildApplicationVersionLine } from '@/appVersion';
+import { BottomSheetSafeArea } from '@/components/BottomSheetSafeArea';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { ProfileAvatar } from '@/components/ProfileAvatar';
 import { SleepPlanIcon } from '@/components/SleepPlanIcon';
@@ -920,7 +921,7 @@ export default function ProfileScreen() {
             style={styles.modalBackdrop}
             onPress={closeResetConfirmation}
           />
-          <View style={styles.bottomSheet}>
+          <BottomSheetSafeArea style={styles.bottomSheet}>
             {resetConfirmationStep === 'first' ? (
               <>
                 <Text style={styles.sheetTitle}>Сбросить приложение?</Text>
@@ -995,7 +996,7 @@ export default function ProfileScreen() {
                 </View>
               </>
             )}
-          </View>
+          </BottomSheetSafeArea>
         </View>
       </Modal>
     </>

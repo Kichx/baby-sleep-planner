@@ -1,6 +1,7 @@
 import { Stack } from 'expo-router';
 import { SQLiteProvider } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 
 import { colors } from '@/constants/theme';
 import { DATABASE_NAME, migrateDatabase } from '@/db';
@@ -8,7 +9,7 @@ import { ActiveSleepNotificationSync } from '@/notifications/ActiveSleepNotifica
 
 export default function RootLayout() {
   return (
-    <>
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       <SQLiteProvider databaseName={DATABASE_NAME} onInit={migrateDatabase}>
         <ActiveSleepNotificationSync />
         <Stack
@@ -76,6 +77,6 @@ export default function RootLayout() {
         </Stack>
       </SQLiteProvider>
       <StatusBar style="dark" />
-    </>
+    </SafeAreaProvider>
   );
 }

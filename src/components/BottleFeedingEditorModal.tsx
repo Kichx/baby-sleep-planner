@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 
+import { BottomSheetSafeArea } from '@/components/BottomSheetSafeArea';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { SelectAllTextInput } from '@/components/SelectAllTextInput';
 import {
@@ -343,7 +344,7 @@ export function BottleFeedingEditorModal({
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.backdrop}>
-        <View style={styles.sheet}>
+        <BottomSheetSafeArea style={styles.sheet}>
           <View style={styles.handle} />
 
           <View style={styles.header}>
@@ -461,7 +462,7 @@ export function BottleFeedingEditorModal({
               />
             ) : null}
           </View>
-        </View>
+        </BottomSheetSafeArea>
       </KeyboardAvoidingView>
     </Modal>
   );
