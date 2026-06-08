@@ -1,7 +1,16 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Stack, type Href, useFocusEffect, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  type DimensionValue,
+  type ViewStyle,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottomSheetSafeArea } from '@/components/BottomSheetSafeArea';
@@ -11,6 +20,7 @@ import { colors, radius, spacing } from '@/constants/theme';
 import {
   addMinutes,
   buildSleepDaySummary,
+  buildSleepTimelineSegments,
   dateAtMinutes,
 } from '@/core/sleepCalculations';
 import {
@@ -27,7 +37,6 @@ import {
   type SleepRetrospectiveAwakeTrendPoint,
   type SleepRetrospectiveDay,
   type SleepRetrospectivePeriodStats,
-  type SleepRetrospectiveSleepTrendPoint,
   type SleepRetrospectiveStatus,
 } from '@/core/sleepRetrospective';
 import { buildEffectiveSleepDayPlan } from '@/core/sleepPlan';
@@ -42,17 +51,19 @@ import {
   listSleepDayTemporaryModes,
   listSleepSessionsInRange,
 } from '@/db';
-import type { SleepDayPlan, SleepSession, TargetDayPlan } from '@/types/sleep';
+import type { SleepDayPlan, SleepSession, SleepTimelineSegment, TargetDayPlan } from '@/types/sleep';
 
 type PeriodDays = 7 | 14 | 21;
 
 type RetrospectiveScreenDay = SleepRetrospectiveDay & {
   dateKey: string;
+  timelineSegments: SleepTimelineSegment[];
 };
 
 const DAY_MINUTES = 24 * 60;
 const PERIOD_OPTIONS: PeriodDays[] = [7, 14, 21];
 const MIN_VISIBLE_BAR_PERCENT = 4;
+const PLAN_SHIFT_TOLERANCE_MINUTES = 30;
 
 function formatDuration(minutes: number): string {
   const safeMinutes = Math.max(0, Math.round(minutes));
@@ -107,6 +118,16 @@ function formatAwakeDelta(deltaMinutes: number): string {
 
 function formatAwakeDeltaShort(deltaMinutes: number): string {
   if (Math.abs(deltaMinutes) <= 30) {
+    return 'в плане';
+  }
+
+  const sign = deltaMinutes > 0 ? '+' : '-';
+
+  return `${sign}${formatDuration(Math.abs(deltaMinutes))}`;
+}
+
+function formatSignedDuration(deltaMinutes: number): string {
+  if (Math.abs(deltaMinutes) <= PLAN_SHIFT_TOLERANCE_MINUTES) {
     return 'в плане';
   }
 
@@ -178,15 +199,6 @@ function buildTargetPlanFromSleepDayPlan(dayPlan: SleepDayPlan): TargetDayPlan {
   };
 }
 
-function getSleepTrendMaxMinutes(points: SleepRetrospectiveSleepTrendPoint[]): number {
-  const maxRecordedTotal = Math.max(
-    0,
-    ...points.filter((point) => point.hasRecords).map((point) => point.totalSleepMinutes),
-  );
-
-  return Math.max(1, maxRecordedTotal);
-}
-
 function getAwakeTrendMaxMinutes(points: SleepRetrospectiveAwakeTrendPoint[]): number {
   const maxRecordedDelta = Math.max(
     0,
@@ -209,6 +221,77 @@ function getStatusBarColor(status: SleepRetrospectiveStatus): string {
     case 'empty':
       return colors.border;
   }
+}
+
+function getChronologicalDays(days: RetrospectiveScreenDay[]): RetrospectiveScreenDay[] {
+  return [...days].sort((first, second) => first.date.getTime() - second.date.getTime());
+}
+
+function getPrimaryPlanFitDetail(day: RetrospectiveScreenDay): string {
+  if (!day.hasRecords) {
+    return 'нет записей за день';
+  }
+
+  if (Math.abs(day.targetDaySleepDeltaMinutes) > PLAN_SHIFT_TOLERANCE_MINUTES) {
+    return `дневной сон ${formatSignedDuration(day.targetDaySleepDeltaMinutes)} к цели`;
+  }
+
+  if (Math.abs(day.awakeDeltaMinutes) > PLAN_SHIFT_TOLERANCE_MINUTES) {
+    return `бодрствование ${formatSignedDuration(day.awakeDeltaMinutes)} к цели`;
+  }
+
+  if (
+    day.targetBedtimeDeltaMinutes !== null &&
+    Math.abs(day.targetBedtimeDeltaMinutes) > PLAN_SHIFT_TOLERANCE_MINUTES
+  ) {
+    return `отбой ${formatSignedDuration(day.targetBedtimeDeltaMinutes)} к плану`;
+  }
+
+  if (day.napCountDelta !== 0) {
+    const sign = day.napCountDelta > 0 ? '+' : '';
+
+    return `${sign}${day.napCountDelta} сна к плану`;
+  }
+
+  return `${formatDuration(day.totalDaySleepMinutes + day.totalNightSleepMinutes)} сна · ${formatNapCount(day.completedNaps)}`;
+}
+
+function getPlanFitValue(day: RetrospectiveScreenDay): string {
+  if (!day.hasRecords) {
+    return '--';
+  }
+
+  if (day.status === 'onTrack') {
+    return 'ок';
+  }
+
+  const shifts = [
+    day.targetDaySleepDeltaMinutes,
+    day.awakeDeltaMinutes,
+    day.targetBedtimeDeltaMinutes ?? 0,
+  ];
+  const strongestShift = shifts.reduce((current, next) =>
+    Math.abs(next) > Math.abs(current) ? next : current,
+  );
+
+  if (Math.abs(strongestShift) <= PLAN_SHIFT_TOLERANCE_MINUTES && day.napCountDelta !== 0) {
+    return day.napCountDelta > 0 ? `+${day.napCountDelta}` : String(day.napCountDelta);
+  }
+
+  return formatSignedDuration(strongestShift);
+}
+
+function getTimelineSegmentStyle(segment: SleepTimelineSegment): ViewStyle {
+  const leftPercent = Math.max(0, Math.min(100, (segment.startOffsetMinutes / DAY_MINUTES) * 100));
+  const widthPercent = Math.max(
+    0.6,
+    Math.min(100 - leftPercent, (segment.durationMinutes / DAY_MINUTES) * 100),
+  );
+
+  return {
+    left: `${leftPercent}%` as DimensionValue,
+    width: `${widthPercent}%` as DimensionValue,
+  };
 }
 
 function MetricGrid({ stats }: { stats: SleepRetrospectivePeriodStats }) {
@@ -235,66 +318,95 @@ function MetricGrid({ stats }: { stats: SleepRetrospectivePeriodStats }) {
   );
 }
 
-function SleepTrendChart({ points }: { points: SleepRetrospectiveSleepTrendPoint[] }) {
-  const maxMinutes = getSleepTrendMaxMinutes(points);
+function PlanFitChart({ days }: { days: RetrospectiveScreenDay[] }) {
+  const chronologicalDays = getChronologicalDays(days);
 
-  if (points.length === 0) {
+  if (chronologicalDays.length === 0) {
     return <Text style={styles.chartEmptyText}>Пока нет дней для графика.</Text>;
   }
 
   return (
     <View style={styles.chartRows}>
-      {points.map((point) => {
-        const totalWidth = point.hasRecords
-          ? Math.max(
-              MIN_VISIBLE_BAR_PERCENT,
-              Math.round((point.totalSleepMinutes / maxMinutes) * 100),
-            )
-          : 0;
-
-        return (
-          <View key={point.date.toISOString()} style={styles.chartRow}>
-            <Text numberOfLines={1} style={styles.chartDate}>
-              {formatChartDate(point.date)}
-            </Text>
-            <View style={styles.sleepBarTrack}>
-              {point.hasRecords ? (
-                <View style={[styles.sleepBarFill, { width: `${totalWidth}%` }]}>
-                  {point.totalNightSleepMinutes > 0 ? (
-                    <View
-                      style={[
-                        styles.sleepBarSegment,
-                        styles.sleepNightSegment,
-                        { flex: point.totalNightSleepMinutes },
-                      ]}
-                    />
-                  ) : null}
-                  {point.totalDaySleepMinutes > 0 ? (
-                    <View
-                      style={[
-                        styles.sleepBarSegment,
-                        styles.sleepDaySegment,
-                        { flex: point.totalDaySleepMinutes },
-                      ]}
-                    />
-                  ) : null}
-                </View>
-              ) : null}
+      {chronologicalDays.map((day) => (
+        <View key={day.dateKey} style={styles.planFitRow}>
+          <Text numberOfLines={1} style={styles.chartDate}>
+            {formatChartDate(day.date)}
+          </Text>
+          <View style={styles.planFitBody}>
+            <View style={[styles.planFitDot, getStatusMarkerStyle(day.status)]} />
+            <View style={styles.planFitTextBlock}>
+              <Text numberOfLines={1} style={styles.planFitTitle}>
+                {day.statusLabel}
+              </Text>
+              <Text numberOfLines={1} style={styles.planFitDetail}>
+                {getPrimaryPlanFitDetail(day)}
+              </Text>
             </View>
-            <Text numberOfLines={1} style={styles.chartValue}>
-              {point.hasRecords ? formatDuration(point.totalSleepMinutes) : '--'}
-            </Text>
           </View>
-        );
-      })}
+          <Text numberOfLines={1} style={styles.planFitValue}>
+            {getPlanFitValue(day)}
+          </Text>
+        </View>
+      ))}
+      <View style={styles.planFitLegend}>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, styles.statusOnTrack]} />
+          <Text style={styles.legendText}>в плане</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, styles.statusShifted]} />
+          <Text style={styles.legendText}>есть сдвиг</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, styles.statusStronglyShifted]} />
+          <Text style={styles.legendText}>заметный сдвиг</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function SleepTimelineChart({ days }: { days: RetrospectiveScreenDay[] }) {
+  const chronologicalDays = getChronologicalDays(days);
+
+  if (chronologicalDays.length === 0) {
+    return <Text style={styles.chartEmptyText}>Пока нет дней для графика.</Text>;
+  }
+
+  return (
+    <View style={styles.chartRows}>
+      {chronologicalDays.map((day) => (
+        <View key={day.dateKey} style={styles.timelineChartRow}>
+          <Text numberOfLines={1} style={styles.chartDate}>
+            {formatChartDate(day.date)}
+          </Text>
+          <View style={styles.timelineTrack}>
+            {day.timelineSegments.map((segment) => (
+              <View
+                key={segment.id}
+                style={[
+                  styles.timelineSegment,
+                  segment.kind === 'night'
+                    ? styles.timelineNightSegment
+                    : styles.timelineNapSegment,
+                  getTimelineSegmentStyle(segment),
+                ]}
+              />
+            ))}
+          </View>
+          <Text numberOfLines={1} style={styles.timelineValue}>
+            {day.hasRecords ? formatNapCount(day.completedNaps) : '--'}
+          </Text>
+        </View>
+      ))}
       <View style={styles.chartLegend}>
         <View style={styles.legendItem}>
-          <View style={[styles.legendDot, styles.sleepNightSegment]} />
+          <View style={[styles.legendDot, styles.timelineNightSegment]} />
           <Text style={styles.legendText}>Ночь</Text>
         </View>
         <View style={styles.legendItem}>
-          <View style={[styles.legendDot, styles.sleepDaySegment]} />
-          <Text style={styles.legendText}>День</Text>
+          <View style={[styles.legendDot, styles.timelineNapSegment]} />
+          <Text style={styles.legendText}>Дневной сон</Text>
         </View>
       </View>
     </View>
@@ -359,10 +471,12 @@ function AwakeTrendChart({ points }: { points: SleepRetrospectiveAwakeTrendPoint
 }
 
 function PeriodStatsModal({
+  days,
   onClose,
   stats,
   visible,
 }: {
+  days: RetrospectiveScreenDay[];
   onClose: () => void;
   stats: SleepRetrospectivePeriodStats;
   visible: boolean;
@@ -400,11 +514,19 @@ function PeriodStatsModal({
             <MetricGrid stats={stats} />
 
             <View style={styles.chartPanel}>
-              <Text style={styles.chartTitle}>Сон по дням</Text>
+              <Text style={styles.chartTitle}>День попал в план?</Text>
               <Text style={styles.chartSubtitle}>
-                Сколько сна было в сутки и какая часть пришлась на день.
+                Главный статус по каждому дню и самый заметный сдвиг.
               </Text>
-              <SleepTrendChart points={stats.sleepTrend} />
+              <PlanFitChart days={days} />
+            </View>
+
+            <View style={styles.chartPanel}>
+              <Text style={styles.chartTitle}>Сны на шкале суток</Text>
+              <Text style={styles.chartSubtitle}>
+                Видно, когда были ночь, дневные сны, ранний подъём или поздний отбой.
+              </Text>
+              <SleepTimelineChart days={days} />
             </View>
 
             <View style={styles.chartPanel}>
@@ -475,6 +597,13 @@ export default function SleepRetrospectiveScreen() {
           loadedAt,
           effectiveDayPlan.plan,
         );
+        const timelineSegments = buildSleepTimelineSegments(
+          daySessions,
+          dayStart,
+          dayEnd,
+          loadedAt,
+          effectiveDayPlan.plan,
+        );
 
         loadedDays.push({
           ...buildSleepRetrospectiveDay({
@@ -483,6 +612,7 @@ export default function SleepRetrospectiveScreen() {
             temporaryModes,
           }),
           dateKey: formatSleepDayDateKey(dayDate),
+          timelineSegments,
         });
       }
 
@@ -650,6 +780,7 @@ export default function SleepRetrospectiveScreen() {
         </SafeAreaView>
       </ScrollView>
       <PeriodStatsModal
+        days={days}
         onClose={() => setIsStatsVisible(false)}
         stats={periodStats}
         visible={isStatsVisible}
@@ -1047,29 +1178,90 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     lineHeight: 19,
   },
-  sleepBarTrack: {
+  planFitRow: {
+    minHeight: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  planFitBody: {
     flex: 1,
     minWidth: 0,
-    height: 14,
+    minHeight: 38,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  planFitDot: {
+    width: 10,
+    height: 10,
+    flexShrink: 0,
+    borderRadius: 5,
+  },
+  planFitTextBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  planFitTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  planFitDetail: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  planFitValue: {
+    width: 58,
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
+  planFitLegend: {
+    minHeight: 24,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingTop: spacing.xs,
+  },
+  timelineChartRow: {
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  timelineTrack: {
+    flex: 1,
+    minWidth: 0,
+    height: 18,
     overflow: 'hidden',
-    borderRadius: 7,
+    position: 'relative',
+    borderRadius: 9,
     backgroundColor: colors.surfaceMuted,
   },
-  sleepBarFill: {
-    height: '100%',
+  timelineSegment: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
     minWidth: 2,
-    flexDirection: 'row',
-    overflow: 'hidden',
-    borderRadius: 7,
+    borderRadius: 9,
   },
-  sleepBarSegment: {
-    minWidth: 2,
-  },
-  sleepNightSegment: {
+  timelineNightSegment: {
     backgroundColor: colors.primary,
   },
-  sleepDaySegment: {
+  timelineNapSegment: {
     backgroundColor: colors.warning,
+  },
+  timelineValue: {
+    width: 48,
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '900',
+    textAlign: 'right',
   },
   chartLegend: {
     minHeight: 24,

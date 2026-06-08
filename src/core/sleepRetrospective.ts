@@ -31,7 +31,10 @@ export interface SleepRetrospectiveDay {
   reason: RetrospectiveReason | null;
   status: SleepRetrospectiveStatus;
   statusLabel: string;
+  napCountDelta: number;
   temporaryModeBadges: SleepRetrospectiveTemporaryModeBadge[];
+  targetBedtimeDeltaMinutes: number | null;
+  targetDaySleepDeltaMinutes: number;
   totalAwakeMinutes: number;
   totalDaySleepMinutes: number;
   totalNightSleepMinutes: number;
@@ -346,9 +349,12 @@ export function buildSleepRetrospectiveDay(
     date: input.date,
     hasRecords: input.summary.sleepSessionCount > 0,
     hint: buildHint(status, reason, { hasEarlyWake, hasSoftDay }),
+    napCountDelta: input.summary.napCountDelta,
     reason,
     status,
     statusLabel: getStatusLabel(status),
+    targetBedtimeDeltaMinutes: input.summary.targetBedtimeDeltaMinutes,
+    targetDaySleepDeltaMinutes: input.summary.targetDaySleepDeltaMinutes,
     temporaryModeBadges,
     totalAwakeMinutes: input.summary.totalAwakeMinutes,
     totalDaySleepMinutes: input.summary.totalDaySleepMinutes,
