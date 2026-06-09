@@ -345,6 +345,25 @@ When changing this integration, cover at least:
 - recommendation does not appear when `early_wake` is enabled;
 - today UI still has no standalone summed-WB card.
 
+## Implementation lessons from main screen view-state gating
+
+Before redesigning or rearranging the main `/` screen, keep forecast, coach, temporary-mode, and onboarding visibility in the pure `deriveMainScreenSleepUiState(...)` helper in `src/core/mainScreenFlow.ts`. Do not spread equivalent inline conditions across `src/app/index.tsx`; React should read named flags such as `isTodaySelected`, `isPastSelected`, `isFutureSelected`, `hasActiveTargetPlan`, `onboardingMode`, `isTrackingOnlyWithoutPlan`, `canShowPlanBasedBlocks`, `canShowCoachBlocks`, `canShowTemporaryModeBadges`, and `canShowEveningPlanPrompt`.
+
+For `tracking_only` without an active persisted `target_day_plan`, the main screen must keep factual tracking available while hiding plan-dependent guidance:
+- keep actual status, start/stop for today, manual sleep entry, and the sleep-first timeline;
+- hide forecast cards, scenarios/coach guidance, next-sleep and bedtime projections, remaining-awake-to-target metrics, temporary-mode badges, early-wake suggestions, and planned share text;
+- do not use `DEFAULT_SLEEP_PLAN` as a reason to show plan-based UI;
+- do not create `target_day_plan`, write temporary modes, request notifications, or change schema.
+
+Current-moment coach blocks are today-only. Past and future selected days may show appropriate day/history views, but must not show today's coach, temporary-mode badges, or early-wake prompt. The evening tracking-only plan prompt should continue to use the existing `shouldShowEveningPlanPrompt(...)` rules, with the final visibility surfaced through `deriveMainScreenSleepUiState(...)`.
+
+When changing these gates, cover at least:
+- tracking-only without active plan keeps factual tracking controls and timeline;
+- tracking-only without active plan hides plan-based and coach blocks;
+- active plan + today allows coach blocks except the active-plan/no-records calm state;
+- past/future selected days hide current-moment coach blocks;
+- evening plan prompt still follows its dismissal/date/time/session rules.
+
 ## Implementation lessons from main screen sleep coach card
 
 The main `/` screen should show one calm "Что лучше сейчас" coach card instead of exposing the full recommendation scenario list on the first level. Keep the decision in a pure core view-model helper such as `src/core/mainScreenSleepCoach.ts`; React should pass the already-built `buildTodaySleepSnapshot`, effective plan, selected sleep-day start, temporary-mode badge label, and `deriveMainScreenSleepUiState(...)`, then render the returned `SleepCoachCardVm`.
