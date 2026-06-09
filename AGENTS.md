@@ -378,6 +378,10 @@ Visibility must stay conservative:
 
 The card copy must be short, calm, and safe for a tired parent. Always set the eyebrow to `Что лучше сейчас`; return one title/body/anchor at most; never let user-facing strings contain `undefined`, `null`, or `NaN`; and do not show "Следующий сон после сна" or similar next-sleep wording while an active sleep is running. If `soft_day`, `early_wake`, or both temporary modes are active, pass the existing badge label through to the VM instead of deriving modes again.
 
+Keep `src/components/SleepCoachCard.tsx` as a presentational component. It should accept `SleepCoachCardVm`, return `null` when `vm.visible=false`, render secondary actions only from `hasWhyDetails` / `hasAlternatives`, and receive navigation or modal callbacks from the screen. Do not put sleep calculations, SQLite calls, temporary-mode writes, or direct Expo Router calls inside the component.
+
+On the main `/` screen, render the coach card after the hero status and primary sleep actions, before forecast cards, old scenario/regression blocks, bottle-feeding cards, and the mixed timeline. The card should be visually stronger than ordinary info cards through a calm primary accent, but avoid red, bright yellow, or warning/error styling for normal day drift. Bottle feeding must not visually outrank the sleep actions or the coach card.
+
 Before wiring the coach card into UI, lock the core view-model contract with unit tests next to `src/core/mainScreenSleepCoach.ts`. Test visible today states, hidden non-today/tracking-only/no-data states, unsafe or partial snapshots, temporary-mode badge passthrough, alternatives metadata, calm bedtime wording, absence of `undefined`/`null`/`NaN`, and that the helper does not mutate the plan or snapshot inputs.
 
 When changing the coach card, cover at least:

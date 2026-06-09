@@ -16,6 +16,7 @@ import { EventTypeBadge } from '@/components/EventTypeBadge';
 import { ProfileAvatar } from '@/components/ProfileAvatar';
 import { SleepPlanIcon } from '@/components/SleepPlanIcon';
 import { SleepRetrospectiveIcon } from '@/components/SleepRetrospectiveIcon';
+import { SleepCoachCard } from '@/components/SleepCoachCard';
 import { SleepDayTimeline } from '@/components/SleepDayTimeline';
 import { SleepSessionEditorModal } from '@/components/SleepSessionEditorModal';
 import { SummaryCard } from '@/components/SummaryCard';
@@ -2097,39 +2098,6 @@ export default function TodaySleepScreen() {
                 </Text>
               </View>
 
-              {bottleFeedingEnabled ? (
-                <View style={styles.bottleFeedingCard}>
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={openBottleFeeding}
-                    style={({ pressed }) => [
-                      styles.bottleFeedingTextBlock,
-                      pressed ? styles.bottleFeedingTextBlockPressed : null,
-                    ]}>
-                    <Text style={styles.bottleFeedingTitle}>Кормление</Text>
-                    <Text
-                      adjustsFontSizeToFit
-                      minimumFontScale={0.86}
-                      numberOfLines={2}
-                      style={styles.bottleFeedingValue}>
-                      {formatLatestBottleFeedingLine(latestBottleFeeding, now)}
-                    </Text>
-                    <Text numberOfLines={2} style={styles.bottleFeedingCaption}>
-                      {todayBottleFeedingStatsLine}
-                    </Text>
-                  </Pressable>
-                  <PrimaryButton
-                    compact
-                    disabled={isLoading || isSaving}
-                    label="+ Добавить"
-                    onPress={openCreateBottleFeedingEditor}
-                    style={styles.bottleFeedingButton}
-                    textStyle={styles.bottleFeedingButtonText}
-                    variant="secondary"
-                  />
-                </View>
-              ) : null}
-
               {shouldShowPlanStartNoDataHint ? null : (
                 <View style={styles.actionRow}>
                   <PrimaryButton
@@ -2149,6 +2117,12 @@ export default function TodaySleepScreen() {
                   />
                 </View>
               )}
+
+              <SleepCoachCard
+                onOpenAlternatives={openSleepPlan}
+                onOpenWhy={openSleepPlan}
+                vm={sleepCoachCard}
+              />
 
               {shouldShowPlanBasedUi ? (
                 <>
@@ -2183,24 +2157,10 @@ export default function TodaySleepScreen() {
                   <View style={styles.section}>
                     <View style={styles.scenarioHeader}>
                       <View style={styles.scenarioTitleBlock}>
-                        <Text style={styles.sectionTitle}>{sleepCoachCard.eyebrow}</Text>
+                        <Text style={styles.sectionTitle}>План дня</Text>
                         <Text numberOfLines={1} style={styles.scenarioPlanLabel}>
                           Активный план: {currentPlanName}
                         </Text>
-                        {sleepCoachCard.badge ? (
-                          <Pressable
-                            accessibilityRole="button"
-                            hitSlop={4}
-                            onPress={openSleepPlan}
-                            style={({ pressed }) => [
-                              styles.temporaryModeBadge,
-                              pressed ? styles.temporaryModeBadgePressed : null,
-                            ]}>
-                            <Text numberOfLines={1} style={styles.temporaryModeBadgeText}>
-                              {sleepCoachCard.badge}
-                            </Text>
-                          </Pressable>
-                        ) : null}
                       </View>
                       <Pressable
                         accessibilityRole="button"
@@ -2243,27 +2203,6 @@ export default function TodaySleepScreen() {
                         </View>
                       </View>
                     ) : null}
-                    {sleepCoachCard.visible ? (
-                      <View
-                        style={[
-                          styles.sleepCoachCard,
-                          sleepCoachCard.tone === 'prepare'
-                            ? styles.sleepCoachCardPrepare
-                            : null,
-                          sleepCoachCard.tone === 'actSoon'
-                            ? styles.sleepCoachCardActSoon
-                            : null,
-                          sleepCoachCard.tone === 'adjustDay'
-                            ? styles.sleepCoachCardAdjustDay
-                            : null,
-                        ]}>
-                        <Text style={styles.sleepCoachTitle}>{sleepCoachCard.title}</Text>
-                        <Text style={styles.sleepCoachBody}>{sleepCoachCard.body}</Text>
-                        {sleepCoachCard.anchor ? (
-                          <Text style={styles.sleepCoachAnchor}>{sleepCoachCard.anchor}</Text>
-                        ) : null}
-                      </View>
-                    ) : null}
                   </View>
                 </>
               ) : shouldShowPlanStartNoDataHint ? (
@@ -2271,6 +2210,39 @@ export default function TodaySleepScreen() {
               ) : (
                 renderTrackingOnlyEmptyHint()
               )}
+
+              {bottleFeedingEnabled ? (
+                <View style={styles.bottleFeedingCard}>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={openBottleFeeding}
+                    style={({ pressed }) => [
+                      styles.bottleFeedingTextBlock,
+                      pressed ? styles.bottleFeedingTextBlockPressed : null,
+                    ]}>
+                    <Text style={styles.bottleFeedingTitle}>Кормление</Text>
+                    <Text
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.86}
+                      numberOfLines={2}
+                      style={styles.bottleFeedingValue}>
+                      {formatLatestBottleFeedingLine(latestBottleFeeding, now)}
+                    </Text>
+                    <Text numberOfLines={2} style={styles.bottleFeedingCaption}>
+                      {todayBottleFeedingStatsLine}
+                    </Text>
+                  </Pressable>
+                  <PrimaryButton
+                    compact
+                    disabled={isLoading || isSaving}
+                    label="+ Добавить"
+                    onPress={openCreateBottleFeedingEditor}
+                    style={styles.bottleFeedingButton}
+                    textStyle={styles.bottleFeedingButtonText}
+                    variant="secondary"
+                  />
+                </View>
+              ) : null}
             </>
           ) : !shouldShowPlanBasedUi ? (
             <>
@@ -3334,25 +3306,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
-  temporaryModeBadge: {
-    minHeight: 26,
-    maxWidth: '100%',
-    alignSelf: 'flex-start',
-    justifyContent: 'center',
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    paddingHorizontal: spacing.sm,
-    backgroundColor: colors.primarySoft,
-  },
-  temporaryModeBadgePressed: {
-    backgroundColor: colors.surfaceMuted,
-  },
-  temporaryModeBadgeText: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: '900',
-  },
   sharePlanButton: {
     minHeight: 34,
     minWidth: 104,
@@ -3375,42 +3328,6 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 13,
     fontWeight: '900',
-  },
-  sleepCoachCard: {
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    backgroundColor: colors.surface,
-    gap: spacing.xs,
-  },
-  sleepCoachCardPrepare: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primarySoft,
-  },
-  sleepCoachCardActSoon: {
-    borderColor: colors.warning,
-    backgroundColor: colors.warningSoft,
-  },
-  sleepCoachCardAdjustDay: {
-    borderColor: colors.warning,
-  },
-  sleepCoachTitle: {
-    color: colors.text,
-    fontSize: 18,
-    fontWeight: '900',
-  },
-  sleepCoachBody: {
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: '700',
-    lineHeight: 21,
-  },
-  sleepCoachAnchor: {
-    color: colors.textMuted,
-    fontSize: 14,
-    fontWeight: '800',
-    lineHeight: 20,
   },
   scenarioList: {
     gap: spacing.sm,
