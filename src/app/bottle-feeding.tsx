@@ -20,18 +20,23 @@ import {
 import { colors, radius, spacing } from '@/constants/theme';
 import {
   BOTTLE_FEEDING_EMPTY_TEXT,
+  buildBottleFeedingDailyTrend,
   calculateBottleFeedingStats,
   formatBottleFeedingCount,
   formatBottleFeedingRecordLine,
   formatBottleFeedingStatsLine,
   formatLatestBottleFeedingLine,
+  getBottleFeedingCalendarDayRange,
   getLast24HoursBottleFeedingRange,
-  getTodayBottleFeedingRange,
+  getBottleFeedingTrendDateRange,
   isBottleFeedingTopUp,
+  type BottleFeedingDailyTrendPoint,
 } from '@/core/bottleFeeding';
 import {
   addLocalCalendarDays,
+  dateAtLocalNoon,
   formatLocalDateLabel,
+  getLocalCalendarDayDiff,
   startOfLocalCalendarDay,
 } from '@/core/localDateTime';
 import {
@@ -57,15 +62,23 @@ type BottleFeedingEditorState =
       referenceDate: Date;
     };
 
+type FeedingTrendPeriodDays = 7 | 14 | 30;
+
 interface FeedingDayGroup {
   feedings: BottleFeeding[];
-  key: 'today' | 'yesterday';
+  key: string;
   subtitle: string;
   title: string;
 }
 
 const HOME_ROUTE = '/' as Href;
 const BOTTLE_FEEDING_SETTINGS_ROUTE = '/bottle-feeding-settings' as Href;
+const DEFAULT_TREND_PERIOD_DAYS: FeedingTrendPeriodDays = 7;
+const TREND_PERIOD_OPTIONS = [7, 14, 30] as const satisfies readonly FeedingTrendPeriodDays[];
+const TREND_CHART_HEIGHT = 116;
+const TREND_CHART_VERTICAL_PADDING = 12;
+const TREND_BAR_MAX_HEIGHT = 82;
+const TREND_MIN_VISIBLE_BAR_HEIGHT = 4;
 const EMPTY_BOTTLE_FEEDING_STATS: BottleFeedingStats = {
   count: 0,
   totalVolumeMl: 0,
@@ -78,16 +91,6 @@ function sortFeedingsNewestFirst(feedings: BottleFeeding[]): BottleFeeding[] {
   );
 }
 
-function bottleFeedingStartsInRange(
-  feeding: BottleFeeding,
-  rangeStart: Date,
-  rangeEnd: Date,
-): boolean {
-  const startedAt = new Date(feeding.startedAt);
-
-  return startedAt.getTime() >= rangeStart.getTime() && startedAt.getTime() < rangeEnd.getTime();
-}
-
 function formatDateLabel(date: Date): string {
   return formatLocalDateLabel(date, {
     day: 'numeric',
@@ -95,17 +98,302 @@ function formatDateLabel(date: Date): string {
   });
 }
 
+function isSameCalendarDay(first: Date, second: Date): boolean {
+  return startOfLocalCalendarDay(first).getTime() === startOfLocalCalendarDay(second).getTime();
+}
+
+function formatSelectedDayTitle(selectedDate: Date, now: Date): string {
+  const dayDiff = getLocalCalendarDayDiff(selectedDate, now);
+
+  if (dayDiff === 0) {
+    return 'Сегодня';
+  }
+
+  if (dayDiff === -1) {
+    return `Вчера, ${formatDateLabel(selectedDate)}`;
+  }
+
+  if (dayDiff === -2) {
+    return `Позавчера, ${formatDateLabel(selectedDate)}`;
+  }
+
+  if (dayDiff === 1) {
+    return `Завтра, ${formatDateLabel(selectedDate)}`;
+  }
+
+  return formatDateLabel(selectedDate);
+}
+
+function formatSelectedDayShortTitle(selectedDate: Date, now: Date): string {
+  const dayDiff = getLocalCalendarDayDiff(selectedDate, now);
+
+  if (dayDiff === 0) {
+    return 'Сегодня';
+  }
+
+  if (dayDiff === -1) {
+    return 'Вчера';
+  }
+
+  if (dayDiff === -2) {
+    return 'Позавчера';
+  }
+
+  return 'Выбранный день';
+}
+
+function formatTrendDateLabel(date: Date): string {
+  return formatLocalDateLabel(date, {
+    day: 'numeric',
+    month: 'short',
+  });
+}
+
+function formatTrendPeriodLabel(periodDays: FeedingTrendPeriodDays): string {
+  return `За ${periodDays} дней`;
+}
+
+type FeedingTrendMetric = 'volume' | 'count';
+
+function getTrendTotalStats(points: readonly BottleFeedingDailyTrendPoint[]): BottleFeedingStats {
+  return points.reduce<BottleFeedingStats>(
+    (stats, point) => ({
+      count: stats.count + point.count,
+      totalVolumeMl: stats.totalVolumeMl + point.totalVolumeMl,
+    }),
+    EMPTY_BOTTLE_FEEDING_STATS,
+  );
+}
+
+function getTrendMetricValue(
+  point: BottleFeedingDailyTrendPoint,
+  metric: FeedingTrendMetric,
+): number {
+  return metric === 'volume' ? point.totalVolumeMl : point.count;
+}
+
+function getMaxTrendMetric(
+  points: readonly BottleFeedingDailyTrendPoint[],
+  metric: FeedingTrendMetric,
+): number {
+  const maxValue = Math.max(0, ...points.map((point) => getTrendMetricValue(point, metric)));
+
+  if (maxValue <= 0 || metric === 'count') {
+    return maxValue;
+  }
+
+  const step = maxValue <= 300 ? 50 : maxValue <= 1000 ? 100 : 200;
+
+  return Math.ceil(maxValue / step) * step;
+}
+
+function getTrendScaleLabels(maxValue: number): [string, string, string] {
+  if (maxValue <= 0) {
+    return ['', '', '0'];
+  }
+
+  if (maxValue === 1) {
+    return ['1', '', '0'];
+  }
+
+  return [String(maxValue), String(Math.ceil(maxValue / 2)), '0'];
+}
+
+function getTrendMetricBarHeight(value: number, maxValue: number): number {
+  if (value <= 0) {
+    return 0;
+  }
+
+  return Math.max(
+    TREND_MIN_VISIBLE_BAR_HEIGHT,
+    Math.round((value / Math.max(1, maxValue)) * TREND_BAR_MAX_HEIGHT),
+  );
+}
+
+function formatTrendMetricSummary(
+  points: readonly BottleFeedingDailyTrendPoint[],
+  metric: FeedingTrendMetric,
+  isLoading: boolean,
+): string {
+  const totalStats = getTrendTotalStats(points);
+
+  if (totalStats.count <= 0) {
+    return isLoading ? 'Загрузка' : 'Пока нет записей';
+  }
+
+  if (metric === 'volume') {
+    return `${totalStats.totalVolumeMl} мл`;
+  }
+
+  return formatBottleFeedingCount(totalStats.count);
+}
+
+function FeedingTrendMetricChart({
+  isLoading,
+  metric,
+  points,
+  title,
+  unitLabel,
+}: {
+  isLoading: boolean;
+  metric: FeedingTrendMetric;
+  points: BottleFeedingDailyTrendPoint[];
+  title: string;
+  unitLabel: string;
+}) {
+  const maxValue = getMaxTrendMetric(points, metric);
+  const scaleLabels = getTrendScaleLabels(maxValue);
+  const summaryLine = formatTrendMetricSummary(points, metric, isLoading);
+  const barFillStyle =
+    metric === 'volume' ? styles.trendMetricBarFillVolume : styles.trendMetricBarFillCount;
+
+  return (
+    <View style={styles.trendMetricCard}>
+      <View style={styles.trendMetricHeader}>
+        <View style={styles.trendMetricTitleBlock}>
+          <Text style={styles.trendMetricTitle}>{title}</Text>
+          <Text style={styles.trendMetricSubtitle}>{unitLabel}</Text>
+        </View>
+        <Text numberOfLines={1} style={styles.trendMetricSummary}>
+          {summaryLine}
+        </Text>
+      </View>
+
+      <View style={styles.trendMetricBody}>
+        <View style={styles.trendMetricScale}>
+          {scaleLabels.map((label, index) => (
+            <Text key={`${metric}-scale-${index}`} numberOfLines={1} style={styles.trendMetricScaleLabel}>
+              {label}
+            </Text>
+          ))}
+        </View>
+
+        <View style={styles.trendMetricPlot}>
+          <View style={styles.trendGridLineTop} />
+          <View style={styles.trendGridLineMiddle} />
+          <View style={styles.trendGridLineBottom} />
+          <View style={styles.trendBarsLayer}>
+            {points.map((point) => {
+              const value = getTrendMetricValue(point, metric);
+              const barHeight = getTrendMetricBarHeight(value, maxValue);
+
+              return (
+                <View key={`${metric}-${point.date.toISOString()}`} style={styles.trendBarColumn}>
+                  <View style={styles.trendBarTrack}>
+                    {barHeight > 0 ? (
+                      <View style={[styles.trendBarFill, barFillStyle, { height: barHeight }]} />
+                    ) : (
+                      <View style={styles.trendBarEmpty} />
+                    )}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function FeedingTrendChart({
+  isLoading,
+  onSelectPeriodDays,
+  periodDays,
+  points,
+}: {
+  isLoading: boolean;
+  onSelectPeriodDays: (periodDays: FeedingTrendPeriodDays) => void;
+  periodDays: FeedingTrendPeriodDays;
+  points: BottleFeedingDailyTrendPoint[];
+}) {
+  const firstPoint = points[0] ?? null;
+  const middlePoint = points.length > 0 ? points[Math.floor((points.length - 1) / 2)] : null;
+  const lastPoint = points[points.length - 1] ?? null;
+
+  return (
+    <View style={styles.trendPanel}>
+      <View style={styles.trendHeader}>
+        <View style={styles.trendTitleBlock}>
+          <Text style={styles.trendTitle}>Графики кормлений</Text>
+          <Text style={styles.trendSubtitle}>{formatTrendPeriodLabel(periodDays)}</Text>
+        </View>
+        <View style={styles.trendPeriodSelector}>
+          {TREND_PERIOD_OPTIONS.map((option) => {
+            const isSelected = periodDays === option;
+
+            return (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityState={{ selected: isSelected }}
+                key={option}
+                onPress={() => onSelectPeriodDays(option)}
+                style={({ pressed }) => [
+                  styles.trendPeriodButton,
+                  isSelected ? styles.trendPeriodButtonSelected : null,
+                  pressed ? styles.trendPeriodButtonPressed : null,
+                ]}>
+                <Text
+                  style={[
+                    styles.trendPeriodButtonText,
+                    isSelected ? styles.trendPeriodButtonTextSelected : null,
+                  ]}>
+                  {option} дней
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      <FeedingTrendMetricChart
+        isLoading={isLoading}
+        metric="volume"
+        points={points}
+        title="Объём"
+        unitLabel="мл за день"
+      />
+
+      <FeedingTrendMetricChart
+        isLoading={isLoading}
+        metric="count"
+        points={points}
+        title="Количество"
+        unitLabel="кормлений за день"
+      />
+
+      <View style={styles.trendDateRow}>
+        <View style={styles.trendScaleSpacer} />
+        <View style={styles.trendAxisLabels}>
+          <Text numberOfLines={1} style={styles.trendAxisLabel}>
+            {firstPoint ? formatTrendDateLabel(firstPoint.date) : ''}
+          </Text>
+          <Text numberOfLines={1} style={styles.trendAxisLabel}>
+            {middlePoint ? formatTrendDateLabel(middlePoint.date) : ''}
+          </Text>
+          <Text numberOfLines={1} style={[styles.trendAxisLabel, styles.trendAxisLabelRight]}>
+            {lastPoint ? formatTrendDateLabel(lastPoint.date) : ''}
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 export default function BottleFeedingScreen() {
   const db = useSQLiteContext();
   const router = useRouter();
   const [latestFeeding, setLatestFeeding] = useState<BottleFeeding | null>(null);
-  const [todayStats, setTodayStats] =
+  const [selectedDate, setSelectedDate] = useState(() => new Date());
+  const [selectedDayStats, setSelectedDayStats] =
     useState<BottleFeedingStats>(EMPTY_BOTTLE_FEEDING_STATS);
   const [last24HoursStats, setLast24HoursStats] =
     useState<BottleFeedingStats>(EMPTY_BOTTLE_FEEDING_STATS);
-  const [todayFeedings, setTodayFeedings] = useState<BottleFeeding[]>([]);
-  const [yesterdayFeedings, setYesterdayFeedings] = useState<BottleFeeding[]>([]);
-  const [timelineReferenceDate, setTimelineReferenceDate] = useState(() => new Date());
+  const [selectedDayFeedings, setSelectedDayFeedings] = useState<BottleFeeding[]>([]);
+  const [trendPeriodDays, setTrendPeriodDays] = useState<FeedingTrendPeriodDays>(
+    DEFAULT_TREND_PERIOD_DAYS,
+  );
+  const [trendFeedings, setTrendFeedings] = useState<BottleFeeding[]>([]);
   const [defaultVolumeMl, setDefaultVolumeMl] = useState(DEFAULT_BOTTLE_FEEDING_VOLUME_ML);
   const [topUpThresholdMl, setTopUpThresholdMl] = useState(
     DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML,
@@ -120,7 +408,7 @@ export default function BottleFeedingScreen() {
   const [editorState, setEditorState] = useState<BottleFeedingEditorState | null>(null);
 
   const loadFeedings = useCallback(
-    async (loadedAt: Date, shouldApply: () => boolean) => {
+    async (referenceDate: Date, loadedAt: Date, shouldApply: () => boolean) => {
       setIsLoading(true);
 
       try {
@@ -130,10 +418,10 @@ export default function BottleFeedingScreen() {
           if (shouldApply()) {
             setIsBottleFeedingAvailable(false);
             setLatestFeeding(null);
-            setTodayStats(EMPTY_BOTTLE_FEEDING_STATS);
+            setSelectedDayStats(EMPTY_BOTTLE_FEEDING_STATS);
             setLast24HoursStats(EMPTY_BOTTLE_FEEDING_STATS);
-            setTodayFeedings([]);
-            setYesterdayFeedings([]);
+            setSelectedDayFeedings([]);
+            setTrendFeedings([]);
             setDefaultVolumeMl(DEFAULT_BOTTLE_FEEDING_VOLUME_ML);
             setTopUpThresholdMl(DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML);
             router.replace(HOME_ROUTE);
@@ -146,29 +434,23 @@ export default function BottleFeedingScreen() {
           setIsBottleFeedingAvailable(true);
         }
 
-        const todayRange = getTodayBottleFeedingRange(loadedAt);
-        const yesterdayStart = startOfLocalCalendarDay(addLocalCalendarDays(loadedAt, -1));
+        const selectedDayRange = getBottleFeedingCalendarDayRange(referenceDate);
         const last24HoursRange = getLast24HoursBottleFeedingRange(loadedAt);
-        const [loadedLatestFeeding, twoDayFeedings, last24HourFeedings] =
+        const trendRange = getBottleFeedingTrendDateRange(loadedAt, trendPeriodDays);
+        const [loadedLatestFeeding, selectedFeedings, last24HourFeedings, loadedTrendFeedings] =
           await Promise.all([
             getLatestBottleFeeding(db),
-            listBottleFeedingsInRange(db, yesterdayStart, todayRange.end),
+            listBottleFeedingsInRange(db, selectedDayRange.start, selectedDayRange.end),
             listBottleFeedingsInRange(db, last24HoursRange.start, last24HoursRange.end),
+            listBottleFeedingsInRange(db, trendRange.start, trendRange.end),
           ]);
-        const loadedTodayFeedings = twoDayFeedings.filter((feeding) =>
-          bottleFeedingStartsInRange(feeding, todayRange.start, todayRange.end),
-        );
-        const loadedYesterdayFeedings = twoDayFeedings.filter((feeding) =>
-          bottleFeedingStartsInRange(feeding, yesterdayStart, todayRange.start),
-        );
 
         if (shouldApply()) {
           setLatestFeeding(loadedLatestFeeding);
-          setTodayStats(calculateBottleFeedingStats(loadedTodayFeedings));
+          setSelectedDayStats(calculateBottleFeedingStats(selectedFeedings));
           setLast24HoursStats(calculateBottleFeedingStats(last24HourFeedings));
-          setTodayFeedings(sortFeedingsNewestFirst(loadedTodayFeedings));
-          setYesterdayFeedings(sortFeedingsNewestFirst(loadedYesterdayFeedings));
-          setTimelineReferenceDate(loadedAt);
+          setSelectedDayFeedings(sortFeedingsNewestFirst(selectedFeedings));
+          setTrendFeedings(loadedTrendFeedings);
           setDefaultVolumeMl(profile.bottleFeedingDefaultVolumeMl);
           setTopUpThresholdMl(profile.bottleFeedingTopUpThresholdMl);
           setNow(loadedAt);
@@ -184,19 +466,19 @@ export default function BottleFeedingScreen() {
         }
       }
     },
-    [db, router],
+    [db, router, trendPeriodDays],
   );
 
   useFocusEffect(
     useCallback(() => {
       let isActive = true;
 
-      void loadFeedings(new Date(), () => isActive);
+      void loadFeedings(selectedDate, new Date(), () => isActive);
 
       return () => {
         isActive = false;
       };
-    }, [loadFeedings]),
+    }, [loadFeedings, selectedDate]),
   );
 
   useEffect(() => {
@@ -210,14 +492,16 @@ export default function BottleFeedingScreen() {
   }, []);
 
   async function reloadCurrentPeriod(currentNow = new Date()) {
-    await loadFeedings(currentNow, () => true);
+    await loadFeedings(selectedDate, currentNow, () => true);
   }
 
   function openCreateEditor() {
+    const isTodaySelected = isSameCalendarDay(selectedDate, now);
+
     setEditorState({
       feeding: null,
       mode: 'create',
-      referenceDate: new Date(),
+      referenceDate: isTodaySelected ? new Date() : dateAtLocalNoon(selectedDate),
     });
   }
 
@@ -231,6 +515,33 @@ export default function BottleFeedingScreen() {
 
   function openSettingsScreen() {
     router.push(BOTTLE_FEEDING_SETTINGS_ROUTE);
+  }
+
+  function selectFeedingDate(date: Date) {
+    setSelectedDayStats(EMPTY_BOTTLE_FEEDING_STATS);
+    setSelectedDayFeedings([]);
+    setSelectedDate(date);
+  }
+
+  function selectTrendPeriodDays(periodDays: FeedingTrendPeriodDays) {
+    setTrendFeedings([]);
+    setTrendPeriodDays(periodDays);
+  }
+
+  function selectQuickDate(dayOffset: -1 | 0) {
+    selectFeedingDate(dayOffset === 0 ? new Date() : addLocalCalendarDays(now, dayOffset));
+  }
+
+  function goToPreviousDay() {
+    selectFeedingDate(addLocalCalendarDays(selectedDate, -1));
+  }
+
+  function goToNextDay() {
+    if (!canGoForward) {
+      return;
+    }
+
+    selectFeedingDate(addLocalCalendarDays(selectedDate, 1));
   }
 
   async function handleEditorSave(input: { startedAt: Date; volumeMl: number }) {
@@ -280,24 +591,29 @@ export default function BottleFeedingScreen() {
     }
   }
 
+  const selectedDayTitle = useMemo(
+    () => formatSelectedDayTitle(selectedDate, now),
+    [now, selectedDate],
+  );
+  const selectedDayShortTitle = useMemo(
+    () => formatSelectedDayShortTitle(selectedDate, now),
+    [now, selectedDate],
+  );
+  const canGoForward = useMemo(
+    () =>
+      startOfLocalCalendarDay(selectedDate).getTime() < startOfLocalCalendarDay(now).getTime(),
+    [now, selectedDate],
+  );
   const feedingDayGroups = useMemo<FeedingDayGroup[]>(() => {
-    const yesterdayDate = addLocalCalendarDays(timelineReferenceDate, -1);
-
     return [
       {
-        feedings: todayFeedings,
-        key: 'today',
-        subtitle: formatDateLabel(timelineReferenceDate),
-        title: 'Сегодня',
-      },
-      {
-        feedings: yesterdayFeedings,
-        key: 'yesterday',
-        subtitle: formatDateLabel(yesterdayDate),
-        title: 'Вчера',
+        feedings: selectedDayFeedings,
+        key: 'selected',
+        subtitle: formatDateLabel(selectedDate),
+        title: selectedDayShortTitle,
       },
     ];
-  }, [timelineReferenceDate, todayFeedings, yesterdayFeedings]);
+  }, [selectedDate, selectedDayFeedings, selectedDayShortTitle]);
   const displayedFeedingCount = feedingDayGroups.reduce(
     (total, group) => total + group.feedings.length,
     0,
@@ -306,6 +622,32 @@ export default function BottleFeedingScreen() {
     displayedFeedingCount === 0
       ? 'нет записей'
       : `Всего ${formatBottleFeedingCount(displayedFeedingCount)}`;
+  const trendPoints = useMemo(
+    () => buildBottleFeedingDailyTrend(trendFeedings, now, trendPeriodDays),
+    [now, trendFeedings, trendPeriodDays],
+  );
+
+  function renderDateShortcut(label: string, dayOffset: -1 | 0) {
+    const targetDate = dayOffset === 0 ? now : addLocalCalendarDays(now, dayOffset);
+    const isActive = isSameCalendarDay(targetDate, selectedDate);
+
+    return (
+      <Pressable
+        accessibilityRole="button"
+        hitSlop={4}
+        key={label}
+        onPress={() => selectQuickDate(dayOffset)}
+        style={({ pressed }) => [
+          styles.dateShortcut,
+          isActive ? styles.activeDateShortcut : null,
+          pressed ? styles.dateShortcutPressed : null,
+        ]}>
+        <Text style={[styles.dateShortcutText, isActive ? styles.activeDateShortcutText : null]}>
+          {label}
+        </Text>
+      </Pressable>
+    );
+  }
 
   if (isBottleFeedingAvailable !== true) {
     return <Stack.Screen options={{ title: 'Кормление' }} />;
@@ -337,11 +679,51 @@ export default function BottleFeedingScreen() {
             />
           </View>
 
+          <View style={styles.datePickerBlock}>
+            <View style={styles.dayNavigator}>
+              <Pressable
+                accessibilityLabel="Предыдущий день кормлений"
+                accessibilityRole="button"
+                hitSlop={4}
+                onPress={goToPreviousDay}
+                style={({ pressed }) => [
+                  styles.dayArrow,
+                  pressed ? styles.dayArrowPressed : null,
+                ]}>
+                <Text style={styles.dayArrowText}>{'<'}</Text>
+              </Pressable>
+              <Text numberOfLines={1} style={styles.dayTitle}>
+                {selectedDayTitle}
+              </Text>
+              <Pressable
+                accessibilityLabel="Следующий день кормлений"
+                accessibilityRole="button"
+                disabled={!canGoForward}
+                hitSlop={4}
+                onPress={goToNextDay}
+                style={({ pressed }) => [
+                  styles.dayArrow,
+                  pressed && canGoForward ? styles.dayArrowPressed : null,
+                  !canGoForward ? styles.dayArrowDisabled : null,
+                ]}>
+                <Text
+                  style={[
+                    styles.dayArrowText,
+                    !canGoForward ? styles.dayArrowTextDisabled : null,
+                  ]}>
+                  {'>'}
+                </Text>
+              </Pressable>
+              {renderDateShortcut('Сегодня', 0)}
+              {renderDateShortcut('Вчера', -1)}
+            </View>
+          </View>
+
           <View style={styles.statsGrid}>
             <View style={styles.statsBlock}>
-              <Text style={styles.statsTitle}>Сегодня</Text>
+              <Text style={styles.statsTitle}>{selectedDayShortTitle}</Text>
               <Text adjustsFontSizeToFit numberOfLines={1} style={styles.statsValue}>
-                {formatBottleFeedingStatsLine(todayStats)}
+                {formatBottleFeedingStatsLine(selectedDayStats)}
               </Text>
             </View>
             <View style={styles.statsBlock}>
@@ -382,9 +764,7 @@ export default function BottleFeedingScreen() {
                       <View
                         style={[
                           styles.feedDayMarker,
-                          group.key === 'today'
-                            ? styles.todayFeedDayMarker
-                            : styles.yesterdayFeedDayMarker,
+                          styles.selectedFeedDayMarker,
                         ]}
                       />
                       <View>
@@ -416,7 +796,6 @@ export default function BottleFeedingScreen() {
                           onPress={() => openEditEditor(feeding)}
                           style={({ pressed }) => [
                             styles.feedRow,
-                            group.key === 'yesterday' ? styles.yesterdayFeedRow : null,
                             pressed ? styles.feedRowPressed : null,
                           ]}>
                           <EventTypeBadge kind="bottleFeeding" quiet />
@@ -433,6 +812,13 @@ export default function BottleFeedingScreen() {
               ))}
             </View>
           </View>
+
+          <FeedingTrendChart
+            isLoading={isLoading}
+            onSelectPeriodDays={selectTrendPeriodDays}
+            periodDays={trendPeriodDays}
+            points={trendPoints}
+          />
         </SafeAreaView>
       </ScrollView>
 
@@ -468,6 +854,74 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     paddingBottom: spacing.xl,
+  },
+  datePickerBlock: {
+    minHeight: 34,
+  },
+  dayNavigator: {
+    minHeight: 34,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  dayArrow: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  dayArrowPressed: {
+    backgroundColor: colors.primarySoft,
+  },
+  dayArrowDisabled: {
+    opacity: 0.45,
+  },
+  dayArrowText: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '900',
+  },
+  dayArrowTextDisabled: {
+    color: colors.textMuted,
+  },
+  dayTitle: {
+    flex: 1,
+    minWidth: 0,
+    color: colors.text,
+    textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  dateShortcut: {
+    minWidth: 72,
+    minHeight: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  activeDateShortcut: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  dateShortcutPressed: {
+    backgroundColor: colors.surfaceMuted,
+  },
+  dateShortcutText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  activeDateShortcutText: {
+    color: colors.primary,
   },
   latestBlock: {
     minHeight: 132,
@@ -544,6 +998,225 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 13,
     fontWeight: '800',
+    textAlign: 'right',
+  },
+  trendPanel: {
+    gap: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  trendHeader: {
+    minHeight: 42,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  trendTitleBlock: {
+    flex: 1,
+    minWidth: 118,
+    gap: spacing.xs,
+  },
+  trendTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  trendSubtitle: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  trendPeriodSelector: {
+    minHeight: 36,
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  trendPeriodButton: {
+    minWidth: 68,
+    minHeight: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.sm,
+    backgroundColor: colors.background,
+  },
+  trendPeriodButtonSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  trendPeriodButtonPressed: {
+    backgroundColor: colors.surfaceMuted,
+  },
+  trendPeriodButtonText: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  trendPeriodButtonTextSelected: {
+    color: colors.primary,
+  },
+  trendMetricCard: {
+    gap: spacing.sm,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.sm,
+    backgroundColor: colors.background,
+  },
+  trendMetricHeader: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  trendMetricTitleBlock: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  trendMetricTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  trendMetricSubtitle: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  trendMetricSummary: {
+    maxWidth: '44%',
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+    textAlign: 'right',
+  },
+  trendMetricBody: {
+    height: TREND_CHART_HEIGHT,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: spacing.xs,
+  },
+  trendMetricScale: {
+    width: 34,
+    justifyContent: 'space-between',
+    paddingVertical: TREND_CHART_VERTICAL_PADDING - 1,
+  },
+  trendMetricScaleLabel: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  trendMetricPlot: {
+    flex: 1,
+    minWidth: 0,
+    height: TREND_CHART_HEIGHT,
+    overflow: 'hidden',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  trendGridLineTop: {
+    position: 'absolute',
+    top: TREND_CHART_VERTICAL_PADDING,
+    right: 0,
+    left: 0,
+    height: 1,
+    backgroundColor: colors.border,
+    opacity: 0.7,
+  },
+  trendGridLineMiddle: {
+    position: 'absolute',
+    top: Math.round(TREND_CHART_HEIGHT / 2),
+    right: 0,
+    left: 0,
+    height: 1,
+    backgroundColor: colors.border,
+    opacity: 0.55,
+  },
+  trendGridLineBottom: {
+    position: 'absolute',
+    right: 0,
+    bottom: TREND_CHART_VERTICAL_PADDING,
+    left: 0,
+    height: 1,
+    backgroundColor: colors.border,
+    opacity: 0.7,
+  },
+  trendBarsLayer: {
+    position: 'absolute',
+    right: spacing.xs,
+    bottom: TREND_CHART_VERTICAL_PADDING,
+    left: spacing.xs,
+    height: TREND_BAR_MAX_HEIGHT,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  trendBarColumn: {
+    flex: 1,
+    minWidth: 0,
+    height: '100%',
+    justifyContent: 'flex-end',
+  },
+  trendBarTrack: {
+    minHeight: 2,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  trendBarFill: {
+    width: '70%',
+    minWidth: 3,
+    maxWidth: 18,
+    borderRadius: 7,
+  },
+  trendMetricBarFillVolume: {
+    backgroundColor: colors.primarySoft,
+  },
+  trendMetricBarFillCount: {
+    backgroundColor: colors.primary,
+  },
+  trendBarEmpty: {
+    width: '44%',
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: colors.border,
+  },
+  trendDateRow: {
+    minHeight: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  trendScaleSpacer: {
+    width: 34,
+  },
+  trendAxisLabels: {
+    flex: 1,
+    minHeight: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.xs,
+  },
+  trendAxisLabel: {
+    flex: 1,
+    minWidth: 0,
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  trendAxisLabelRight: {
     textAlign: 'right',
   },
   settingsButton: {
@@ -747,11 +1420,8 @@ const styles = StyleSheet.create({
     height: 30,
     borderRadius: 3,
   },
-  todayFeedDayMarker: {
+  selectedFeedDayMarker: {
     backgroundColor: colors.primary,
-  },
-  yesterdayFeedDayMarker: {
-    backgroundColor: colors.border,
   },
   feedDayTitle: {
     color: colors.text,
@@ -779,9 +1449,6 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     paddingHorizontal: spacing.md,
     backgroundColor: colors.surface,
-  },
-  yesterdayFeedRow: {
-    backgroundColor: colors.surfaceMuted,
   },
   feedRowPressed: {
     backgroundColor: colors.surfaceMuted,

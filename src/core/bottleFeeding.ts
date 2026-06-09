@@ -15,6 +15,13 @@ export interface BottleFeedingDateRange {
   start: Date;
 }
 
+export interface BottleFeedingDailyTrendPoint {
+  count: number;
+  date: Date;
+  hasRecords: boolean;
+  totalVolumeMl: number;
+}
+
 export function getBottleFeedingCalendarDayRange(
   date: Date,
   timeZone?: string,
@@ -38,6 +45,23 @@ export function getLast24HoursBottleFeedingRange(now: Date): BottleFeedingDateRa
     end: new Date(now.getTime()),
     start: new Date(now.getTime() - MS_PER_DAY),
   };
+}
+
+export function getBottleFeedingTrendDateRange(
+  endDate: Date,
+  periodDays: number,
+  timeZone?: string,
+): BottleFeedingDateRange {
+  if (!Number.isInteger(periodDays) || periodDays <= 0) {
+    throw new Error('Bottle feeding trend period must be a positive integer');
+  }
+
+  const firstDay = addLocalCalendarDays(endDate, -(periodDays - 1), timeZone);
+  const start = startOfLocalCalendarDay(firstDay, timeZone);
+  const dayAfterEnd = addLocalCalendarDays(endDate, 1, timeZone);
+  const end = startOfLocalCalendarDay(dayAfterEnd, timeZone);
+
+  return { end, start };
 }
 
 export function filterBottleFeedingsInRange(
@@ -112,6 +136,31 @@ export function calculateBottleFeedingStatsInRange(
   return calculateBottleFeedingStats(
     filterBottleFeedingsInRange(feedings, rangeStart, rangeEnd),
   );
+}
+
+export function buildBottleFeedingDailyTrend(
+  feedings: readonly BottleFeeding[],
+  endDate: Date,
+  periodDays: number,
+  timeZone?: string,
+): BottleFeedingDailyTrendPoint[] {
+  if (!Number.isInteger(periodDays) || periodDays <= 0) {
+    throw new Error('Bottle feeding trend period must be a positive integer');
+  }
+
+  return Array.from({ length: periodDays }, (_item, index) => {
+    const dayOffset = index - (periodDays - 1);
+    const date = addLocalCalendarDays(endDate, dayOffset, timeZone);
+    const dayFeedings = filterBottleFeedingsInCalendarDay(feedings, date, timeZone);
+    const stats = calculateBottleFeedingStats(dayFeedings);
+
+    return {
+      count: stats.count,
+      date,
+      hasRecords: stats.count > 0,
+      totalVolumeMl: stats.totalVolumeMl,
+    };
+  });
 }
 
 export function isBottleFeedingTopUpVolume(

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   BOTTLE_FEEDING_EMPTY_TEXT,
+  buildBottleFeedingDailyTrend,
   calculateBottleFeedingStats,
   calculateBottleFeedingStatsInRange,
   calculateBottleFeedingTopUpStats,
@@ -20,6 +21,7 @@ import {
   formatTodayBottleFeedingStatsWithTopUpsLine,
   getBottleFeedingCalendarDayRange,
   getLast24HoursBottleFeedingRange,
+  getBottleFeedingTrendDateRange,
   getTodayBottleFeedingRange,
   isBottleFeedingTopUp,
   isBottleFeedingTopUpVolume,
@@ -89,6 +91,52 @@ describe('bottle feeding calculations', () => {
 
     expect(range.start.toISOString()).toBe('2026-05-30T12:15:00.000Z');
     expect(range.end.toISOString()).toBe('2026-05-31T12:15:00.000Z');
+  });
+
+  it('builds the trend range from local calendar days', () => {
+    const now = new Date('2026-06-09T10:00:00.000Z');
+    const range = getBottleFeedingTrendDateRange(now, 7, 'Europe/Moscow');
+
+    expect(range.start.toISOString()).toBe('2026-06-02T21:00:00.000Z');
+    expect(range.end.toISOString()).toBe('2026-06-09T21:00:00.000Z');
+  });
+
+  it('builds daily trend points with empty days included', () => {
+    const now = new Date('2026-06-09T10:00:00.000Z');
+    const feedings = [
+      feeding('day-1-a', '2026-06-03T06:00:00.000Z', 120),
+      feeding('day-1-b', '2026-06-03T18:00:00.000Z', 90),
+      feeding('day-3', '2026-06-05T08:00:00.000Z', 150),
+      feeding('today', '2026-06-09T07:00:00.000Z', 100),
+      feeding('outside', '2026-06-01T07:00:00.000Z', 80),
+    ];
+
+    const points = buildBottleFeedingDailyTrend(feedings, now, 7, 'Europe/Moscow');
+
+    expect(points.map((point) => point.date.toISOString())).toEqual([
+      '2026-06-03T09:00:00.000Z',
+      '2026-06-04T09:00:00.000Z',
+      '2026-06-05T09:00:00.000Z',
+      '2026-06-06T09:00:00.000Z',
+      '2026-06-07T09:00:00.000Z',
+      '2026-06-08T09:00:00.000Z',
+      '2026-06-09T09:00:00.000Z',
+    ]);
+    expect(
+      points.map((point) => ({
+        count: point.count,
+        hasRecords: point.hasRecords,
+        totalVolumeMl: point.totalVolumeMl,
+      })),
+    ).toEqual([
+      { count: 2, hasRecords: true, totalVolumeMl: 210 },
+      { count: 0, hasRecords: false, totalVolumeMl: 0 },
+      { count: 1, hasRecords: true, totalVolumeMl: 150 },
+      { count: 0, hasRecords: false, totalVolumeMl: 0 },
+      { count: 0, hasRecords: false, totalVolumeMl: 0 },
+      { count: 0, hasRecords: false, totalVolumeMl: 0 },
+      { count: 1, hasRecords: true, totalVolumeMl: 100 },
+    ]);
   });
 
   it('counts feedings and sums volume', () => {
