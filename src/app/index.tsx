@@ -13,7 +13,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { BottleFeedingEditorModal } from '@/components/BottleFeedingEditorModal';
 import { EventTypeBadge } from '@/components/EventTypeBadge';
-import { LastRecordsPreview } from '@/components/LastRecordsPreview';
 import { SleepCoachAlternativesSheet } from '@/components/SleepCoachAlternativesSheet';
 import { SleepCoachCard } from '@/components/SleepCoachCard';
 import { SleepCoachWhySheet } from '@/components/SleepCoachWhySheet';
@@ -197,7 +196,6 @@ const ACTIVE_SLEEP_DETAIL_SECONDS = 5 * 60;
 const DEFAULT_TIMER_REFRESH_MS = 30_000;
 const ACTIVE_SLEEP_DETAIL_REFRESH_MS = 1_000;
 const TIMELINE_ROW_HEIGHT = 62;
-const LAST_RECORDS_PREVIEW_LIMIT = 5;
 const MAX_PAST_DAY_FEEDBACK_LINES = 3;
 const FIRST_RUN_ROUTE = '/first-run' as Href;
 const EVENING_PROMPT_SLEEP_PLAN_ROUTE =
@@ -682,7 +680,6 @@ export default function TodaySleepScreen() {
     DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML,
   );
   const [showFeedingsInTimeline, setShowFeedingsInTimeline] = useState(true);
-  const [isFullTimelineExpanded, setIsFullTimelineExpanded] = useState(false);
   const [sleepPlan, setSleepPlan] = useState(DEFAULT_SLEEP_PLAN);
   const [sleepDayPlan, setSleepDayPlan] = useState<SleepDayPlan | null>(null);
   const [sleepDayTemporaryModes, setSleepDayTemporaryModes] = useState<
@@ -1071,11 +1068,6 @@ export default function TodaySleepScreen() {
     showFeedingsInTimeline,
     actualTodayDayStart,
   ]);
-  const selectedDayFeedItems = sessionDayGroups[0]?.items ?? [];
-  const lastRecordsEmptyText = isToday
-    ? 'Пока записей за сегодня нет. Начните с первого сна или внесите его вручную.'
-    : 'Пока записей за выбранный день нет. Внесите сон вручную.';
-
   useEffect(() => {
     const routeDate = parseSelectedDateParam(params.date);
 
@@ -1089,10 +1081,6 @@ export default function TodaySleepScreen() {
         : routeDate,
     );
   }, [params.date]);
-
-  useEffect(() => {
-    setIsFullTimelineExpanded(false);
-  }, [selectedDate]);
 
   const editModalSessions = useMemo(() => {
     const uniqueSessions = new Map<string, SleepSession>();
@@ -1401,10 +1389,6 @@ export default function TodaySleepScreen() {
 
   function openBottleFeeding() {
     router.push(BOTTLE_FEEDING_ROUTE);
-  }
-
-  function openAllRecords() {
-    setIsFullTimelineExpanded(true);
   }
 
   function openCreateEditor() {
@@ -2263,264 +2247,251 @@ export default function TodaySleepScreen() {
             </>
           )}
 
-          <LastRecordsPreview
-            emptyText={lastRecordsEmptyText}
-            items={selectedDayFeedItems}
-            maxRecords={LAST_RECORDS_PREVIEW_LIMIT}
-            now={now}
-            onOpenAllRecords={openAllRecords}
-            onOpenBottleFeeding={openEditBottleFeedingEditor}
-            onOpenSleep={openEditEditor}
-            showOpenAllAction={!isFullTimelineExpanded}
-          />
-
-          {isFullTimelineExpanded ? (
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <View style={styles.timelineTitleRow}>
-                  <Text style={[styles.sectionTitle, styles.timelineTitleText]}>
-                    Всё по порядку
-                  </Text>
-                </View>
-                {bottleFeedingEnabled ? (
-                  <Pressable
-                    accessibilityLabel={
-                      showFeedingsInTimeline
-                        ? 'Скрыть кормления в списке «Всё по порядку»'
-                        : 'Показать кормления в списке «Всё по порядку»'
-                    }
-                    accessibilityRole="switch"
-                    accessibilityState={{ checked: showFeedingsInTimeline }}
-                    onPress={() => setShowFeedingsInTimeline((value) => !value)}
-                    style={({ pressed }) => [
-                      styles.timelineFilterButton,
-                      showFeedingsInTimeline ? styles.timelineFilterButtonActive : null,
-                      pressed ? styles.timelineFilterButtonPressed : null,
-                    ]}>
-                    <View style={styles.timelineFilterBottleIcon}>
-                      <View
-                        style={[
-                          styles.timelineFilterBottleCap,
-                          showFeedingsInTimeline ? styles.timelineFilterBottleAccentActive : null,
-                        ]}
-                      />
-                      <View
-                        style={[
-                          styles.timelineFilterBottleBody,
-                          showFeedingsInTimeline ? styles.timelineFilterBottleAccentActive : null,
-                        ]}
-                      />
-                    </View>
-                    <Text
-                      numberOfLines={1}
-                      style={[
-                        styles.timelineFilterButtonText,
-                        showFeedingsInTimeline ? styles.timelineFilterButtonTextActive : null,
-                      ]}>
-                      Кормление
-                    </Text>
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <View style={styles.timelineTitleRow}>
+                <Text style={[styles.sectionTitle, styles.timelineTitleText]}>
+                  Всё по порядку
+                </Text>
+              </View>
+              {bottleFeedingEnabled ? (
+                <Pressable
+                  accessibilityLabel={
+                    showFeedingsInTimeline
+                      ? 'Скрыть кормления в списке «Всё по порядку»'
+                      : 'Показать кормления в списке «Всё по порядку»'
+                  }
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: showFeedingsInTimeline }}
+                  onPress={() => setShowFeedingsInTimeline((value) => !value)}
+                  style={({ pressed }) => [
+                    styles.timelineFilterButton,
+                    showFeedingsInTimeline ? styles.timelineFilterButtonActive : null,
+                    pressed ? styles.timelineFilterButtonPressed : null,
+                  ]}>
+                  <View style={styles.timelineFilterBottleIcon}>
                     <View
                       style={[
-                        styles.timelineFilterStateBadge,
-                        showFeedingsInTimeline ? styles.timelineFilterStateBadgeActive : null,
+                        styles.timelineFilterBottleCap,
+                        showFeedingsInTimeline ? styles.timelineFilterBottleAccentActive : null,
+                      ]}
+                    />
+                    <View
+                      style={[
+                        styles.timelineFilterBottleBody,
+                        showFeedingsInTimeline ? styles.timelineFilterBottleAccentActive : null,
+                      ]}
+                    />
+                  </View>
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.timelineFilterButtonText,
+                      showFeedingsInTimeline ? styles.timelineFilterButtonTextActive : null,
+                    ]}>
+                    Кормление
+                  </Text>
+                  <View
+                    style={[
+                      styles.timelineFilterStateBadge,
+                      showFeedingsInTimeline ? styles.timelineFilterStateBadgeActive : null,
+                    ]}>
+                    <Text
+                      accessibilityElementsHidden
+                      importantForAccessibility="no"
+                      style={[
+                        styles.timelineFilterStateBadgeText,
+                        showFeedingsInTimeline
+                          ? styles.timelineFilterStateBadgeTextActive
+                          : null,
                       ]}>
-                      <Text
-                        accessibilityElementsHidden
-                        importantForAccessibility="no"
+                      {showFeedingsInTimeline ? '-' : '+'}
+                    </Text>
+                  </View>
+                </Pressable>
+              ) : null}
+            </View>
+            <View style={styles.sessionList}>
+              {sessionDayGroups.map((group) => (
+                <View key={group.key} style={styles.sessionDayGroup}>
+                  <View style={styles.sessionDayHeader}>
+                    <View style={styles.sessionDayTitleRow}>
+                      <View
                         style={[
-                          styles.timelineFilterStateBadgeText,
-                          showFeedingsInTimeline
-                            ? styles.timelineFilterStateBadgeTextActive
-                            : null,
-                        ]}>
-                        {showFeedingsInTimeline ? '-' : '+'}
-                      </Text>
-                    </View>
-                  </Pressable>
-                ) : null}
-              </View>
-              <View style={styles.sessionList}>
-                {sessionDayGroups.map((group) => (
-                  <View key={group.key} style={styles.sessionDayGroup}>
-                    <View style={styles.sessionDayHeader}>
-                      <View style={styles.sessionDayTitleRow}>
-                        <View
-                          style={[
-                            styles.sessionDayMarker,
-                            group.key === 'selected'
-                              ? styles.selectedSessionDayMarker
-                              : styles.previousSessionDayMarker,
-                          ]}
-                        />
-                        <View>
-                          <Text style={styles.sessionDayTitle}>{group.title}</Text>
-                          <Text style={styles.sessionDaySubtitle}>{group.subtitle}</Text>
-                        </View>
+                          styles.sessionDayMarker,
+                          group.key === 'selected'
+                            ? styles.selectedSessionDayMarker
+                            : styles.previousSessionDayMarker,
+                        ]}
+                      />
+                      <View>
+                        <Text style={styles.sessionDayTitle}>{group.title}</Text>
+                        <Text style={styles.sessionDaySubtitle}>{group.subtitle}</Text>
                       </View>
-                      <Text style={styles.sessionDayCount}>
-                        {group.items.length === 0
-                          ? 'нет'
-                          : formatSessionCount(countDayFeedRecords(group.items))}
-                      </Text>
                     </View>
+                    <Text style={styles.sessionDayCount}>
+                      {group.items.length === 0
+                        ? 'нет'
+                        : formatSessionCount(countDayFeedRecords(group.items))}
+                    </Text>
+                  </View>
 
-                    {group.items.length === 0 ? (
-                      <Text style={styles.groupEmptyText}>Нет записей</Text>
-                    ) : (
-                      group.items.map((item) => {
-                        if (item.type === 'bottleFeeding') {
-                          const recordLine = formatBottleFeedingRecordLine(item.feeding);
-                          const isTopUp = isBottleFeedingTopUp(
-                            item.feeding,
-                            bottleFeedingTopUpThresholdMl,
-                          );
-
-                          return (
-                            <Pressable
-                              accessibilityRole="button"
-                              accessibilityLabel={`Редактировать кормление ${recordLine}${
-                                isTopUp ? ', доешка' : ''
-                              }`}
-                              key={item.id}
-                              onPress={() => openEditBottleFeedingEditor(item.feeding)}
-                              style={({ pressed }) => [
-                                styles.sessionRow,
-                                styles.bottleFeedingRow,
-                                group.key === 'previous' ? styles.previousSessionRow : null,
-                                pressed ? styles.bottleFeedingRowPressed : null,
-                              ]}>
-                              <EventTypeBadge kind="bottleFeeding" quiet />
-                              <Text
-                                numberOfLines={1}
-                                style={[styles.sessionTitle, styles.bottleFeedingLine]}>
-                                {recordLine}
-                              </Text>
-                              {isTopUp ? (
-                                <Text style={styles.timelineTopUpBadge}>Доешка</Text>
-                              ) : null}
-                            </Pressable>
-                          );
-                        }
-
-                        const session = item.session;
-                        const sleepFeedings = item.sleepFeedings;
-                        const hasSleepFeedings = sleepFeedings.length > 0;
-                        const startedAt = new Date(session.startedAt);
-                        const endedAt = session.endedAt ? new Date(session.endedAt) : null;
-                        const effectiveKind = getSessionKindForCalculations(
-                          session,
-                          endedAt ?? now,
-                          sleepPlan,
+                  {group.items.length === 0 ? (
+                    <Text style={styles.groupEmptyText}>Нет записей</Text>
+                  ) : (
+                    group.items.map((item) => {
+                      if (item.type === 'bottleFeeding') {
+                        const recordLine = formatBottleFeedingRecordLine(item.feeding);
+                        const isTopUp = isBottleFeedingTopUp(
+                          item.feeding,
+                          bottleFeedingTopUpThresholdMl,
                         );
-
-                        if (hasSleepFeedings) {
-                          return (
-                            <View
-                              key={session.id}
-                              style={[
-                                styles.sessionCard,
-                                group.key === 'previous' ? styles.previousSessionRow : null,
-                              ]}>
-                              <Pressable
-                                accessibilityRole="button"
-                                onPress={() => openEditEditor(session)}
-                                style={({ pressed }) => [
-                                  styles.sessionCardMain,
-                                  pressed ? styles.sessionRowPressed : null,
-                                ]}>
-                                <EventTypeBadge
-                                  kind={effectiveKind === 'night' ? 'nightSleep' : 'napSleep'}
-                                  quiet
-                                />
-                                <View style={styles.sessionInfo}>
-                                  <Text numberOfLines={1} style={styles.sessionTitle}>
-                                    {effectiveKind === 'night' ? 'Ночной сон' : 'Сон'}
-                                  </Text>
-                                  <Text numberOfLines={1} style={styles.sessionTime}>
-                                    {formatSessionTimeRange(startedAt, endedAt, now)}
-                                  </Text>
-                                </View>
-                                <View style={styles.sessionMeta}>
-                                  <Text numberOfLines={1} style={styles.sessionDuration}>
-                                    {formatDuration(getSessionDurationMinutes(session, now))}
-                                  </Text>
-                                  <Text style={styles.sessionAction}>Изменить</Text>
-                                </View>
-                              </Pressable>
-
-                              <View style={styles.sleepFeedingList}>
-                                {sleepFeedings.map((feeding) => {
-                                  const recordLine = formatBottleFeedingRecordLine(feeding);
-                                  const isTopUp = isBottleFeedingTopUp(
-                                    feeding,
-                                    bottleFeedingTopUpThresholdMl,
-                                  );
-
-                                  return (
-                                    <Pressable
-                                      accessibilityRole="button"
-                                      accessibilityLabel={`Редактировать кормление во время сна ${recordLine}${
-                                        isTopUp ? ', доешка' : ''
-                                      }`}
-                                      key={feeding.id}
-                                      onPress={() => openEditBottleFeedingEditor(feeding)}
-                                      style={({ pressed }) => [
-                                        styles.sleepFeedingRow,
-                                        pressed ? styles.sleepFeedingRowPressed : null,
-                                      ]}>
-                                      <EventTypeBadge kind="bottleFeeding" quiet />
-                                      <Text numberOfLines={1} style={styles.sleepFeedingLine}>
-                                        {recordLine}
-                                      </Text>
-                                      {isTopUp ? (
-                                        <Text style={styles.timelineTopUpBadge}>Доешка</Text>
-                                      ) : null}
-                                      <Text style={styles.sleepFeedingAction}>Изменить</Text>
-                                    </Pressable>
-                                  );
-                                })}
-                              </View>
-                            </View>
-                          );
-                        }
 
                         return (
                           <Pressable
                             accessibilityRole="button"
-                            key={session.id}
-                            onPress={() => openEditEditor(session)}
+                            accessibilityLabel={`Редактировать кормление ${recordLine}${
+                              isTopUp ? ', доешка' : ''
+                            }`}
+                            key={item.id}
+                            onPress={() => openEditBottleFeedingEditor(item.feeding)}
                             style={({ pressed }) => [
                               styles.sessionRow,
+                              styles.bottleFeedingRow,
                               group.key === 'previous' ? styles.previousSessionRow : null,
-                              pressed ? styles.sessionRowPressed : null,
+                              pressed ? styles.bottleFeedingRowPressed : null,
                             ]}>
-                            <EventTypeBadge
-                              kind={effectiveKind === 'night' ? 'nightSleep' : 'napSleep'}
-                              quiet
-                            />
-                            <View style={styles.sessionInfo}>
-                              <Text numberOfLines={1} style={styles.sessionTitle}>
-                                {effectiveKind === 'night' ? 'Ночной сон' : 'Сон'}
-                              </Text>
-                              <Text numberOfLines={1} style={styles.sessionTime}>
-                                {formatSessionTimeRange(startedAt, endedAt, now)}
-                              </Text>
-                            </View>
-                            <View style={styles.sessionMeta}>
-                              <Text numberOfLines={1} style={styles.sessionDuration}>
-                                {formatDuration(getSessionDurationMinutes(session, now))}
-                              </Text>
-                              <Text style={styles.sessionAction}>Изменить</Text>
-                            </View>
+                            <EventTypeBadge kind="bottleFeeding" quiet />
+                            <Text
+                              numberOfLines={1}
+                              style={[styles.sessionTitle, styles.bottleFeedingLine]}>
+                              {recordLine}
+                            </Text>
+                            {isTopUp ? (
+                              <Text style={styles.timelineTopUpBadge}>Доешка</Text>
+                            ) : null}
                           </Pressable>
                         );
-                      })
-                    )}
-                  </View>
-                ))}
-              </View>
+                      }
+
+                      const session = item.session;
+                      const sleepFeedings = item.sleepFeedings;
+                      const hasSleepFeedings = sleepFeedings.length > 0;
+                      const startedAt = new Date(session.startedAt);
+                      const endedAt = session.endedAt ? new Date(session.endedAt) : null;
+                      const effectiveKind = getSessionKindForCalculations(
+                        session,
+                        endedAt ?? now,
+                        sleepPlan,
+                      );
+
+                      if (hasSleepFeedings) {
+                        return (
+                          <View
+                            key={session.id}
+                            style={[
+                              styles.sessionCard,
+                              group.key === 'previous' ? styles.previousSessionRow : null,
+                            ]}>
+                            <Pressable
+                              accessibilityRole="button"
+                              onPress={() => openEditEditor(session)}
+                              style={({ pressed }) => [
+                                styles.sessionCardMain,
+                                pressed ? styles.sessionRowPressed : null,
+                              ]}>
+                              <EventTypeBadge
+                                kind={effectiveKind === 'night' ? 'nightSleep' : 'napSleep'}
+                                quiet
+                              />
+                              <View style={styles.sessionInfo}>
+                                <Text numberOfLines={1} style={styles.sessionTitle}>
+                                  {effectiveKind === 'night' ? 'Ночной сон' : 'Сон'}
+                                </Text>
+                                <Text numberOfLines={1} style={styles.sessionTime}>
+                                  {formatSessionTimeRange(startedAt, endedAt, now)}
+                                </Text>
+                              </View>
+                              <View style={styles.sessionMeta}>
+                                <Text numberOfLines={1} style={styles.sessionDuration}>
+                                  {formatDuration(getSessionDurationMinutes(session, now))}
+                                </Text>
+                                <Text style={styles.sessionAction}>Изменить</Text>
+                              </View>
+                            </Pressable>
+
+                            <View style={styles.sleepFeedingList}>
+                              {sleepFeedings.map((feeding) => {
+                                const recordLine = formatBottleFeedingRecordLine(feeding);
+                                const isTopUp = isBottleFeedingTopUp(
+                                  feeding,
+                                  bottleFeedingTopUpThresholdMl,
+                                );
+
+                                return (
+                                  <Pressable
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Редактировать кормление во время сна ${recordLine}${
+                                      isTopUp ? ', доешка' : ''
+                                    }`}
+                                    key={feeding.id}
+                                    onPress={() => openEditBottleFeedingEditor(feeding)}
+                                    style={({ pressed }) => [
+                                      styles.sleepFeedingRow,
+                                      pressed ? styles.sleepFeedingRowPressed : null,
+                                    ]}>
+                                    <EventTypeBadge kind="bottleFeeding" quiet />
+                                    <Text numberOfLines={1} style={styles.sleepFeedingLine}>
+                                      {recordLine}
+                                    </Text>
+                                    {isTopUp ? (
+                                      <Text style={styles.timelineTopUpBadge}>Доешка</Text>
+                                    ) : null}
+                                    <Text style={styles.sleepFeedingAction}>Изменить</Text>
+                                  </Pressable>
+                                );
+                              })}
+                            </View>
+                          </View>
+                        );
+                      }
+
+                      return (
+                        <Pressable
+                          accessibilityRole="button"
+                          key={session.id}
+                          onPress={() => openEditEditor(session)}
+                          style={({ pressed }) => [
+                            styles.sessionRow,
+                            group.key === 'previous' ? styles.previousSessionRow : null,
+                            pressed ? styles.sessionRowPressed : null,
+                          ]}>
+                          <EventTypeBadge
+                            kind={effectiveKind === 'night' ? 'nightSleep' : 'napSleep'}
+                            quiet
+                          />
+                          <View style={styles.sessionInfo}>
+                            <Text numberOfLines={1} style={styles.sessionTitle}>
+                              {effectiveKind === 'night' ? 'Ночной сон' : 'Сон'}
+                            </Text>
+                            <Text numberOfLines={1} style={styles.sessionTime}>
+                              {formatSessionTimeRange(startedAt, endedAt, now)}
+                            </Text>
+                          </View>
+                          <View style={styles.sessionMeta}>
+                            <Text numberOfLines={1} style={styles.sessionDuration}>
+                              {formatDuration(getSessionDurationMinutes(session, now))}
+                            </Text>
+                            <Text style={styles.sessionAction}>Изменить</Text>
+                          </View>
+                        </Pressable>
+                      );
+                    })
+                  )}
+                </View>
+              ))}
             </View>
-          ) : null}
+          </View>
         </SafeAreaView>
       </ScrollView>
 

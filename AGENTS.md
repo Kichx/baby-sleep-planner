@@ -437,33 +437,27 @@ When changing `Сегодня коротко`, cover at least:
 - past/future selected days keep their existing retrospective/planning behavior;
 - all user-facing strings are free of `undefined`, `null`, and `NaN`.
 
-## Implementation lessons from main screen last records preview
+## Implementation lessons from main screen all-in-order records
 
-The main `/` screen should show a compact `Последние записи` preview on the first level instead of automatically expanding the full mixed `Сегодня/Вчера` timeline. The full mixed timeline must remain available through an explicit action such as `Все записи`.
+The main `/` screen should show the full editable mixed record block `Всё по порядку` on the first level. Do not replace it with a compact `Последние записи` preview, and do not hide it behind a `Все записи` expansion action unless a later task explicitly asks for that product change. The preview added an extra decision and step for parents, so the simpler default is to show the operational feed immediately.
 
 Use `src/core/dayFeed.ts` as the source for displayed mixed rows. Do not duplicate nested/standalone feeding assignment or same-time sorting rules in `src/app/index.tsx` or presentational components. If `dayFeed.ts` changes, update or add `src/core/dayFeed.test.ts`.
 
-For the first-level preview:
-- show only the selected day, not yesterday, until the parent explicitly opens all records;
-- cap visible rows at 3-5 records, newest first;
-- keep row copy short, for example `Сон · 17:19 — сейчас · 32 мин`, `Кормление · 14:02 · 160 мл`, `Сон · 13:17–14:56 · 1 ч 39 мин`;
-- show the calm empty state `Пока записей за сегодня нет. Начните с первого сна или внесите его вручную.` for today's empty day;
-- keep the preview component presentational and pass edit/open callbacks from the screen.
-
-Preserve mixed timeline behavior:
-- bottle feeding disabled means feeding rows are not shown;
-- bottle feeding enabled keeps feedings inside sleep nested, feedings outside sleep standalone, and a feeding with the same visible time after the sleep row;
-- the full timeline can show selected and previous day groups only after the explicit action;
-- changing the selected day should collapse the full timeline again so `Вчера` is not expanded automatically on the today screen;
-- editing from preview or full timeline must use the existing sleep/feeding editors, including the `latestSleepSessionId` guard so an old sleep record cannot be changed to ongoing unless it is the latest global sleep record.
+For the first-level `Всё по порядку` block:
+- render selected-day and previous-day groups immediately;
+- keep record counts, `Нет записей` empty rows, and direct edit access through the existing sleep and bottle-feeding editors;
+- keep bottle feedings nested inside sleep when appropriate, standalone outside sleep, and a feeding with the same visible time after the sleep row;
+- show the compact local `Кормление` switch only when bottle feeding is enabled;
+- keep the switch as local UI state only and do not persist it;
+- avoid `LastRecordsPreview`, `isFullTimelineExpanded`, `openAllRecords`, or similar preview/expand plumbing unless explicitly requested.
 
 When changing this area, cover at least:
-- default main screen shows no more than 3-5 last records;
-- `Все записи` reveals the full mixed timeline without losing edit access;
-- nested feedings do not duplicate as standalone preview rows;
-- feeding visibility follows the profile setting;
+- default main screen shows `Всё по порядку` without requiring `Все записи`;
+- old first-level `Последние записи` / `Все записи` copy is absent;
+- nested feedings do not duplicate as standalone rows;
+- feeding visibility follows the profile setting and the local `Кормление` switch;
 - `cmd /c npm run typecheck` and `cmd /c npm run test` pass;
-- smoke-test the main screen in a narrow Expo web viewport or on Android and check that the preview appears before the full timeline.
+- smoke-test the main screen in a narrow Expo web viewport or on Android and check that `Всё по порядку` is visible directly on the page.
 
 ## Implementation lessons from first active plan with no sleep records
 
@@ -498,17 +492,17 @@ When optimizing `/`, preserve the existing effective-plan boundaries: no schema 
 
 ## Implementation lessons from main screen timeline filtering
 
-The main `/` screen should not expand the lower general `Таймлайн` list by default. First-level UI should show the compact `Последние записи` preview, while the full mixed `Таймлайн` is available only after an explicit action such as `Все записи`.
+The main `/` screen should show the lower operational record list as the full mixed `Всё по порядку` block by default. Do not add a separate collapsed/expanded state for this list unless the task explicitly asks for it.
 
-When bottle feeding is enabled, feeding rows may appear in `Последние записи` and in the expanded full timeline by default. The full timeline may still show a compact local switch such as `Кормление` near the title so the parent can temporarily hide both standalone bottle feeding rows and bottle feedings nested inside sleep rows. When the feature is disabled in the profile, feeding rows and the switch must not be visible.
+When bottle feeding is enabled, feeding rows may appear in `Всё по порядку` by default. The block may show a compact local switch such as `Кормление` near the title so the parent can temporarily hide both standalone bottle feeding rows and bottle feedings nested inside sleep rows. When the feature is disabled in the profile, feeding rows and the switch must not be visible.
 
-The expanded/collapsed state and the feeding visibility switch are UI state only. Do not write them to SQLite, `child_profile`, app settings, sleep-day plans, temporary modes, snapshots, history, export/import data, or notification state unless a later task explicitly asks for persistence.
+The feeding visibility switch is UI state only. Do not write it to SQLite, `child_profile`, app settings, sleep-day plans, temporary modes, snapshots, history, export/import data, or notification state unless a later task explicitly asks for persistence.
 
-Keep the separate bottle feeding card, editor, reminders, settings, and share summary behavior intact. Timeline feeding visibility should only affect what is displayed in `Последние записи`, the expanded full timeline list, and their visible record counts.
+Keep the separate bottle feeding card, editor, reminders, settings, and share summary behavior intact. Timeline feeding visibility should only affect what is displayed in `Всё по порядку` and its visible record counts.
 
 For implementation, prefer passing an empty feeding array into the existing day-feed composition path when feedings are hidden instead of duplicating timeline rendering logic. When changing this area, cover at least:
-- default first-level main screen shows only `Последние записи`, not the full two-day timeline;
-- `Все записи` reveals the existing full editable timeline;
+- default first-level main screen shows the full editable `Всё по порядку` block;
+- no extra `Все записи` action is required to see selected/previous day groups;
 - bottle feeding enabled includes standalone feedings;
 - bottle feeding enabled includes feedings nested inside sleep;
 - temporarily hiding feedings removes nested feeding rows as well as standalone rows;
@@ -526,12 +520,12 @@ At minimum, cover these states before calling the main screen stable:
 - future/tomorrow selected date while today has or recently had an active sleep;
 - temporary modes off, `soft_day`, `early_wake`, and combined mode order;
 - bottle feeding disabled and enabled;
-- mixed timeline preview, expanded timeline, nested feedings, standalone feedings, and same-visible-time ordering;
+- full `Всё по порядку` block, nested feedings, standalone feedings, and same-visible-time ordering;
 - bottom navigation plus every bottom sheet/modal touched by the change.
 
 Use unit tests for pure logic that is expensive or brittle to recreate manually in the browser, especially `early_wake` derivation, combined temporary mode ordering, evening prompt gates, notification permission boundaries, and mixed timeline sorting. Use the browser smoke check to verify what tests cannot see: text hierarchy, missing or duplicate first-level blocks, active tab highlighting, and bottom safe-area behavior.
 
-For `tracking_only` smoke checks, confirm that factual sleep logging still works while plan-dependent guidance stays hidden: no `SleepCoachCard`, no plan forecast rows, no temporary-mode badge, no plan share prompt, and no standalone remaining-awake or summed-WB card. For active-plan smoke checks, confirm that `SleepCoachCard`, `TodayShortSummary`, and `LastRecordsPreview` stay in the intended order and that bottle feeding never visually outranks the sleep action or coach surfaces.
+For `tracking_only` smoke checks, confirm that factual sleep logging still works while plan-dependent guidance stays hidden: no `SleepCoachCard`, no plan forecast rows, no temporary-mode badge, no plan share prompt, and no standalone remaining-awake or summed-WB card. For active-plan smoke checks, confirm that `SleepCoachCard`, `TodayShortSummary`, and `Всё по порядку` stay in the intended order and that bottle feeding never visually outranks the sleep action or coach surfaces.
 
 If manual browser checks require creating local sleep or feeding records, use a disposable web origin/database when possible. If records are created in the user's active local browser data, either clean them up before finishing or explicitly report that the local smoke data remains.
 
@@ -848,7 +842,7 @@ For a "selected day plus previous day" sleep log, load the database range from `
 
 Use the same open-session guard as the day filter: an active session should end at `min(now, rangeEnd)` before deciding whether it overlaps a displayed range. This prevents active sleep from appearing in tomorrow or later future-day views.
 
-On the main screen, the first-level record section is named `Последние записи`; the full sleep/feed-capable operational feed is still the mixed `Таймлайн`, but it opens only after an explicit action such as `Все записи`. Keep both as operational record surfaces, not analytics tables. If bottle feeding is enabled, feeding rows can appear in the preview and expanded timeline; if bottle feeding is disabled, no feeding rows appear.
+On the main screen, the first-level record section is named `Всё по порядку`. It is the full sleep/feed-capable operational feed, not a preview and not an analytics table. If bottle feeding is enabled, feeding rows can appear in this block and the local `Кормление` switch can hide or show them; if bottle feeding is disabled, no feeding rows or feeding switch appear.
 
 For the main two-day timeline, group sleep rows by displayed overlap with the selected sleep-day window, not only by raw `startedAt`. A night sleep that started yesterday and ends in the selected day should appear in the selected day's group because that is where the parent sees the wake-up context. For sleep that crosses midnight, show enough date context in the time range, for example `22:10 вчера - 06:40 сегодня`, so parents can understand the overnight transition without opening the editor.
 
