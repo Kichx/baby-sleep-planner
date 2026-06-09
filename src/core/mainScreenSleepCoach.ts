@@ -774,12 +774,28 @@ function buildNightCard(input: {
   badge?: string;
   metadata: NonNullable<ReturnType<typeof getScenarioMetadata>>;
   plan: SleepPlanPreset;
+  scenario: RecommendationScenario;
   sleepDayStart: Date;
   snapshot: SleepSnapshot;
 }): SleepCoachCardVm {
   const anchor =
     getPredictedBedtimeAnchor(input.snapshot, 'Отбой около') ??
     getBedtimeRangeAnchor(input.plan, input.sleepDayStart);
+
+  if (input.scenario.id !== 'earlyBedtime') {
+    return withCommonFields({
+      ...input.metadata,
+      anchor,
+      badge: input.badge,
+      body:
+        normalizeWhyLine(input.scenario.detail) ??
+        'Можно спокойно переходить к ночи без ещё одного дневного сна.',
+      primaryActionLabel: 'Начать ночь',
+      secondaryActionLabel: 'Внести сон',
+      title: 'Переходим к ночи',
+      tone: 'calm',
+    });
+  }
 
   return withCommonFields({
     ...input.metadata,
@@ -864,8 +880,9 @@ export function buildSleepCoachCardVm(input: BuildSleepCoachCardVmInput): SleepC
   }
 
   const metadata = getScenarioMetadata(input.snapshot);
+  const scenario = getPrimaryScenario(input.snapshot);
 
-  if (!metadata) {
+  if (!metadata || !scenario) {
     return HIDDEN_SLEEP_COACH_CARD_VM;
   }
 
@@ -887,6 +904,7 @@ export function buildSleepCoachCardVm(input: BuildSleepCoachCardVmInput): SleepC
       badge,
       metadata,
       plan: input.plan,
+      scenario,
       sleepDayStart: input.sleepDayStart,
       snapshot: input.snapshot,
     });

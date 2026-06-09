@@ -213,6 +213,8 @@ Possible scenarios:
 
 Recommendations must explain the reason in simple terms.
 
+Small clock-time differences must not create anxious advice. For main-screen recommendation scenarios, treat bedtime forecast deltas within `RECOMMENDATION_TIME_TOLERANCE_MINUTES` from `src/core/recommendations.ts` as on-plan. Keep the current default at 10 minutes unless a later product decision changes it. Do not duplicate this tolerance in UI components; normalize it in pure core recommendation logic and cover both slightly early and slightly late bedtime forecasts with tests.
+
 Example:
 "Current wake time is already close to the upper limit. If the next nap is short, consider a 20-minute micro-nap or move bedtime earlier."
 
@@ -382,6 +384,8 @@ For first-level next-sleep copy on the main screen, show one target time from `s
 
 For first-level bedtime copy on the main screen, keep the coach card and `Сегодня коротко` aligned around one current forecast from `snapshot.predictedBedtimeAt`. When the next step is night or the primary scenario is early bedtime, show copy such as `Отбой около HH:MM` / `Отбой: около HH:MM` instead of mixing that forecast with the wider plan bedtime range from `calculatePlanBedtimeRange(...)`. A plan range may appear in detailed planning/check views or as a fallback when no safe forecast exists, but it must not sit next to the current forecast on the first level because it looks like conflicting advice.
 
+When `snapshot.nextSleepKind === 'night'`, do not automatically label the coach card as `Лучше ранний отбой`. Use early-bedtime wording only when the primary scenario id is `earlyBedtime`. If the primary scenario is `normal` because the bedtime forecast is close to the plan, keep the card calm, for example `Переходим к ночи`, and do not say that the day shifted.
+
 Keep `src/components/SleepCoachCard.tsx` as a presentational component. It should accept `SleepCoachCardVm`, return `null` when `vm.visible=false`, render secondary actions only from `hasWhyDetails` / `hasAlternatives`, and receive navigation or modal callbacks from the screen. Do not put sleep calculations, SQLite calls, temporary-mode writes, or direct Expo Router calls inside the component.
 
 The coach card `Почему так` action should open a local bottom sheet on `/`, not navigate to `/sleep-plan` and not create a new route. Keep the exact explanation in a pure core helper such as `buildSleepCoachWhySheetVm(...)`; React may pass the current snapshot, selected scenario/scenario id, active/effective plan, next-sleep projection, predicted bedtime, day-sleep summary, active/awake duration, and temporary-mode badge, but must not recalculate bedtime or wake windows inline. The sheet is read-only UI state: do not write SQLite rows, temporary modes, snapshots, history, notifications, export/import data, or app settings when opening or closing it.
@@ -402,7 +406,7 @@ When changing the coach card, cover at least:
 - active-plan/no-records today returns `visible=false`;
 - active sleep copy does not contain `после сна`;
 - awake states cover calm, preparation, and act-now recommendations;
-- next step is night uses early-bedtime copy;
+- next step is night uses early-bedtime copy only for the `earlyBedtime` scenario and calm night copy for on-plan `normal` scenarios;
 - temporary-mode badge and alternatives metadata pass through;
 - `Почему так` bottom sheet opens through the existing modal pattern and remains read-only;
 - `Другие варианты` bottom sheet opens through the existing modal pattern, uses `snapshot.scenarios`, puts the recommended scenario first, and remains read-only;

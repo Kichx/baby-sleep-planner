@@ -12,6 +12,12 @@ interface RecommendationInput {
   isSleeping: boolean;
 }
 
+export const RECOMMENDATION_TIME_TOLERANCE_MINUTES = 10;
+
+function applyRecommendationTimeTolerance(deltaMinutes: number): number {
+  return Math.abs(deltaMinutes) <= RECOMMENDATION_TIME_TOLERANCE_MINUTES ? 0 : deltaMinutes;
+}
+
 function formatDuration(minutes: number): string {
   const hours = Math.floor(minutes / 60);
   const restMinutes = minutes % 60;
@@ -61,6 +67,10 @@ function buildClosingNightScenario(
 }
 
 export function buildRecommendationScenarios(input: RecommendationInput): RecommendationScenario[] {
+  const predictedBedtimeDeltaMinutes = applyRecommendationTimeTolerance(
+    input.predictedBedtimeDeltaMinutes,
+  );
+
   if (input.isSleeping) {
     return [
       {
@@ -74,8 +84,8 @@ export function buildRecommendationScenarios(input: RecommendationInput): Recomm
 
   if (input.projectedMicroNapMinutes > 0) {
     const nightScenario =
-      input.nextSleepKind === 'night' && input.predictedBedtimeDeltaMinutes >= 0
-        ? buildClosingNightScenario(input.predictedBedtimeDeltaMinutes, 'secondary')
+      input.nextSleepKind === 'night' && predictedBedtimeDeltaMinutes >= 0
+        ? buildClosingNightScenario(predictedBedtimeDeltaMinutes, 'secondary')
         : buildEarlyBedtimeScenario(
             'Если следующий сон будет коротким, лучше сдвинуть ночь раньше.',
             'secondary',
@@ -95,8 +105,8 @@ export function buildRecommendationScenarios(input: RecommendationInput): Recomm
   }
 
   if (input.currentWakeMinutes >= input.wakeWindow.maxWakeMinutes) {
-    if (input.nextSleepKind === 'night' && input.predictedBedtimeDeltaMinutes >= 0) {
-      return [buildClosingNightScenario(input.predictedBedtimeDeltaMinutes)];
+    if (input.nextSleepKind === 'night' && predictedBedtimeDeltaMinutes >= 0) {
+      return [buildClosingNightScenario(predictedBedtimeDeltaMinutes)];
     }
 
     if (input.nextSleepKind === 'night') {
@@ -119,8 +129,8 @@ export function buildRecommendationScenarios(input: RecommendationInput): Recomm
 
   if (input.remainingAwakeMinutes <= input.wakeWindow.minWakeMinutes) {
     const scenario =
-      input.nextSleepKind === 'night' && input.predictedBedtimeDeltaMinutes >= 0
-        ? buildClosingNightScenario(input.predictedBedtimeDeltaMinutes)
+      input.nextSleepKind === 'night' && predictedBedtimeDeltaMinutes >= 0
+        ? buildClosingNightScenario(predictedBedtimeDeltaMinutes)
         : buildEarlyBedtimeScenario(
             'До цели бодрствования осталось мало времени. День можно закрыть раньше.',
           );

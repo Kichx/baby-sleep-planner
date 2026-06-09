@@ -483,6 +483,38 @@ describe('buildSleepCoachCardVm', () => {
     expectVisibleCardBasics(card);
   });
 
+  it('keeps the night coach card calm when bedtime is close to the plan', () => {
+    const card = buildCard({
+      now: at(20, 0),
+      snapshot: baseSnapshot({
+        currentDurationMinutes: 130,
+        nextSleepAt: at(20, 52),
+        nextSleepKind: 'night',
+        predictedBedtimeAt: at(20, 52),
+        scenarios: [
+          {
+            detail: 'До цели бодрствования осталось мало времени. Следующий сон можно считать ночным.',
+            id: 'normal',
+            priority: 'primary',
+            title: 'Отбой по плану',
+          },
+        ],
+        statusStartedAt: at(17, 50),
+      }),
+    });
+
+    expect(card).toMatchObject({
+      anchor: 'Отбой около 20:52',
+      body: 'До цели бодрствования осталось мало времени. Следующий сон можно считать ночным.',
+      scenarioId: 'normal',
+      title: 'Переходим к ночи',
+      tone: 'calm',
+      visible: true,
+    });
+    expect(`${card.title} ${card.body}`).not.toMatch(/сдвин|ранний отбой/i);
+    expectVisibleCardBasics(card);
+  });
+
   it('passes temporary-mode badge and alternative flags through the view model', () => {
     const card = buildCard({
       snapshot: baseSnapshot({
