@@ -45,6 +45,23 @@ export type SleepCoachWhySheetVm = {
   isFallback: boolean;
 };
 
+export type SleepCoachAlternativeItemVm = {
+  id: RecommendationScenarioId;
+  title: string;
+  body: string;
+  anchor?: string;
+  badge?: string;
+  isRecommended: boolean;
+};
+
+export type SleepCoachAlternativesSheetVm = {
+  visible: boolean;
+  title: string;
+  summary: string;
+  items: SleepCoachAlternativeItemVm[];
+  isFallback: boolean;
+};
+
 type SleepCoachSourceViewState = {
   canShowCoachBlocks: boolean;
   hasActiveTargetPlan: boolean;
@@ -64,9 +81,14 @@ export type BuildSleepCoachCardVmInput = {
 };
 
 export type BuildSleepCoachWhySheetVmInput = BuildSleepCoachCardVmInput;
+export type BuildSleepCoachAlternativesSheetVmInput = BuildSleepCoachCardVmInput;
 
 const EYEBROW = 'Что лучше сейчас';
 const WHY_TITLE = 'Почему так';
+const ALTERNATIVES_TITLE = 'Другие варианты';
+const RECOMMENDED_SCENARIO_BADGE = 'Рекомендуем сейчас';
+const ALTERNATIVES_FALLBACK_SUMMARY =
+  'Пока есть только одна подходящая рекомендация.';
 const WHY_FALLBACK_SUMMARY =
   'Пока мало данных для точного объяснения. После следующей записи сна расчёт станет понятнее.';
 const DAY_MINUTES = 24 * 60;
@@ -87,6 +109,14 @@ const HIDDEN_SLEEP_COACH_WHY_SHEET_VM: SleepCoachWhySheetVm = {
   title: WHY_TITLE,
   sections: [],
   summary: '',
+  isFallback: false,
+};
+
+const HIDDEN_SLEEP_COACH_ALTERNATIVES_SHEET_VM: SleepCoachAlternativesSheetVm = {
+  visible: false,
+  title: ALTERNATIVES_TITLE,
+  summary: '',
+  items: [],
   isFallback: false,
 };
 
@@ -319,6 +349,16 @@ function buildFallbackWhySheetVm(badge: string | undefined): SleepCoachWhySheetV
   };
 }
 
+function buildFallbackAlternativesSheetVm(): SleepCoachAlternativesSheetVm {
+  return {
+    visible: true,
+    title: ALTERNATIVES_TITLE,
+    summary: ALTERNATIVES_FALLBACK_SUMMARY,
+    items: [],
+    isFallback: true,
+  };
+}
+
 function canShowWhySheetShell(viewState: SleepCoachSourceViewState): boolean {
   return (
     viewState.canShowCoachBlocks &&
@@ -328,6 +368,74 @@ function canShowWhySheetShell(viewState: SleepCoachSourceViewState): boolean {
     !viewState.showPlanStartNoDataHint &&
     viewState.showPlanBasedPredictions
   );
+}
+
+function getScenariosWithRecommendedFirst(
+  scenarios: RecommendationScenario[],
+  recommendedScenarioId: RecommendationScenarioId,
+): RecommendationScenario[] {
+  const recommendedIndex = scenarios.findIndex(
+    (scenario) => scenario.id === recommendedScenarioId,
+  );
+
+  if (recommendedIndex < 0) {
+    return scenarios;
+  }
+
+  return [
+    scenarios[recommendedIndex],
+    ...scenarios.filter((_, index) => index !== recommendedIndex),
+  ];
+}
+
+function getScenarioAnchor(input: {
+  now: Date;
+  plan: SleepPlanPreset;
+  scenario: RecommendationScenario;
+  sleepDayStart: Date;
+  snapshot: SleepSnapshot;
+}): string | undefined {
+  if (input.scenario.id === 'earlyBedtime') {
+    return (
+      getPredictedBedtimeAnchor(input.snapshot, 'Отбой около') ??
+      getBedtimeRangeAnchor(input.plan, input.sleepDayStart)
+    );
+  }
+
+  if (input.snapshot.state === 'sleeping') {
+    return getPredictedBedtimeAnchor(input.snapshot, 'Отбой пока около');
+  }
+
+  if (input.snapshot.nextSleepKind === 'night') {
+    return getPredictedBedtimeAnchor(input.snapshot, 'Отбой около');
+  }
+
+  return getNapWindowAnchor({
+    now: input.now,
+    plan: input.plan,
+    snapshot: input.snapshot,
+    variant: 'clock',
+  });
+}
+
+function buildAlternativeItem(input: {
+  now: Date;
+  plan: SleepPlanPreset;
+  scenario: RecommendationScenario;
+  sleepDayStart: Date;
+  snapshot: SleepSnapshot;
+  recommendedScenarioId: RecommendationScenarioId;
+}): SleepCoachAlternativeItemVm {
+  const isRecommended = input.scenario.id === input.recommendedScenarioId;
+
+  return {
+    id: input.scenario.id,
+    title: normalizeWhyLine(input.scenario.title) ?? 'Вариант',
+    body: normalizeWhyLine(input.scenario.detail) ?? 'Можно оставить как запасной вариант.',
+    anchor: getScenarioAnchor(input),
+    badge: isRecommended ? RECOMMENDED_SCENARIO_BADGE : undefined,
+    isRecommended,
+  };
 }
 
 function getScenarioLine(scenario: RecommendationScenario): string | null {
@@ -797,4 +905,57 @@ export function buildSleepCoachWhySheetVm(
     scenario,
     snapshot: input.snapshot,
   });
+}
+
+export function buildSleepCoachAlternativesSheetVm(
+  input: BuildSleepCoachAlternativesSheetVmInput,
+): SleepCoachAlternativesSheetVm {
+  if (!canShowWhySheetShell(input.viewState)) {
+    return HIDDEN_SLEEP_COACH_ALTERNATIVES_SHEET_VM;
+  }
+
+  const { now, plan, sleepDayStart, snapshot } = input;
+
+  if (
+    !snapshot ||
+    !plan ||
+    !isValidDate(now) ||
+    !isValidDate(sleepDayStart) ||
+    !hasSafeSnapshotDates(snapshot)
+  ) {
+    return buildFallbackAlternativesSheetVm();
+  }
+
+  const recommendedScenario = getPrimaryScenario(snapshot);
+
+  if (!recommendedScenario || snapshot.scenarios.length <= 1) {
+    return buildFallbackAlternativesSheetVm();
+  }
+
+  const scenarios = getScenariosWithRecommendedFirst(
+    snapshot.scenarios,
+    recommendedScenario.id,
+  );
+  const items = scenarios.map((scenario) =>
+    buildAlternativeItem({
+      now,
+      plan,
+      scenario,
+      sleepDayStart,
+      snapshot,
+      recommendedScenarioId: recommendedScenario.id,
+    }),
+  );
+
+  if (items.length <= 1) {
+    return buildFallbackAlternativesSheetVm();
+  }
+
+  return {
+    visible: true,
+    title: ALTERNATIVES_TITLE,
+    summary: '',
+    items,
+    isFallback: false,
+  };
 }

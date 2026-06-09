@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildSleepCoachAlternativesSheetVm,
   buildSleepCoachCardVm,
   buildSleepCoachWhySheetVm,
   type BuildSleepCoachCardVmInput,
+  type SleepCoachAlternativesSheetVm,
   type SleepCoachCardVm,
   type SleepCoachWhySheetVm,
 } from '@/core/mainScreenSleepCoach';
@@ -90,6 +92,35 @@ function buildWhySheet(
   });
 }
 
+function buildAlternativesSheet(
+  overrides: Partial<BuildSleepCoachCardVmInput> = {},
+): SleepCoachAlternativesSheetVm {
+  return buildSleepCoachAlternativesSheetVm({
+    now: at(8, 0),
+    plan: TEST_PLAN,
+    sleepDayStart: dayStart,
+    snapshot: baseSnapshot({
+      scenarios: [
+        {
+          detail: 'Можно идти по обычному плану.',
+          id: 'normal',
+          priority: 'primary',
+          title: 'Обычный план',
+        },
+        {
+          detail: 'Короткий сон поможет не сдвинуть отбой.',
+          id: 'microNap',
+          priority: 'secondary',
+          title: 'Микросон',
+        },
+      ],
+    }),
+    temporaryModeBadge: null,
+    viewState: baseViewState,
+    ...overrides,
+  });
+}
+
 function expectUserStringsSafe(card: SleepCoachCardVm): void {
   const userStrings = [
     card.eyebrow,
@@ -124,6 +155,22 @@ function expectWhySheetStringsSafe(sheet: SleepCoachWhySheetVm): void {
 
   sheet.sections.forEach((section) => {
     expect(section.lines.length).toBeGreaterThan(0);
+  });
+}
+
+function expectAlternativesSheetStringsSafe(sheet: SleepCoachAlternativesSheetVm): void {
+  const userStrings = [
+    sheet.title,
+    sheet.summary || undefined,
+    ...sheet.items.flatMap((item) => [item.title, item.body, item.anchor, item.badge]),
+  ].filter((value): value is string => typeof value === 'string');
+
+  userStrings.forEach((value) => {
+    expect(value).not.toMatch(/undefined|null|NaN/);
+
+    if (sheet.visible) {
+      expect(value.trim().length).toBeGreaterThan(0);
+    }
   });
 }
 
@@ -493,6 +540,174 @@ describe('buildSleepCoachCardVm', () => {
     });
     expectUserStringsSafe(oneScenarioCard);
     expectUserStringsSafe(noScenarioCard);
+  });
+});
+
+describe('buildSleepCoachAlternativesSheetVm', () => {
+  it('puts the recommended scenario first and marks it with a calm badge', () => {
+    const sheet = buildAlternativesSheet({
+      snapshot: baseSnapshot({
+        nextSleepAt: at(9, 30),
+        scenarios: [
+          {
+            detail: 'Короткий сон поможет не сдвинуть отбой.',
+            id: 'microNap',
+            priority: 'secondary',
+            title: 'Микросон',
+          },
+          {
+            detail: 'Можно идти по обычному плану.',
+            id: 'normal',
+            priority: 'primary',
+            title: 'Обычный план',
+          },
+          {
+            detail: 'Подготовка к ночи может быть спокойнее.',
+            id: 'earlyBedtime',
+            priority: 'secondary',
+            title: 'Отбой раньше',
+          },
+        ],
+      }),
+    });
+
+    expect(sheet).toMatchObject({
+      isFallback: false,
+      title: 'Другие варианты',
+      visible: true,
+    });
+    expect(sheet.items.map((item) => item.id)).toEqual([
+      'normal',
+      'microNap',
+      'earlyBedtime',
+    ]);
+    expect(sheet.items[0]).toMatchObject({
+      badge: 'Рекомендуем сейчас',
+      body: 'Можно идти по обычному плану.',
+      id: 'normal',
+      isRecommended: true,
+      title: 'Обычный план',
+    });
+    expect(sheet.items[1].isRecommended).toBe(false);
+    expect(sheet.items[1].badge).toBeUndefined();
+    expect(sheet.items[0].anchor).toBe('Ориентир сна: 09:00–10:00');
+    expectAlternativesSheetStringsSafe(sheet);
+  });
+
+  it('uses a bedtime anchor for early-bedtime alternatives when available', () => {
+    const sheet = buildAlternativesSheet({
+      snapshot: baseSnapshot({
+        nextSleepAt: at(18, 40),
+        nextSleepKind: 'night',
+        predictedBedtimeAt: at(19, 0),
+        scenarios: [
+          {
+            detail: 'Ночь лучше начать раньше.',
+            id: 'earlyBedtime',
+            priority: 'primary',
+            title: 'Отбой раньше',
+          },
+          {
+            detail: 'Можно оставить спокойный обычный план.',
+            id: 'normal',
+            priority: 'secondary',
+            title: 'Обычный план',
+          },
+        ],
+      }),
+    });
+
+    expect(sheet.items[0]).toMatchObject({
+      anchor: 'Отбой около 19:00',
+      id: 'earlyBedtime',
+      isRecommended: true,
+    });
+    expectAlternativesSheetStringsSafe(sheet);
+  });
+
+  it('returns the calm fallback when there are no alternatives', () => {
+    const oneScenarioSheet = buildAlternativesSheet({
+      snapshot: baseSnapshot({
+        scenarios: [
+          {
+            detail: 'Один понятный вариант.',
+            id: 'normal',
+            priority: 'primary',
+            title: 'Обычный план',
+          },
+        ],
+      }),
+    });
+    const noScenarioSheet = buildAlternativesSheet({
+      snapshot: baseSnapshot({
+        scenarios: [],
+      }),
+    });
+
+    expect(oneScenarioSheet).toMatchObject({
+      isFallback: true,
+      items: [],
+      summary: 'Пока есть только одна подходящая рекомендация.',
+      visible: true,
+    });
+    expect(noScenarioSheet).toMatchObject({
+      isFallback: true,
+      items: [],
+      summary: 'Пока есть только одна подходящая рекомендация.',
+      visible: true,
+    });
+    expectAlternativesSheetStringsSafe(oneScenarioSheet);
+    expectAlternativesSheetStringsSafe(noScenarioSheet);
+  });
+
+  it('stays hidden for tracking-only mode without an active target plan', () => {
+    const sheet = buildAlternativesSheet({
+      plan: null,
+      viewState: {
+        ...baseViewState,
+        canShowCoachBlocks: false,
+        hasActiveTargetPlan: false,
+        isTrackingOnlyWithoutPlan: true,
+        showPlanBasedPredictions: false,
+      },
+    });
+
+    expect(sheet.visible).toBe(false);
+    expect(sheet.items).toEqual([]);
+    expect(sheet.summary).toBe('');
+    expectAlternativesSheetStringsSafe(sheet);
+  });
+
+  it('does not mutate plan or snapshot while building alternatives', () => {
+    const plan = clonePlan(TEST_PLAN);
+    const snapshot = baseSnapshot({
+      scenarios: [
+        {
+          detail: 'Основная причина.',
+          id: 'microNap',
+          priority: 'primary',
+          title: 'Микросон',
+        },
+        {
+          detail: 'Запасной вариант.',
+          id: 'earlyBedtime',
+          priority: 'secondary',
+          title: 'Отбой раньше',
+        },
+      ],
+    });
+    const planBefore = clonePlan(plan);
+    const snapshotBefore = cloneSnapshot(snapshot);
+
+    const sheet = buildAlternativesSheet({
+      plan,
+      snapshot,
+    });
+
+    expect(sheet.visible).toBe(true);
+    expect(plan).toEqual(planBefore);
+    expect(snapshot).toEqual(snapshotBefore);
+    expectAlternativesSheetStringsSafe(sheet);
   });
 });
 

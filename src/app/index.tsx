@@ -7,7 +7,7 @@ import {
   useRouter,
 } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/PrimaryButton';
@@ -16,6 +16,7 @@ import { EventTypeBadge } from '@/components/EventTypeBadge';
 import { ProfileAvatar } from '@/components/ProfileAvatar';
 import { SleepPlanIcon } from '@/components/SleepPlanIcon';
 import { SleepRetrospectiveIcon } from '@/components/SleepRetrospectiveIcon';
+import { SleepCoachAlternativesSheet } from '@/components/SleepCoachAlternativesSheet';
 import { SleepCoachCard } from '@/components/SleepCoachCard';
 import { SleepCoachWhySheet } from '@/components/SleepCoachWhySheet';
 import { SleepDayTimeline } from '@/components/SleepDayTimeline';
@@ -43,6 +44,7 @@ import {
   minutesBetween,
 } from '@/core/sleepCalculations';
 import {
+  buildSleepCoachAlternativesSheetVm,
   buildSleepCoachCardVm,
   buildSleepCoachWhySheetVm,
 } from '@/core/mainScreenSleepCoach';
@@ -74,7 +76,6 @@ import {
   type OfficialSleepGuideline,
   type SleepGuidelineStatus,
 } from '@/core/officialSleepGuidelines';
-import { buildTodayPlanShareText } from '@/core/shareTodayPlan';
 import {
   filterBottleFeedingsInCalendarDay,
   formatBottleFeedingRecordLine,
@@ -755,6 +756,8 @@ export default function TodaySleepScreen() {
   const [isChangingDayPlan, setIsChangingDayPlan] = useState(false);
   const [isPlanPickerOpen, setIsPlanPickerOpen] = useState(false);
   const [isSleepCoachWhySheetOpen, setIsSleepCoachWhySheetOpen] = useState(false);
+  const [isSleepCoachAlternativesSheetOpen, setIsSleepCoachAlternativesSheetOpen] =
+    useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [editorState, setEditorState] = useState<EditorState | null>(null);
   const [bottleFeedingEditorState, setBottleFeedingEditorState] =
@@ -1215,11 +1218,17 @@ export default function TodaySleepScreen() {
   };
   const sleepCoachCard = buildSleepCoachCardVm(sleepCoachInput);
   const sleepCoachWhySheet = buildSleepCoachWhySheetVm(sleepCoachInput);
+  const sleepCoachAlternativesSheet = buildSleepCoachAlternativesSheetVm(sleepCoachInput);
   useEffect(() => {
     if (!sleepCoachWhySheet.visible && isSleepCoachWhySheetOpen) {
       setIsSleepCoachWhySheetOpen(false);
     }
   }, [isSleepCoachWhySheetOpen, sleepCoachWhySheet.visible]);
+  useEffect(() => {
+    if (!sleepCoachAlternativesSheet.visible && isSleepCoachAlternativesSheetOpen) {
+      setIsSleepCoachAlternativesSheetOpen(false);
+    }
+  }, [isSleepCoachAlternativesSheetOpen, sleepCoachAlternativesSheet.visible]);
   const shouldShowEarlyWakeSuggestion =
     mainScreenSleepUi.canShowCoachBlocks &&
     hasPersistedCurrentPlan &&
@@ -1418,6 +1427,18 @@ export default function TodaySleepScreen() {
 
   function closeSleepCoachWhy() {
     setIsSleepCoachWhySheetOpen(false);
+  }
+
+  function openSleepCoachAlternatives() {
+    if (!sleepCoachAlternativesSheet.visible) {
+      return;
+    }
+
+    setIsSleepCoachAlternativesSheetOpen(true);
+  }
+
+  function closeSleepCoachAlternatives() {
+    setIsSleepCoachAlternativesSheetOpen(false);
   }
 
   function openEveningPromptSleepPlan() {
@@ -1717,36 +1738,6 @@ export default function TodaySleepScreen() {
       setErrorMessage('Не удалось скрыть подсказку раннего подъёма');
     } finally {
       setIsSaving(false);
-    }
-  }
-
-  async function handleShareTodayPlan() {
-    if (!mainScreenSleepUi.isTodaySelected || !mainScreenSleepUi.canShowPlanBasedBlocks) {
-      return;
-    }
-
-    const shareAt = new Date();
-    const message = buildTodayPlanShareText({
-      bottleFeedingTopUpThresholdMl,
-      bottleFeedings: bottleFeedingEnabled ? todayBottleFeedings : undefined,
-      childName,
-      generatedAt: shareAt,
-      latestBottleFeeding: bottleFeedingEnabled ? latestBottleFeeding : null,
-      plan: sleepPlan,
-      planName: currentPlanName,
-      sessions: selectedSessionsForDay,
-    });
-
-    setNow(shareAt);
-    setErrorMessage(null);
-
-    try {
-      await Share.share({
-        message,
-        title: `План сна: ${childName}`,
-      });
-    } catch {
-      setErrorMessage('Не удалось открыть отправку плана');
     }
   }
 
@@ -2143,7 +2134,7 @@ export default function TodaySleepScreen() {
               )}
 
               <SleepCoachCard
-                onOpenAlternatives={openSleepPlan}
+                onOpenAlternatives={openSleepCoachAlternatives}
                 onOpenWhy={openSleepCoachWhy}
                 vm={sleepCoachCard}
               />
@@ -2186,20 +2177,6 @@ export default function TodaySleepScreen() {
                           Активный план: {currentPlanName}
                         </Text>
                       </View>
-                      <Pressable
-                        accessibilityRole="button"
-                        disabled={isLoading || isSaving}
-                        hitSlop={4}
-                        onPress={handleShareTodayPlan}
-                        style={({ pressed }) => [
-                          styles.sharePlanButton,
-                          pressed ? styles.sharePlanButtonPressed : null,
-                          isLoading || isSaving ? styles.sharePlanButtonDisabled : null,
-                        ]}>
-                        <Text numberOfLines={1} style={styles.sharePlanButtonText}>
-                          Поделиться
-                        </Text>
-                      </Pressable>
                     </View>
                     {shouldShowEarlyWakeSuggestion ? (
                       <View style={styles.earlyWakeSuggestionCard}>
@@ -2655,6 +2632,11 @@ export default function TodaySleepScreen() {
         onClose={closeSleepCoachWhy}
         visible={isSleepCoachWhySheetOpen}
         vm={sleepCoachWhySheet}
+      />
+      <SleepCoachAlternativesSheet
+        onClose={closeSleepCoachAlternatives}
+        visible={isSleepCoachAlternativesSheetOpen}
+        vm={sleepCoachAlternativesSheet}
       />
       <SleepSessionEditorModal
         existingSessions={editModalSessions}
@@ -3335,32 +3317,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
-  sharePlanButton: {
-    minHeight: 34,
-    minWidth: 104,
-    flexShrink: 0,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    paddingHorizontal: spacing.sm,
-    backgroundColor: colors.surface,
-  },
-  sharePlanButtonPressed: {
-    backgroundColor: colors.primarySoft,
-  },
-  sharePlanButtonDisabled: {
-    opacity: 0.6,
-  },
-  sharePlanButtonText: {
-    color: colors.primary,
-    fontSize: 13,
-    fontWeight: '900',
-  },
-  scenarioList: {
-    gap: spacing.sm,
-  },
   earlyWakeSuggestionCard: {
     borderRadius: radius.sm,
     borderWidth: 1,
@@ -3381,27 +3337,6 @@ const styles = StyleSheet.create({
   },
   earlyWakeSuggestionButton: {
     flex: 1,
-  },
-  scenario: {
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.md,
-    backgroundColor: colors.surface,
-    gap: spacing.xs,
-  },
-  primaryScenario: {
-    borderColor: colors.primary,
-  },
-  scenarioTitle: {
-    color: colors.text,
-    fontSize: 17,
-    fontWeight: '800',
-  },
-  scenarioText: {
-    color: colors.textMuted,
-    fontSize: 15,
-    lineHeight: 21,
   },
   sessionList: {
     gap: spacing.lg,
