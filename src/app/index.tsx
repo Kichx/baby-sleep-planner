@@ -7,7 +7,7 @@ import {
   useRouter,
 } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/PrimaryButton';
@@ -75,6 +75,7 @@ import {
   type OfficialSleepGuideline,
   type SleepGuidelineStatus,
 } from '@/core/officialSleepGuidelines';
+import { buildTodayPlanShareText } from '@/core/shareTodayPlan';
 import {
   filterBottleFeedingsInCalendarDay,
   formatBottleFeedingRecordLine,
@@ -689,6 +690,7 @@ export default function TodaySleepScreen() {
   const [availablePlans, setAvailablePlans] = useState<TargetDayPlan[]>([]);
   const [hasActiveTargetPlan, setHasActiveTargetPlan] = useState(false);
   const [onboardingMode, setOnboardingMode] = useState<OnboardingMode | null>(null);
+  const [childName, setChildName] = useState(DEFAULT_CHILD_NAME);
   const [eveningPlanPromptDismissedDateKey, setEveningPlanPromptDismissedDateKey] =
     useState<string | null>(null);
   const [
@@ -880,6 +882,7 @@ export default function TodaySleepScreen() {
     setBottleFeedingDefaultVolumeMl(loadedData.profile.bottleFeedingDefaultVolumeMl);
     setBottleFeedingTopUpThresholdMl(loadedData.profile.bottleFeedingTopUpThresholdMl);
     setChildBirthDate(loadedData.profile.birthDate);
+    setChildName(loadedData.profile.name);
     setAvailablePlans(loadedData.availablePlans);
     setHasActiveTargetPlan(loadedData.hasActiveTargetPlan);
     setOnboardingMode(loadedData.onboardingMode);
@@ -1679,6 +1682,37 @@ export default function TodaySleepScreen() {
     }
   }
 
+  async function handleShareTodayPlan() {
+    if (!mainScreenSleepUi.isTodaySelected || !mainScreenSleepUi.canShowPlanBasedBlocks) {
+      return;
+    }
+
+    const shareAt = new Date();
+    const shareChildName = childName || 'ребёнок';
+    const message = buildTodayPlanShareText({
+      bottleFeedingTopUpThresholdMl,
+      bottleFeedings: bottleFeedingEnabled ? todayBottleFeedings : undefined,
+      childName,
+      generatedAt: shareAt,
+      latestBottleFeeding: bottleFeedingEnabled ? latestBottleFeeding : null,
+      plan: sleepPlan,
+      planName: currentPlanName,
+      sessions: selectedSessionsForDay,
+    });
+
+    setNow(shareAt);
+    setErrorMessage(null);
+
+    try {
+      await Share.share({
+        message,
+        title: `Сон на сегодня: ${shareChildName}`,
+      });
+    } catch {
+      setErrorMessage('Не удалось поделиться планом');
+    }
+  }
+
   async function handleEnableNotificationPermission() {
     if (isRequestingNotificationPermission) {
       return;
@@ -2041,6 +2075,40 @@ export default function TodaySleepScreen() {
                 vm={todayShortSummary}
               />
 
+              {bottleFeedingEnabled ? (
+                <View style={styles.bottleFeedingCard}>
+                  <Pressable
+                    accessibilityLabel="Открыть кормление бутылочкой"
+                    accessibilityRole="button"
+                    onPress={openBottleFeeding}
+                    style={({ pressed }) => [
+                      styles.bottleFeedingTextBlock,
+                      pressed ? styles.bottleFeedingTextBlockPressed : null,
+                    ]}>
+                    <Text style={styles.bottleFeedingTitle}>Кормление</Text>
+                    <Text
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.86}
+                      numberOfLines={1}
+                      style={styles.bottleFeedingValue}>
+                      {formatLatestBottleFeedingLine(latestBottleFeeding, now)}
+                    </Text>
+                    <Text numberOfLines={1} style={styles.bottleFeedingCaption}>
+                      {todayBottleFeedingStatsLine}
+                    </Text>
+                  </Pressable>
+                  <PrimaryButton
+                    compact
+                    disabled={isLoading || isSaving}
+                    label="+ Кормление"
+                    onPress={openCreateBottleFeedingEditor}
+                    style={styles.bottleFeedingButton}
+                    textStyle={styles.bottleFeedingButtonText}
+                    variant="secondary"
+                  />
+                </View>
+              ) : null}
+
               {shouldShowPlanBasedUi ? (
                 <>
                   <View style={styles.section}>
@@ -2051,6 +2119,25 @@ export default function TodaySleepScreen() {
                           Активный план: {currentPlanName}
                         </Text>
                       </View>
+                      <Pressable
+                        accessibilityLabel="Поделиться планом дня"
+                        accessibilityRole="button"
+                        disabled={isLoading || isSaving}
+                        hitSlop={4}
+                        onPress={handleShareTodayPlan}
+                        style={({ pressed }) => [
+                          styles.sharePlanButton,
+                          pressed ? styles.sharePlanButtonPressed : null,
+                          isLoading || isSaving ? styles.sharePlanButtonDisabled : null,
+                        ]}>
+                        <Text
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.86}
+                          numberOfLines={1}
+                          style={styles.sharePlanButtonText}>
+                          Поделиться
+                        </Text>
+                      </Pressable>
                     </View>
                     {shouldShowEarlyWakeSuggestion ? (
                       <View style={styles.earlyWakeSuggestionCard}>
@@ -2085,40 +2172,6 @@ export default function TodaySleepScreen() {
               ) : (
                 renderTrackingOnlyEmptyHint()
               )}
-
-              {bottleFeedingEnabled ? (
-                <View style={styles.bottleFeedingCard}>
-                  <Pressable
-                    accessibilityLabel="Открыть кормление бутылочкой"
-                    accessibilityRole="button"
-                    onPress={openBottleFeeding}
-                    style={({ pressed }) => [
-                      styles.bottleFeedingTextBlock,
-                      pressed ? styles.bottleFeedingTextBlockPressed : null,
-                    ]}>
-                    <Text style={styles.bottleFeedingTitle}>Кормление</Text>
-                    <Text
-                      adjustsFontSizeToFit
-                      minimumFontScale={0.86}
-                      numberOfLines={1}
-                      style={styles.bottleFeedingValue}>
-                      {formatLatestBottleFeedingLine(latestBottleFeeding, now)}
-                    </Text>
-                    <Text numberOfLines={1} style={styles.bottleFeedingCaption}>
-                      {todayBottleFeedingStatsLine}
-                    </Text>
-                  </Pressable>
-                  <PrimaryButton
-                    compact
-                    disabled={isLoading || isSaving}
-                    label="+ Кормление"
-                    onPress={openCreateBottleFeedingEditor}
-                    style={styles.bottleFeedingButton}
-                    textStyle={styles.bottleFeedingButtonText}
-                    variant="secondary"
-                  />
-                </View>
-              ) : null}
             </>
           ) : !shouldShowPlanBasedUi ? (
             <>
@@ -3144,6 +3197,29 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 13,
     fontWeight: '800',
+  },
+  sharePlanButton: {
+    minHeight: 34,
+    minWidth: 104,
+    flexShrink: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: spacing.sm,
+    backgroundColor: colors.surface,
+  },
+  sharePlanButtonPressed: {
+    backgroundColor: colors.primarySoft,
+  },
+  sharePlanButtonDisabled: {
+    opacity: 0.6,
+  },
+  sharePlanButtonText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '900',
   },
   earlyWakeSuggestionCard: {
     borderRadius: radius.sm,
