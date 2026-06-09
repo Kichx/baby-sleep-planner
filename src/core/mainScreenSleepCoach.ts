@@ -778,8 +778,8 @@ function buildNightCard(input: {
   snapshot: SleepSnapshot;
 }): SleepCoachCardVm {
   const anchor =
-    getBedtimeRangeAnchor(input.plan, input.sleepDayStart) ??
-    getPredictedBedtimeAnchor(input.snapshot, 'Отбой около');
+    getPredictedBedtimeAnchor(input.snapshot, 'Отбой около') ??
+    getBedtimeRangeAnchor(input.plan, input.sleepDayStart);
 
   return withCommonFields({
     ...input.metadata,

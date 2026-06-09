@@ -450,7 +450,7 @@ describe('buildSleepCoachCardVm', () => {
     expectVisibleCardBasics(card);
   });
 
-  it('uses the early bedtime copy when the next reasonable step is night', () => {
+  it('uses the predicted bedtime in early bedtime copy when the next reasonable step is night', () => {
     const card = buildCard({
       now: at(18, 20),
       snapshot: baseSnapshot({
@@ -471,7 +471,7 @@ describe('buildSleepCoachCardVm', () => {
     });
 
     expect(card).toMatchObject({
-      anchor: 'Ориентир отбоя: 20:00–21:30',
+      anchor: 'Отбой около 19:00',
       body: 'День немного сдвинулся, но ночь можно мягко выровнять ранним укладыванием.',
       scenarioId: 'earlyBedtime',
       title: 'Лучше ранний отбой',
