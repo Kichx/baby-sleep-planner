@@ -495,19 +495,20 @@ When optimizing `/`, preserve the existing effective-plan boundaries: no schema 
 
 ## Implementation lessons from main screen timeline filtering
 
-The lower general `Таймлайн` list on the main `/` screen should be sleep-first and should not mix bottle feeding records into the default view. This keeps the screen focused on the sleep-planning task and avoids overwhelming parents with too many rows.
+The main `/` screen should not expand the lower general `Таймлайн` list by default. First-level UI should show the compact `Последние записи` preview, while the full mixed `Таймлайн` is available only after an explicit action such as `Все записи`.
 
-When bottle feeding is enabled, show a compact local filter/switch such as `Кормления` near the `Таймлайн` title. The default state is off. When off, the list must hide both standalone bottle feeding rows and bottle feedings nested inside sleep rows. When on, the same list may show standalone feedings and nested feedings inside sleep rows.
+When bottle feeding is enabled, feeding rows may appear in `Последние записи` and in the expanded full timeline by default. The full timeline may still show a compact local switch such as `Кормление` near the title so the parent can temporarily hide both standalone bottle feeding rows and bottle feedings nested inside sleep rows. When the feature is disabled in the profile, feeding rows and the switch must not be visible.
 
-This filter is UI state only. Do not write it to SQLite, `child_profile`, app settings, sleep-day plans, temporary modes, snapshots, history, export/import data, or notification state unless a later task explicitly asks for persistence.
+The expanded/collapsed state and the feeding visibility switch are UI state only. Do not write them to SQLite, `child_profile`, app settings, sleep-day plans, temporary modes, snapshots, history, export/import data, or notification state unless a later task explicitly asks for persistence.
 
-Keep the separate bottle feeding card, editor, reminders, settings, and share summary behavior intact. The timeline filter should only affect what is displayed in the lower general timeline list and its visible record count.
+Keep the separate bottle feeding card, editor, reminders, settings, and share summary behavior intact. Timeline feeding visibility should only affect what is displayed in `Последние записи`, the expanded full timeline list, and their visible record counts.
 
 For implementation, prefer passing an empty feeding array into the existing day-feed composition path when feedings are hidden instead of duplicating timeline rendering logic. When changing this area, cover at least:
-- default timeline count and rows are sleep-only;
-- enabling the filter includes standalone feedings;
-- enabling the filter includes feedings nested inside sleep;
-- disabling the filter removes nested feeding rows as well as standalone rows;
+- default first-level main screen shows only `Последние записи`, not the full two-day timeline;
+- `Все записи` reveals the existing full editable timeline;
+- bottle feeding enabled includes standalone feedings;
+- bottle feeding enabled includes feedings nested inside sleep;
+- temporarily hiding feedings removes nested feeding rows as well as standalone rows;
 - the mini sleep timeline remains sleep-only.
 
 ## Implementation lessons from `/sleep-plan` active state simplification
@@ -823,7 +824,7 @@ For a "selected day plus previous day" sleep log, load the database range from `
 
 Use the same open-session guard as the day filter: an active session should end at `min(now, rangeEnd)` before deciding whether it overlaps a displayed range. This prevents active sleep from appearing in tomorrow or later future-day views.
 
-On the main screen, the sleep/feed-capable record section is named "Таймлайн". Keep it as an operational feed, not an analytics table. By default it shows sleep only; bottle feeding rows appear only when the local `Кормления` filter is enabled.
+On the main screen, the first-level record section is named `Последние записи`; the full sleep/feed-capable operational feed is still the mixed `Таймлайн`, but it opens only after an explicit action such as `Все записи`. Keep both as operational record surfaces, not analytics tables. If bottle feeding is enabled, feeding rows can appear in the preview and expanded timeline; if bottle feeding is disabled, no feeding rows appear.
 
 For the main two-day timeline, group sleep rows by displayed overlap with the selected sleep-day window, not only by raw `startedAt`. A night sleep that started yesterday and ends in the selected day should appear in the selected day's group because that is where the parent sees the wake-up context. For sleep that crosses midnight, show enough date context in the time range, for example `22:10 вчера - 06:40 сегодня`, so parents can understand the overnight transition without opening the editor.
 
