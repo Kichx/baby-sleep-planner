@@ -311,7 +311,7 @@ describe('buildSleepCoachCardVm', () => {
     });
 
     expect(card).toMatchObject({
-      anchor: 'Отбой пока около 20:30',
+      anchor: 'Средний ориентир: до 10:45, осталось 45 мин',
       body: 'Сон пока короткий. Пусть доберёт, а после пробуждения пересчитаем следующий шаг.',
       eyebrow: 'Что лучше сейчас',
       title: 'Дать поспать ещё',
@@ -322,7 +322,8 @@ describe('buildSleepCoachCardVm', () => {
     expect(`${card.title} ${card.body} ${card.anchor}`).not.toContain(
       'Следующий сон после сна',
     );
-    expect(card.anchor).toContain('Отбой');
+    expect(card.anchor).toContain('Средний ориентир');
+    expect(card.anchor).toContain('осталось 45 мин');
     expectVisibleCardBasics(card);
   });
 
@@ -340,12 +341,36 @@ describe('buildSleepCoachCardVm', () => {
     });
 
     expect(card).toMatchObject({
+      anchor: 'Средний ориентир: до 18:05, осталось 0 мин',
       body: 'Если сон сильно затянется, отбой может уйти позже. Лучше мягко завершить сон в ближайшее время.',
       title: 'Скоро завершить сон',
       tone: 'adjustDay',
       visible: true,
     });
     expectVisibleCardBasics(card);
+  });
+
+  it('shows the average wake-up target while night sleep is active', () => {
+    const card = buildCard({
+      now: at(22, 0),
+      snapshot: baseSnapshot({
+        currentDurationMinutes: 120,
+        nextSleepAt: at(22, 0),
+        nextSleepKind: 'night',
+        predictedBedtimeAt: at(20, 0),
+        projectedRemainingDaySleepMinutes: 0,
+        state: 'sleeping',
+        statusStartedAt: at(20, 0),
+      }),
+    });
+
+    expect(card).toMatchObject({
+      anchor: 'Средний ориентир: до 07:15, осталось 9 ч 15 мин',
+      title: 'Дать поспать ещё',
+      tone: 'calm',
+      visible: true,
+    });
+    expectUserStringsSafe(card);
   });
 
   it('keeps a short active nap calm even when no projected day sleep remains', () => {

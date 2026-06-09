@@ -237,6 +237,58 @@ function getPredictedBedtimeAnchor(
   return `${prefix} ${formatLocalClock(snapshot.predictedBedtimeAt)}`;
 }
 
+function getCurrentSleepAverageEndAt(input: {
+  plan: SleepPlanPreset;
+  sleepDayStart: Date;
+  snapshot: SleepSnapshot;
+}): Date | null {
+  if (input.snapshot.nextSleepKind === 'night') {
+    const averageWakeUpMinutes = Math.round(
+      (input.plan.wakeUpStartMinutes + input.plan.wakeUpEndMinutes) / 2,
+    );
+    let endAt = dateAtSleepDayMinutes(input.sleepDayStart, averageWakeUpMinutes);
+
+    while (endAt.getTime() <= input.snapshot.statusStartedAt.getTime()) {
+      endAt = addMinutes(endAt, DAY_MINUTES);
+    }
+
+    return endAt;
+  }
+
+  const targetNapMinutes = getTargetNapMinutes(input.plan);
+
+  if (targetNapMinutes <= 0) {
+    return null;
+  }
+
+  return addMinutes(input.snapshot.statusStartedAt, targetNapMinutes);
+}
+
+function getCurrentSleepAverageEndAnchor(input: {
+  now: Date;
+  plan: SleepPlanPreset;
+  sleepDayStart: Date;
+  snapshot: SleepSnapshot;
+}): string | undefined {
+  const endAt = getCurrentSleepAverageEndAt({
+    plan: input.plan,
+    sleepDayStart: input.sleepDayStart,
+    snapshot: input.snapshot,
+  });
+
+  if (!endAt || !isValidDate(endAt)) {
+    return undefined;
+  }
+
+  const remainingDuration = formatDurationForWhy(minutesBetween(input.now, endAt));
+
+  if (!remainingDuration) {
+    return undefined;
+  }
+
+  return `Средний ориентир: до ${formatLocalClock(endAt)}, осталось ${remainingDuration}`;
+}
+
 function getTargetNapMinutes(plan: SleepPlanPreset): number {
   return Math.max(0, Math.round(plan.targetDaySleepMinutes / Math.max(1, plan.napCount)));
 }
@@ -679,10 +731,18 @@ function buildAwakeWhySheetVm(input: {
 function buildActiveSleepCard(input: {
   badge?: string;
   metadata: NonNullable<ReturnType<typeof getScenarioMetadata>>;
+  now: Date;
   plan: SleepPlanPreset;
+  sleepDayStart: Date;
   snapshot: SleepSnapshot;
 }): SleepCoachCardVm {
-  const anchor = getPredictedBedtimeAnchor(input.snapshot, 'Отбой пока около');
+  const anchor =
+    getCurrentSleepAverageEndAnchor({
+      now: input.now,
+      plan: input.plan,
+      sleepDayStart: input.sleepDayStart,
+      snapshot: input.snapshot,
+    }) ?? getPredictedBedtimeAnchor(input.snapshot, 'Отбой пока около');
   const sleepCanContinue = canActiveSleepContinue(input.snapshot, input.plan);
 
   if (sleepCanContinue) {
@@ -815,7 +875,9 @@ export function buildSleepCoachCardVm(input: BuildSleepCoachCardVmInput): SleepC
     return buildActiveSleepCard({
       badge,
       metadata,
+      now: input.now,
       plan: input.plan,
+      sleepDayStart: input.sleepDayStart,
       snapshot: input.snapshot,
     });
   }
