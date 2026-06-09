@@ -40,6 +40,7 @@ import {
   inferSleepKindForStart,
   minutesBetween,
 } from '@/core/sleepCalculations';
+import { buildSleepCoachCardVm } from '@/core/mainScreenSleepCoach';
 import {
   addLocalCalendarDays,
   dateAtLocalNoon,
@@ -51,7 +52,6 @@ import {
   startOfLocalCalendarDay,
 } from '@/core/localDateTime';
 import { deriveMainScreenSleepUiState } from '@/core/mainScreenFlow';
-import { shouldShowEveningPlanPrompt } from '@/core/onboarding';
 import {
   dateFromSleepDayDateKey,
   formatSleepDayDateKey,
@@ -1174,9 +1174,21 @@ export default function TodaySleepScreen() {
       ? `ещё сна днём ${formatDuration(snapshot.projectedRemainingDaySleepMinutes)}`
       : 'с учётом сна днём';
   const currentPlanName = sleepDayPlan?.sourcePlanName ?? 'Основной';
+  const currentSleepDayDateKey = sleepDayPlan?.sleepDayDate ?? null;
+  const mainScreenSleepUi = deriveMainScreenSleepUiState({
+    eveningPlanPromptDismissedDateKey,
+    hasActiveTargetPlan,
+    nowMinutesFromMidnight: getLocalMinutesFromMidnight(now),
+    onboardingMode,
+    selectedDayType: dayType,
+    selectedSleepSessionCount: selectedSessionsForDay.length,
+    sleepDayDateKey: currentSleepDayDateKey,
+  });
   const canChangeSleepDayPlan =
-    hasActiveTargetPlan && dayType === 'past' && availablePlans.length > 0;
-  const isSleeping = isToday && snapshot.state === 'sleeping';
+    mainScreenSleepUi.hasActiveTargetPlan &&
+    mainScreenSleepUi.isPastSelected &&
+    availablePlans.length > 0;
+  const isSleeping = mainScreenSleepUi.isTodaySelected && snapshot.state === 'sleeping';
   const hasPersistedCurrentPlan = useMemo(
     () =>
       hasActiveTargetPlan && sleepDayPlan?.sourcePlanId
@@ -1184,12 +1196,19 @@ export default function TodaySleepScreen() {
         : false,
     [availablePlans, hasActiveTargetPlan, sleepDayPlan?.sourcePlanId],
   );
-  const temporaryModeBadgeLabel = isToday && hasActiveTargetPlan
+  const temporaryModeBadgeLabel = mainScreenSleepUi.canShowTemporaryModeBadges
     ? getTemporaryModeBadgeLabel(sleepDayTemporaryModes)
     : null;
+  const sleepCoachCard = buildSleepCoachCardVm({
+    now,
+    plan: sleepPlan,
+    sleepDayStart: selectedDayStart,
+    snapshot,
+    temporaryModeBadge: temporaryModeBadgeLabel,
+    viewState: mainScreenSleepUi,
+  });
   const shouldShowEarlyWakeSuggestion =
-    isToday &&
-    hasActiveTargetPlan &&
+    mainScreenSleepUi.canShowCoachBlocks &&
     hasPersistedCurrentPlan &&
     shouldShowEarlyWakeModeSuggestion({
       actualWakeTime,
@@ -1207,15 +1226,8 @@ export default function TodaySleepScreen() {
     : isSleeping
       ? 'Завершить сон'
       : 'Начать сон';
-  const currentSleepDayDateKey = sleepDayPlan?.sleepDayDate ?? null;
-  const mainScreenSleepUi = deriveMainScreenSleepUiState({
-    hasActiveTargetPlan,
-    isSelectedDateToday: isToday,
-    selectedSleepSessionCount: selectedSessionsForDay.length,
-  });
-  const shouldShowPlanBasedUi = mainScreenSleepUi.showPlanBasedPredictions;
+  const shouldShowPlanBasedUi = mainScreenSleepUi.canShowPlanBasedBlocks;
   const shouldShowPlanStartNoDataHint = mainScreenSleepUi.showPlanStartNoDataHint;
-  const hasSelectedSleepRecords = mainScreenSleepUi.hasActualSleepRecords;
   const hasCurrentStatusFact =
     isSleeping || selectedSessionsForDay.some((session) => session.endedAt !== null);
   const shouldShowHeroPlaceholder = !shouldShowPlanBasedUi && !hasCurrentStatusFact;
@@ -1223,15 +1235,7 @@ export default function TodaySleepScreen() {
     shouldShowPlanStartNoDataHint && inferSleepKindForStart(now, sleepPlan) === 'night'
       ? 'Начать ночь'
       : 'Начать сон';
-  const shouldShowEveningPlanPromptCard = shouldShowEveningPlanPrompt({
-    dismissedDateKey: eveningPlanPromptDismissedDateKey,
-    hasActiveTargetDayPlan: hasActiveTargetPlan,
-    isSelectedDateToday: isToday,
-    nowMinutesFromMidnight: getLocalMinutesFromMidnight(now),
-    onboardingMode,
-    sleepDayDateKey: currentSleepDayDateKey,
-    sleepSessionCount: selectedSessionsForDay.length,
-  });
+  const shouldShowEveningPlanPromptCard = mainScreenSleepUi.canShowEveningPlanPrompt;
   const hasPastDayRecords = daySummary.sleepSessionCount > 0;
   const pastDayTotalSleepMinutes = daySummary.totalDaySleepMinutes + daySummary.totalNightSleepMinutes;
   const pastDayOfficialSleepCheck = useMemo(
@@ -1333,8 +1337,7 @@ export default function TodaySleepScreen() {
     let isActive = true;
 
     if (
-      !isToday ||
-      !hasActiveTargetPlan ||
+      !mainScreenSleepUi.canShowCoachBlocks ||
       onboardingMode !== 'plan_saved' ||
       isNotificationPermissionPromptDismissed
     ) {
@@ -1360,9 +1363,8 @@ export default function TodaySleepScreen() {
       isActive = false;
     };
   }, [
-    hasActiveTargetPlan,
     isNotificationPermissionPromptDismissed,
-    isToday,
+    mainScreenSleepUi.canShowCoachBlocks,
     onboardingMode,
   ]);
 
@@ -1450,7 +1452,7 @@ export default function TodaySleepScreen() {
   }
 
   async function handleDismissEveningPlanPrompt() {
-    if (!isToday || !currentSleepDayDateKey) {
+    if (!mainScreenSleepUi.canShowEveningPlanPrompt || !currentSleepDayDateKey) {
       return;
     }
 
@@ -1635,7 +1637,11 @@ export default function TodaySleepScreen() {
   }
 
   async function handleEnableEarlyWakeMode() {
-    if (!isToday || !sleepDayPlan?.sourcePlanId || !hasPersistedCurrentPlan) {
+    if (
+      !mainScreenSleepUi.canShowCoachBlocks ||
+      !sleepDayPlan?.sourcePlanId ||
+      !hasPersistedCurrentPlan
+    ) {
       return;
     }
 
@@ -1664,7 +1670,7 @@ export default function TodaySleepScreen() {
   }
 
   async function handleDismissEarlyWakeSuggestion() {
-    if (!isToday || !sleepDayPlan || !hasPersistedCurrentPlan) {
+    if (!mainScreenSleepUi.canShowCoachBlocks || !sleepDayPlan || !hasPersistedCurrentPlan) {
       return;
     }
 
@@ -1690,7 +1696,7 @@ export default function TodaySleepScreen() {
   }
 
   async function handleShareTodayPlan() {
-    if (!isToday || !hasActiveTargetPlan) {
+    if (!mainScreenSleepUi.isTodaySelected || !mainScreenSleepUi.canShowPlanBasedBlocks) {
       return;
     }
 
@@ -1826,7 +1832,7 @@ export default function TodaySleepScreen() {
   }
 
   function renderTrackingOnlyEmptyHint() {
-    if (isLoading || hasSelectedSleepRecords) {
+    if (isLoading || !mainScreenSleepUi.showTrackingOnlyEmptyHint) {
       return null;
     }
 
@@ -2050,9 +2056,11 @@ export default function TodaySleepScreen() {
           {renderEveningPlanPromptCard()}
           {renderNotificationPermissionPromptCard()}
 
-          {isToday || !hasActiveTargetPlan ? null : renderSleepDayPlanBar()}
+          {mainScreenSleepUi.isTodaySelected || !mainScreenSleepUi.hasActiveTargetPlan
+            ? null
+            : renderSleepDayPlanBar()}
 
-          {isToday ? (
+          {mainScreenSleepUi.isTodaySelected ? (
             <>
               <View style={styles.hero}>
                 <View style={styles.heroStatusRow}>
@@ -2175,11 +2183,11 @@ export default function TodaySleepScreen() {
                   <View style={styles.section}>
                     <View style={styles.scenarioHeader}>
                       <View style={styles.scenarioTitleBlock}>
-                        <Text style={styles.sectionTitle}>Сценарии</Text>
+                        <Text style={styles.sectionTitle}>{sleepCoachCard.eyebrow}</Text>
                         <Text numberOfLines={1} style={styles.scenarioPlanLabel}>
                           Активный план: {currentPlanName}
                         </Text>
-                        {temporaryModeBadgeLabel ? (
+                        {sleepCoachCard.badge ? (
                           <Pressable
                             accessibilityRole="button"
                             hitSlop={4}
@@ -2189,7 +2197,7 @@ export default function TodaySleepScreen() {
                               pressed ? styles.temporaryModeBadgePressed : null,
                             ]}>
                             <Text numberOfLines={1} style={styles.temporaryModeBadgeText}>
-                              {temporaryModeBadgeLabel}
+                              {sleepCoachCard.badge}
                             </Text>
                           </Pressable>
                         ) : null}
@@ -2235,19 +2243,27 @@ export default function TodaySleepScreen() {
                         </View>
                       </View>
                     ) : null}
-                    <View style={styles.scenarioList}>
-                      {snapshot.scenarios.map((scenario) => (
-                        <View
-                          key={scenario.id}
-                          style={[
-                            styles.scenario,
-                            scenario.priority === 'primary' ? styles.primaryScenario : null,
-                          ]}>
-                          <Text style={styles.scenarioTitle}>{scenario.title}</Text>
-                          <Text style={styles.scenarioText}>{scenario.detail}</Text>
-                        </View>
-                      ))}
-                    </View>
+                    {sleepCoachCard.visible ? (
+                      <View
+                        style={[
+                          styles.sleepCoachCard,
+                          sleepCoachCard.tone === 'prepare'
+                            ? styles.sleepCoachCardPrepare
+                            : null,
+                          sleepCoachCard.tone === 'actSoon'
+                            ? styles.sleepCoachCardActSoon
+                            : null,
+                          sleepCoachCard.tone === 'adjustDay'
+                            ? styles.sleepCoachCardAdjustDay
+                            : null,
+                        ]}>
+                        <Text style={styles.sleepCoachTitle}>{sleepCoachCard.title}</Text>
+                        <Text style={styles.sleepCoachBody}>{sleepCoachCard.body}</Text>
+                        {sleepCoachCard.anchor ? (
+                          <Text style={styles.sleepCoachAnchor}>{sleepCoachCard.anchor}</Text>
+                        ) : null}
+                      </View>
+                    ) : null}
                   </View>
                 </>
               ) : shouldShowPlanStartNoDataHint ? (
@@ -2267,7 +2283,7 @@ export default function TodaySleepScreen() {
                 variant="secondary"
               />
             </>
-          ) : dayType === 'future' ? (
+          ) : mainScreenSleepUi.isFutureSelected ? (
             <>
               <View style={styles.historyHero}>
                 <Text style={styles.status}>План на завтра</Text>
@@ -3359,6 +3375,42 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 13,
     fontWeight: '900',
+  },
+  sleepCoachCard: {
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+    gap: spacing.xs,
+  },
+  sleepCoachCardPrepare: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+  },
+  sleepCoachCardActSoon: {
+    borderColor: colors.warning,
+    backgroundColor: colors.warningSoft,
+  },
+  sleepCoachCardAdjustDay: {
+    borderColor: colors.warning,
+  },
+  sleepCoachTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  sleepCoachBody: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 21,
+  },
+  sleepCoachAnchor: {
+    color: colors.textMuted,
+    fontSize: 14,
+    fontWeight: '800',
+    lineHeight: 20,
   },
   scenarioList: {
     gap: spacing.sm,

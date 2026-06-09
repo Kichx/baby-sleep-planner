@@ -345,6 +345,30 @@ When changing this integration, cover at least:
 - recommendation does not appear when `early_wake` is enabled;
 - today UI still has no standalone summed-WB card.
 
+## Implementation lessons from main screen sleep coach card
+
+The main `/` screen should show one calm "Что лучше сейчас" coach card instead of exposing the full recommendation scenario list on the first level. Keep the decision in a pure core view-model helper such as `src/core/mainScreenSleepCoach.ts`; React should pass the already-built `buildTodaySleepSnapshot`, effective plan, selected sleep-day start, temporary-mode badge label, and `deriveMainScreenSleepUiState(...)`, then render the returned `SleepCoachCardVm`.
+
+Do not recalculate wake windows, bedtime projections, temporary modes, active-plan state, or onboarding visibility ad hoc in `src/app/index.tsx`. The coach card may inspect existing snapshot fields and scenario metadata, but it must not change `buildTodaySleepSnapshot`, recommendation algorithms, SQLite schema, `target_day_plan`, saved snapshots, history, notifications, or temporary-mode rows.
+
+Visibility must stay conservative:
+- hide for `tracking_only` without an active target day plan;
+- hide for past/future selected dates;
+- hide for today's active-plan/no-records onboarding state;
+- hide when there is no safe snapshot or no scenario metadata.
+
+The card copy must be short, calm, and safe for a tired parent. Always set the eyebrow to `Что лучше сейчас`; return one title/body/anchor at most; never let user-facing strings contain `undefined`, `null`, or `NaN`; and do not show "Следующий сон после сна" or similar next-sleep wording while an active sleep is running. If `soft_day`, `early_wake`, or both temporary modes are active, pass the existing badge label through to the VM instead of deriving modes again.
+
+When changing the coach card, cover at least:
+- tracking-only without active plan returns `visible=false`;
+- past/future selected date returns `visible=false`;
+- active-plan/no-records today returns `visible=false`;
+- active sleep copy does not contain `после сна`;
+- awake states cover calm, preparation, and act-now recommendations;
+- next step is night uses early-bedtime copy;
+- temporary-mode badge and alternatives metadata pass through;
+- all user-facing strings are free of `undefined`, `null`, and `NaN`.
+
 ## Implementation lessons from first active plan with no sleep records
 
 When a parent chooses a permanent target day plan for the first time and returns to the main `/` screen later in the same day, the app may have an active plan but no sleep records for the current sleep day. Do not treat this as a real all-day awake interval from `plan.dayStartMinutes`.
