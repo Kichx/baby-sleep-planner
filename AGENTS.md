@@ -388,7 +388,7 @@ Keep `src/components/SleepCoachAlternativesSheet.tsx` presentational and use the
 
 Keep `src/components/SleepCoachWhySheet.tsx` presentational and use the established `Modal` + `BottomSheetSafeArea` bottom-sheet pattern. The sheet should render only available VM sections, use a calm fallback when data is incomplete, and never show empty lines or user-facing `undefined`, `null`, or `NaN`. Active-sleep explanations should focus on current sleep duration, day sleep, and bedtime projection; awake explanations should focus on current wake duration, next sleep window/projection, bedtime projection, and the calm reason for the current recommendation.
 
-On the main `/` screen, render the coach card after the hero status and primary sleep actions, before forecast cards, old scenario/regression blocks, bottle-feeding cards, and the mixed timeline. For today with an active plan, do not render the old first-level scenario list or the old first-level `Поделиться` button near the coach recommendation; keep any legacy scenario/share flow behind explicit details or fallback screens only. The card should be visually stronger than ordinary info cards through a calm primary accent, but avoid red, bright yellow, or warning/error styling for normal day drift. Bottle feeding must not visually outrank the sleep actions or the coach card.
+On the main `/` screen, render the coach card after the hero status and primary sleep actions, before `Сегодня коротко`, old scenario/regression blocks, bottle-feeding cards, and the mixed timeline. For today with an active plan, do not render the old first-level scenario list or the old first-level `Поделиться` button near the coach recommendation; keep any legacy scenario/share flow behind explicit details or fallback screens only. The card should be visually stronger than ordinary info cards through a calm primary accent, but avoid red, bright yellow, or warning/error styling for normal day drift. Bottle feeding must not visually outrank the sleep actions or the coach card.
 
 Before wiring the coach card into UI, lock the core view-model contract with unit tests next to `src/core/mainScreenSleepCoach.ts`. Test visible today states, hidden non-today/tracking-only/no-data states, unsafe or partial snapshots, temporary-mode badge passthrough, alternatives metadata, calm bedtime wording, absence of `undefined`/`null`/`NaN`, and that the helper does not mutate the plan or snapshot inputs.
 
@@ -404,6 +404,34 @@ When changing the coach card, cover at least:
 - `Другие варианты` bottom sheet opens through the existing modal pattern, uses `snapshot.scenarios`, puts the recommended scenario first, and remains read-only;
 - tracking-only without active plan and empty/one-scenario states do not show competing scenario UI on the main screen;
 - active-sleep and awake explanation VM sections show only available data and fall back calmly when data is incomplete;
+- all user-facing strings are free of `undefined`, `null`, and `NaN`.
+
+## Implementation lessons from main screen short summary
+
+The main `/` screen should use one compact `Сегодня коротко` block for lightweight forecast and factual rows instead of four equal-weight first-level cards for `Следующий сон`, `Прогноз ночи`, `Сон днем`, and `До цели бодрств.`. Keep this decision in a pure helper such as `src/core/todayShortSummary.ts`; React should pass the already-built snapshot, day summary, latest feeding, and `deriveMainScreenSleepUiState(...)`, then render the returned `TodayShortSummaryVm`.
+
+Keep `src/components/TodayShortSummary.tsx` presentational. It should accept `TodayShortSummaryVm`, return `null` when `vm.visible=false`, render only rows provided by the VM, and receive the `Подробнее` callback from the screen. Do not put sleep calculations, SQLite calls, feeding writes, temporary-mode writes, or direct Expo Router calls inside the component.
+
+For today with an active plan, show `Сегодня коротко` after `SleepCoachCard` and before plan detail blocks, bottle-feeding cards, and the timeline. It may show 2-4 short rows when data exists:
+- `Следующий сон: примерно через X-Y мин` only while the child is awake and a next nap window is available;
+- `Отбой: около HH:MM` only when predicted bedtime is available;
+- `Дневной сон: X` only when factual day-sleep summary is available;
+- `Кормление: X назад` only when bottle feeding is enabled and a latest feeding exists.
+
+During an active sleep, do not show a first-level next-sleep row or card such as `Следующий сон: после сна`. Use calm copy like `После пробуждения покажем следующее окно`, while bedtime and factual day-sleep rows may still be shown if available.
+
+The `Подробнее` action should reuse an existing read-only bottom sheet when possible, such as the sleep coach `Почему так` sheet, rather than adding a route or writing any state. If there are no safe details, hide the action while keeping available summary rows.
+
+For `tracking_only` without an active persisted target plan, `Сегодня коротко` must not show plan-based rows such as next sleep, bedtime, scenarios, or remaining awake time. It may show factual rows only, such as day sleep or latest bottle feeding, when those facts already exist.
+
+Keep `До цели бодрств.` and summed 24-hour awake time off the first-level main screen. Detailed `Бодрствование за 24 часа (ВБ)` belongs in expanded `/sleep-plan` checks; the main screen must not reintroduce it through `Сегодня коротко`.
+
+When changing `Сегодня коротко`, cover at least:
+- today + active plan shows available compact forecast and factual rows;
+- active sleep does not show `Следующий сон: после сна`;
+- `tracking_only` without active plan hides plan rows and can keep factual rows;
+- bottle feeding stays secondary and does not affect sleep calculations or recommendations;
+- past/future selected days keep their existing retrospective/planning behavior;
 - all user-facing strings are free of `undefined`, `null`, and `NaN`.
 
 ## Implementation lessons from first active plan with no sleep records

@@ -22,6 +22,7 @@ import { SleepCoachWhySheet } from '@/components/SleepCoachWhySheet';
 import { SleepDayTimeline } from '@/components/SleepDayTimeline';
 import { SleepSessionEditorModal } from '@/components/SleepSessionEditorModal';
 import { SummaryCard } from '@/components/SummaryCard';
+import { TodayShortSummary } from '@/components/TodayShortSummary';
 import {
   DEFAULT_BOTTLE_FEEDING_NOTIFY_DURING_SLEEP,
   DEFAULT_BOTTLE_FEEDING_REMINDER_INTERVAL_MINUTES,
@@ -48,6 +49,7 @@ import {
   buildSleepCoachCardVm,
   buildSleepCoachWhySheetVm,
 } from '@/core/mainScreenSleepCoach';
+import { buildTodayShortSummaryVm } from '@/core/todayShortSummary';
 import {
   addLocalCalendarDays,
   dateAtLocalNoon,
@@ -401,27 +403,6 @@ function formatDurationWithSeconds(seconds: number): string {
   const restSeconds = seconds % 60;
 
   return `${minutes} мин ${restSeconds} сек`;
-}
-
-function formatNextSleepWaitLabel(
-  isSleeping: boolean,
-  now: Date,
-  nextSleepAt: Date,
-  nextSleepKind: SleepKind,
-): string {
-  if (isSleeping) {
-    return 'сейчас спит';
-  }
-
-  const minutesUntilSleep = minutesBetween(now, nextSleepAt);
-
-  if (minutesUntilSleep === 0) {
-    return nextSleepKind === 'night' ? 'пора на ночь' : 'пора спать';
-  }
-
-  return `${nextSleepKind === 'night' ? 'до отбоя' : 'до сна'} ${formatDuration(
-    minutesUntilSleep,
-  )}`;
 }
 
 function startOfCalendarDay(date: Date): Date {
@@ -1178,10 +1159,6 @@ export default function TodaySleepScreen() {
       }),
     [now, selectedDayStart, selectedSessionsForDay, sleepPlan],
   );
-  const predictedBedtimeCaption =
-    snapshot.projectedRemainingDaySleepMinutes > 0
-      ? `ещё сна днём ${formatDuration(snapshot.projectedRemainingDaySleepMinutes)}`
-      : 'с учётом сна днём';
   const currentPlanName = sleepDayPlan?.sourcePlanName ?? 'Основной';
   const currentSleepDayDateKey = sleepDayPlan?.sleepDayDate ?? null;
   const mainScreenSleepUi = deriveMainScreenSleepUiState({
@@ -1219,6 +1196,16 @@ export default function TodaySleepScreen() {
   const sleepCoachCard = buildSleepCoachCardVm(sleepCoachInput);
   const sleepCoachWhySheet = buildSleepCoachWhySheetVm(sleepCoachInput);
   const sleepCoachAlternativesSheet = buildSleepCoachAlternativesSheetVm(sleepCoachInput);
+  const todayShortSummary = buildTodayShortSummaryVm({
+    bottleFeedingEnabled,
+    daySummary,
+    hasDetails: sleepCoachWhySheet.visible,
+    latestBottleFeeding,
+    now,
+    plan: sleepPlan,
+    snapshot,
+    viewState: mainScreenSleepUi,
+  });
   useEffect(() => {
     if (!sleepCoachWhySheet.visible && isSleepCoachWhySheetOpen) {
       setIsSleepCoachWhySheetOpen(false);
@@ -1237,12 +1224,6 @@ export default function TodaySleepScreen() {
       basePlan: baseSleepPlan,
       temporaryModes: sleepDayTemporaryModes,
     });
-  const nextSleepWaitLabel = formatNextSleepWaitLabel(
-    isSleeping,
-    now,
-    snapshot.nextSleepAt,
-    snapshot.nextSleepKind,
-  );
   const buttonLabel = isSaving
     ? 'Сохраняем...'
     : isSleeping
@@ -2139,36 +2120,13 @@ export default function TodaySleepScreen() {
                 vm={sleepCoachCard}
               />
 
+              <TodayShortSummary
+                onOpenDetails={openSleepCoachWhy}
+                vm={todayShortSummary}
+              />
+
               {shouldShowPlanBasedUi ? (
                 <>
-                  <View style={styles.grid}>
-                    <SummaryCard
-                      title="Следующий сон"
-                      value={isSleeping ? 'после сна' : formatClock(snapshot.nextSleepAt)}
-                      detail={nextSleepWaitLabel}
-                      caption={snapshot.onTrackLabel}
-                      tone="accent"
-                    />
-                    <SummaryCard
-                      title="Прогноз ночи"
-                      value={formatClock(snapshot.predictedBedtimeAt)}
-                      caption={predictedBedtimeCaption}
-                    />
-                  </View>
-
-                  <View style={styles.grid}>
-                    <SummaryCard
-                      title="До цели бодрств."
-                      value={formatDuration(snapshot.remainingAwakeMinutes)}
-                      caption="до ориентира дня"
-                    />
-                    <SummaryCard
-                      title="Сон днем"
-                      value={formatDuration(snapshot.totalDaySleepMinutes)}
-                      caption={`${snapshot.completedNaps} сна сегодня`}
-                    />
-                  </View>
-
                   <View style={styles.section}>
                     <View style={styles.scenarioHeader}>
                       <View style={styles.scenarioTitleBlock}>
