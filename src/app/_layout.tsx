@@ -1,17 +1,24 @@
-import { Stack } from 'expo-router';
+import { Stack, usePathname } from 'expo-router';
 import { SQLiteProvider } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
+import { StyleSheet, View } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 
+import {
+  MainBottomNavigation,
+  shouldShowMainBottomNavigation,
+} from '@/components/MainBottomNavigation';
 import { colors } from '@/constants/theme';
 import { DATABASE_NAME, migrateDatabase } from '@/db';
 import { ActiveSleepNotificationSync } from '@/notifications/ActiveSleepNotificationSync';
 
-export default function RootLayout() {
+function AppShell() {
+  const pathname = usePathname();
+  const shouldShowBottomNavigation = shouldShowMainBottomNavigation(pathname);
+
   return (
-    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-      <SQLiteProvider databaseName={DATABASE_NAME} onInit={migrateDatabase}>
-        <ActiveSleepNotificationSync />
+    <View style={styles.appShell}>
+      <View style={styles.stackHost}>
         <Stack
           screenOptions={{
             headerStyle: {
@@ -29,7 +36,7 @@ export default function RootLayout() {
           <Stack.Screen
             name="index"
             options={{
-              title: 'Сон сегодня',
+              title: 'Сон',
             }}
           />
           <Stack.Screen
@@ -75,8 +82,31 @@ export default function RootLayout() {
             }}
           />
         </Stack>
+      </View>
+      {shouldShowBottomNavigation ? <MainBottomNavigation /> : null}
+    </View>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+      <SQLiteProvider databaseName={DATABASE_NAME} onInit={migrateDatabase}>
+        <ActiveSleepNotificationSync />
+        <AppShell />
       </SQLiteProvider>
       <StatusBar style="dark" />
     </SafeAreaProvider>
   );
 }
+
+const styles = StyleSheet.create({
+  appShell: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  stackHost: {
+    flex: 1,
+    minHeight: 0,
+  },
+});

@@ -1394,6 +1394,20 @@ When adding a new `src/app` screen:
 
 With Expo Router typed routes, `.expo/types/router.d.ts` can lag behind a newly added file route until Expo regenerates it. Do not edit generated `.expo` files. If TypeScript needs help for a new route, use a narrow named `Href` constant such as `const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href`, then run `npm run typecheck`. If TypeScript fails inside `.expo/types/router.d.ts` after an interrupted Expo web run or Fast Refresh, inspect the file for duplicated/truncated declarations, delete only the generated `.expo/types/router.d.ts`, and rerun `npm run typecheck` so Expo/TypeScript can regenerate clean route types.
 
+The main app sections use a custom bottom navigation in `src/components/MainBottomNavigation.tsx`, mounted from `src/app/_layout.tsx` around the existing `Stack`. Keep this as a minimal shared app shell unless a later task explicitly asks for a real Expo Router tabs group. The bottom navigation should be visible only on:
+- `/`;
+- `/sleep-plan`;
+- `/sleep-retrospective`;
+- `/profile`.
+
+Do not add `/bottle-feeding`, `/bottle-feeding-settings`, `/info`, or `/first-run` to the bottom navigation. Keep bottle feeding reachable from the main/profile flows when enabled, and keep help reachable from profile and contextual info links.
+
+Do not re-add duplicate header navigation icons for `План`, `История`, or `Профиль` on the main `/` screen. The main header should stay calm with `Сон`; the selected day/date belongs in the on-screen date navigator.
+
+Keep the bottom navigation as normal layout below the stack, not an absolute overlay. It must use bottom safe area and must not cover screen CTAs. Bottom sheets and modal dialogs should stay in their own modal layer with `BottomSheetSafeArea` / `SafeAreaView edges={['bottom']}` so their actions remain tappable above the Android navigation area and above the app bottom navigation.
+
+When verifying bottom navigation on Expo Web, check item geometry in a narrow viewport. `Link asChild` can collapse React Native Web pressable items to content width; if tab hit targets are not evenly distributed, prefer `Pressable` with `router.replace(...)` and verify each tab remains a large one-handed target.
+
 On Windows, before starting Expo/Metro, check whether running Metro is actually needed. Do not start Metro after every code change by default; TypeScript checks are enough unless the user asked to run the app, the task requires visual/manual verification, or the current change is risky without Expo Go testing.
 
 When Metro is needed, first check whether the default port is already occupied and whether an existing Metro server can be reused. If Expo reports that `8081` is in use but no reusable server is clearly identified, make at most one alternate-port attempt. Do not keep trying multiple wrappers such as `npm`, `cmd /k`, local Expo CLI, and absolute Node paths after the first background startup failure.

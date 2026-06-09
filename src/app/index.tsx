@@ -14,9 +14,6 @@ import { PrimaryButton } from '@/components/PrimaryButton';
 import { BottleFeedingEditorModal } from '@/components/BottleFeedingEditorModal';
 import { EventTypeBadge } from '@/components/EventTypeBadge';
 import { LastRecordsPreview } from '@/components/LastRecordsPreview';
-import { ProfileAvatar } from '@/components/ProfileAvatar';
-import { SleepPlanIcon } from '@/components/SleepPlanIcon';
-import { SleepRetrospectiveIcon } from '@/components/SleepRetrospectiveIcon';
 import { SleepCoachAlternativesSheet } from '@/components/SleepCoachAlternativesSheet';
 import { SleepCoachCard } from '@/components/SleepCoachCard';
 import { SleepCoachWhySheet } from '@/components/SleepCoachWhySheet';
@@ -203,10 +200,8 @@ const TIMELINE_ROW_HEIGHT = 62;
 const LAST_RECORDS_PREVIEW_LIMIT = 5;
 const MAX_PAST_DAY_FEEDBACK_LINES = 3;
 const FIRST_RUN_ROUTE = '/first-run' as Href;
-const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
 const EVENING_PROMPT_SLEEP_PLAN_ROUTE =
   '/sleep-plan?source=evening-prompt&returnTo=home' as Href;
-const SLEEP_RETROSPECTIVE_ROUTE = '/sleep-retrospective' as Href;
 const BOTTLE_FEEDING_ROUTE = '/bottle-feeding' as Href;
 const OFFICIAL_SLEEP_SOURCE_SUMMARY =
   'Источники: ВОЗ, CDC, AASM, Australian/Canadian 24-Hour';
@@ -522,28 +517,6 @@ function formatSelectedDayTitle(selectedDate: Date, now: Date): string {
   return formatDateLabel(selectedDate);
 }
 
-function formatHeaderTitle(selectedDate: Date, now: Date): string {
-  const dayDiff = getCalendarDayDiff(selectedDate, now);
-
-  if (dayDiff === 0) {
-    return 'Сон сегодня';
-  }
-
-  if (dayDiff === 1) {
-    return 'Сон завтра';
-  }
-
-  if (dayDiff === -1) {
-    return 'Сон вчера';
-  }
-
-  if (dayDiff === -2) {
-    return 'Сон позавчера';
-  }
-
-  return `Сон ${formatDateLabel(selectedDate)}`;
-}
-
 function formatSessionGroupTitle(date: Date, now: Date): string {
   const dayDiff = getCalendarDayDiff(date, now);
 
@@ -700,9 +673,7 @@ export default function TodaySleepScreen() {
   const [latestBottleFeeding, setLatestBottleFeeding] = useState<BottleFeeding | null>(null);
   const [todayBottleFeedings, setTodayBottleFeedings] = useState<BottleFeeding[]>([]);
   const [latestSleepSessionId, setLatestSleepSessionId] = useState<string | null>(null);
-  const [childName, setChildName] = useState(DEFAULT_CHILD_NAME);
   const [childBirthDate, setChildBirthDate] = useState<string | null>(null);
-  const [childPhotoUri, setChildPhotoUri] = useState<string | null>(null);
   const [bottleFeedingEnabled, setBottleFeedingEnabled] = useState(false);
   const [bottleFeedingDefaultVolumeMl, setBottleFeedingDefaultVolumeMl] = useState(
     DEFAULT_BOTTLE_FEEDING_VOLUME_ML,
@@ -912,8 +883,6 @@ export default function TodaySleepScreen() {
     setBottleFeedingDefaultVolumeMl(loadedData.profile.bottleFeedingDefaultVolumeMl);
     setBottleFeedingTopUpThresholdMl(loadedData.profile.bottleFeedingTopUpThresholdMl);
     setChildBirthDate(loadedData.profile.birthDate);
-    setChildName(loadedData.profile.name);
-    setChildPhotoUri(loadedData.profile.photoUri);
     setAvailablePlans(loadedData.availablePlans);
     setHasActiveTargetPlan(loadedData.hasActiveTargetPlan);
     setOnboardingMode(loadedData.onboardingMode);
@@ -983,7 +952,6 @@ export default function TodaySleepScreen() {
     () => formatSelectedDayTitle(selectedDate, now),
     [now, selectedDate],
   );
-  const headerTitle = useMemo(() => formatHeaderTitle(selectedDate, now), [now, selectedDate]);
   const baseSleepPlan = sleepDayPlan?.plan ?? sleepPlan;
   const actualTodayDayStart = useMemo(
     () =>
@@ -1403,14 +1371,6 @@ export default function TodaySleepScreen() {
     applySelectedDayData(loadedData, currentNow);
   }
 
-  function openProfile() {
-    router.push('/profile');
-  }
-
-  function openSleepPlan() {
-    router.push(SLEEP_PLAN_ROUTE);
-  }
-
   function openSleepCoachWhy() {
     if (!sleepCoachWhySheet.visible) {
       return;
@@ -1437,10 +1397,6 @@ export default function TodaySleepScreen() {
 
   function openEveningPromptSleepPlan() {
     router.push(EVENING_PROMPT_SLEEP_PLAN_ROUTE);
-  }
-
-  function openRetrospective() {
-    router.push(SLEEP_RETROSPECTIVE_ROUTE);
   }
 
   function openBottleFeeding() {
@@ -1981,48 +1937,7 @@ export default function TodaySleepScreen() {
 
   return (
     <>
-      <Stack.Screen
-        options={{
-          headerRight: () => (
-            <View style={styles.headerActions}>
-              <Pressable
-                accessibilityLabel="История сна"
-                accessibilityRole="button"
-                hitSlop={8}
-                onPress={openRetrospective}
-                style={({ pressed }) => [
-                  styles.retrospectiveButton,
-                  pressed ? styles.headerIconButtonPressed : null,
-                ]}>
-                <SleepRetrospectiveIcon size={25} />
-              </Pressable>
-              <Pressable
-                accessibilityLabel="План дня"
-                accessibilityRole="button"
-                hitSlop={8}
-                onPress={openSleepPlan}
-                style={({ pressed }) => [
-                  styles.sleepPlanButton,
-                  pressed ? styles.headerIconButtonPressed : null,
-                ]}>
-                <SleepPlanIcon backgroundColor={colors.surface} />
-              </Pressable>
-              <Pressable
-                accessibilityLabel="Профиль и настройки"
-                accessibilityRole="button"
-                hitSlop={8}
-                onPress={openProfile}
-                style={({ pressed }) => [
-                  styles.profileButton,
-                  pressed ? styles.headerIconButtonPressed : null,
-                ]}>
-                <ProfileAvatar name={childName} photoUri={childPhotoUri} size={36} />
-              </Pressable>
-            </View>
-          ),
-          title: headerTitle,
-        }}
-      />
+      <Stack.Screen options={{ title: 'Сон' }} />
       <ScrollView style={styles.screen} contentContainerStyle={styles.scrollContent}>
         <SafeAreaView edges={['bottom']} style={styles.safeArea}>
           {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
@@ -2653,44 +2568,6 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: colors.background,
-  },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  retrospectiveButton: {
-    width: 38,
-    height: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 19,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  sleepPlanButton: {
-    width: 38,
-    height: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 19,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  profileButton: {
-    width: 38,
-    height: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 19,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    backgroundColor: colors.primarySoft,
-  },
-  headerIconButtonPressed: {
-    backgroundColor: colors.surfaceMuted,
   },
   scrollContent: {
     flexGrow: 1,
