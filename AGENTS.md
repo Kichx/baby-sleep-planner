@@ -511,6 +511,27 @@ For implementation, prefer passing an empty feeding array into the existing day-
 - temporarily hiding feedings removes nested feeding rows as well as standalone rows;
 - the mini sleep timeline remains sleep-only.
 
+## Implementation lessons from final main screen regression checks
+
+After broad changes to the main `/` screen, run a final regression pass that combines focused core tests with a small manual UI matrix. Do not rely only on screenshots of the happy path, because most main-screen regressions come from view-state gates crossing each other.
+
+At minimum, cover these states before calling the main screen stable:
+- first-run and `tracking_only` without an active plan;
+- today with an active plan while the child is sleeping;
+- today with an active plan while the child is awake;
+- past selected date opened directly and from `/sleep-retrospective`;
+- future/tomorrow selected date while today has or recently had an active sleep;
+- temporary modes off, `soft_day`, `early_wake`, and combined mode order;
+- bottle feeding disabled and enabled;
+- mixed timeline preview, expanded timeline, nested feedings, standalone feedings, and same-visible-time ordering;
+- bottom navigation plus every bottom sheet/modal touched by the change.
+
+Use unit tests for pure logic that is expensive or brittle to recreate manually in the browser, especially `early_wake` derivation, combined temporary mode ordering, evening prompt gates, notification permission boundaries, and mixed timeline sorting. Use the browser smoke check to verify what tests cannot see: text hierarchy, missing or duplicate first-level blocks, active tab highlighting, and bottom safe-area behavior.
+
+For `tracking_only` smoke checks, confirm that factual sleep logging still works while plan-dependent guidance stays hidden: no `SleepCoachCard`, no plan forecast rows, no temporary-mode badge, no plan share prompt, and no standalone remaining-awake or summed-WB card. For active-plan smoke checks, confirm that `SleepCoachCard`, `TodayShortSummary`, and `LastRecordsPreview` stay in the intended order and that bottle feeding never visually outranks the sleep action or coach surfaces.
+
+If manual browser checks require creating local sleep or feeding records, use a disposable web origin/database when possible. If records are created in the user's active local browser data, either clean them up before finishing or explicitly report that the local smoke data remains.
+
 ## Implementation lessons from `/sleep-plan` active state simplification
 
 The active state of `/sleep-plan` should stay a calm parent-facing overview before plan management. When an active plan exists, keep the first-level order:
