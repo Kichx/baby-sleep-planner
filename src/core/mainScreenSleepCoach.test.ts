@@ -90,6 +90,31 @@ function expectUserStringsSafe(card: SleepCoachCardVm): void {
   });
 }
 
+function expectVisibleCardBasics(card: SleepCoachCardVm): void {
+  expect(card.visible).toBe(true);
+  expect(card.eyebrow).toBe('Что лучше сейчас');
+  expect(card.title.trim().length).toBeGreaterThan(0);
+  expect(card.body.trim().length).toBeGreaterThan(0);
+  expectUserStringsSafe(card);
+}
+
+function clonePlan(plan: SleepPlanPreset): SleepPlanPreset {
+  return {
+    ...plan,
+    wakeWindows: plan.wakeWindows.map((window) => ({ ...window })),
+  };
+}
+
+function cloneSnapshot(snapshot: SleepSnapshot): SleepSnapshot {
+  return {
+    ...snapshot,
+    nextSleepAt: new Date(snapshot.nextSleepAt),
+    predictedBedtimeAt: new Date(snapshot.predictedBedtimeAt),
+    scenarios: snapshot.scenarios.map((scenario) => ({ ...scenario })),
+    statusStartedAt: new Date(snapshot.statusStartedAt),
+  };
+}
+
 describe('buildSleepCoachCardVm', () => {
   it('hides the coach card for tracking-only mode without an active target plan', () => {
     const card = buildCard({
@@ -104,28 +129,33 @@ describe('buildSleepCoachCardVm', () => {
     });
 
     expect(card.visible).toBe(false);
+    expect(card.title).toBe('');
+    expect(card.body).toBe('');
+    expect(card.anchor).toBeUndefined();
   });
 
-  it('hides the coach card for past and future selected dates', () => {
-    expect(
-      buildCard({
-        viewState: {
-          ...baseViewState,
-          canShowCoachBlocks: false,
-          isTodaySelected: false,
-        },
-      }).visible,
-    ).toBe(false);
+  it('hides the coach card for a past selected day', () => {
+    const card = buildCard({
+      viewState: {
+        ...baseViewState,
+        canShowCoachBlocks: false,
+        isTodaySelected: false,
+      },
+    });
 
-    expect(
-      buildCard({
-        viewState: {
-          ...baseViewState,
-          canShowCoachBlocks: false,
-          isTodaySelected: false,
-        },
-      }).visible,
-    ).toBe(false);
+    expect(card.visible).toBe(false);
+  });
+
+  it('hides the coach card for a future selected day', () => {
+    const card = buildCard({
+      viewState: {
+        ...baseViewState,
+        canShowCoachBlocks: false,
+        isTodaySelected: false,
+      },
+    });
+
+    expect(card.visible).toBe(false);
   });
 
   it('hides the coach card when no safe snapshot is available', () => {
@@ -137,6 +167,34 @@ describe('buildSleepCoachCardVm', () => {
         }),
       }).visible,
     ).toBe(false);
+  });
+
+  it('does not throw and hides the coach card when snapshot data is partially missing', () => {
+    const partiallyMissingSnapshot = {
+      ...baseSnapshot(),
+      statusStartedAt: null as unknown as Date,
+    };
+
+    expect(() => buildCard({ snapshot: partiallyMissingSnapshot })).not.toThrow();
+
+    const card = buildCard({ snapshot: partiallyMissingSnapshot });
+
+    expect(card.visible).toBe(false);
+    expectUserStringsSafe(card);
+  });
+
+  it('does not throw and hides the coach card when snapshot numbers or dates are unsafe', () => {
+    const unsafeSnapshot = baseSnapshot({
+      currentDurationMinutes: Number.NaN,
+      predictedBedtimeAt: new Date(Number.NaN),
+    });
+
+    expect(() => buildCard({ snapshot: unsafeSnapshot })).not.toThrow();
+
+    const card = buildCard({ snapshot: unsafeSnapshot });
+
+    expect(card.visible).toBe(false);
+    expectUserStringsSafe(card);
   });
 
   it('hides the coach card for the active-plan no-records onboarding state', () => {
@@ -173,7 +231,11 @@ describe('buildSleepCoachCardVm', () => {
       visible: true,
     });
     expect(`${card.title} ${card.body} ${card.anchor}`).not.toContain('после сна');
-    expectUserStringsSafe(card);
+    expect(`${card.title} ${card.body} ${card.anchor}`).not.toContain(
+      'Следующий сон после сна',
+    );
+    expect(card.anchor).toContain('Отбой');
+    expectVisibleCardBasics(card);
   });
 
   it('suggests softly ending an active nap when it can shift the evening', () => {
@@ -195,7 +257,7 @@ describe('buildSleepCoachCardVm', () => {
       tone: 'adjustDay',
       visible: true,
     });
-    expectUserStringsSafe(card);
+    expectVisibleCardBasics(card);
   });
 
   it('keeps a short active nap calm even when no projected day sleep remains', () => {
@@ -215,7 +277,7 @@ describe('buildSleepCoachCardVm', () => {
       tone: 'calm',
       visible: true,
     });
-    expectUserStringsSafe(card);
+    expectVisibleCardBasics(card);
   });
 
   it('shows an awake calm recommendation when the sleep window is not close yet', () => {
@@ -228,7 +290,8 @@ describe('buildSleepCoachCardVm', () => {
       tone: 'calm',
       visible: true,
     });
-    expectUserStringsSafe(card);
+    expect(card.body).toContain('подготовке');
+    expectVisibleCardBasics(card);
   });
 
   it('shows a preparation recommendation when the sleep window is close', () => {
@@ -248,7 +311,8 @@ describe('buildSleepCoachCardVm', () => {
       tone: 'prepare',
       visible: true,
     });
-    expectUserStringsSafe(card);
+    expect(card.body).toContain('укладывание');
+    expectVisibleCardBasics(card);
   });
 
   it('shows an act-soon recommendation when awake time is already long', () => {
@@ -269,7 +333,8 @@ describe('buildSleepCoachCardVm', () => {
       tone: 'actSoon',
       visible: true,
     });
-    expectUserStringsSafe(card);
+    expect(card.body).toContain('Бодрствование');
+    expectVisibleCardBasics(card);
   });
 
   it('uses the early bedtime copy when the next reasonable step is night', () => {
@@ -300,7 +365,9 @@ describe('buildSleepCoachCardVm', () => {
       tone: 'adjustDay',
       visible: true,
     });
-    expectUserStringsSafe(card);
+    expect(card.body).toContain('мягко');
+    expect(card.body).not.toMatch(/опас|плохо|ошибк|тревог|срочно/i);
+    expectVisibleCardBasics(card);
   });
 
   it('passes temporary-mode badge and alternative flags through the view model', () => {
@@ -332,5 +399,58 @@ describe('buildSleepCoachCardVm', () => {
       visible: true,
     });
     expectUserStringsSafe(card);
+  });
+
+  it.each(['Сегодня мягкий день', 'Сегодня ранний подъём'])(
+    'passes the temporary-mode badge "%s" through without mutating inputs',
+    (temporaryModeBadge) => {
+      const plan = clonePlan(TEST_PLAN);
+      const snapshot = baseSnapshot();
+      const planBefore = clonePlan(plan);
+      const snapshotBefore = cloneSnapshot(snapshot);
+
+      const card = buildCard({
+        plan,
+        snapshot,
+        temporaryModeBadge,
+      });
+
+      expect(card.badge).toBe(temporaryModeBadge);
+      expect(card.visible).toBe(true);
+      expect(plan).toEqual(planBefore);
+      expect(snapshot).toEqual(snapshotBefore);
+      expectUserStringsSafe(card);
+    },
+  );
+
+  it('sets hasAlternatives=false for one scenario or no scenarios', () => {
+    const oneScenarioCard = buildCard({
+      snapshot: baseSnapshot({
+        scenarios: [
+          {
+            detail: 'Один понятный вариант.',
+            id: 'normal',
+            priority: 'primary',
+            title: 'Обычный план',
+          },
+        ],
+      }),
+    });
+    const noScenarioCard = buildCard({
+      snapshot: baseSnapshot({
+        scenarios: [],
+      }),
+    });
+
+    expect(oneScenarioCard).toMatchObject({
+      hasAlternatives: false,
+      visible: true,
+    });
+    expect(noScenarioCard).toMatchObject({
+      hasAlternatives: false,
+      visible: false,
+    });
+    expectUserStringsSafe(oneScenarioCard);
+    expectUserStringsSafe(noScenarioCard);
   });
 });
