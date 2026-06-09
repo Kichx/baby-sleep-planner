@@ -1687,6 +1687,14 @@ For large existing Confluence pages, use a storage-body patch workflow instead o
 - Log only page id/title/version and replacement status. Never log tokens, auth headers, full page bodies, or local secret paths.
 - After `PUT`, verify the returned version number, then read the page back through `_getconfluencepage` with `contentFormat: "markdown"` and check the body text itself. Rovo summaries/snippets may lag or show stale text; do not treat the summary field as proof that the body update failed.
 
+Quick paths for Confluence updates:
+- Small page or new page: use Rovo `_search` first, then `_getconfluencepage` in `markdown`, then `_updateconfluencepage` / `_createconfluencepage` only with the full intended page body. Read back with `_getconfluencepage` in `markdown` and confirm Russian headings, tables, and key bullets are readable.
+- Existing large page: use Rovo only to find page ids/titles. Then use a Node `fetch` storage-body patch against Confluence REST API v2: `GET /wiki/api/v2/pages/<pageId>?body-format=storage`, compute idempotent replacements by stable `<h2>` headings, and `PUT /wiki/api/v2/pages/<pageId>` with `version.number + 1`. This avoids Rovo output truncation and accidental partial-page replacement.
+- Multi-page documentation pass: first fetch all target pages and verify every insertion/replacement anchor exists; only then write pages. If one anchor is missing, write nothing and adjust the script or search result. This keeps related screen, technical, and map pages consistent.
+- Fast verification: after writes, read every changed page back through `_getconfluencepage` in `markdown`. Check the actual body text, not the search result summary. Rovo summaries and snippets can lag or omit newly inserted sections even when the page update succeeded.
+- Windows Node scripts: if using top-level `await`, write the script as ESM with `import { execSync } from 'node:child_process'`. Do not mix `require(...)` with top-level `await`, because Node can fail with `ERR_AMBIGUOUS_MODULE_SYNTAX`. If CommonJS is preferred, wrap all `await` calls in an async IIFE instead.
+- UTF-8 fast setup: before piping a Node script that contains Russian strings or storage HTML through PowerShell, set `[Console]::InputEncoding`, `[Console]::OutputEncoding`, and `$OutputEncoding` to UTF-8. If the fetched headings show mojibake or inserted Russian turns into `????`, stop before writing.
+
 When using the Atlassian Rovo MCP tools for Confluence:
 - Always search first with Rovo Search and update an existing page when one matches the requested topic.
 - `_createconfluencepage.spaceId` expects the numeric Confluence space id, not the space key. For this project pass `spaceId: "131075"`; passing `BSP` fails with `Provided value {BSP} for 'spaceId' is not the correct type. Expected type is Long`.
