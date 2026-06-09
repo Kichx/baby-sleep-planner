@@ -440,7 +440,7 @@ describe('buildSleepCoachCardVm', () => {
     });
 
     expect(card).toMatchObject({
-      anchor: 'Отбой пока можно сохранить около 20:30',
+      anchor: 'Отбой пока можно сохранить около 20:30 (через 10 часов 10 минут)',
       body: 'Бодрствование уже затянулось. Сон сейчас поможет не разогнать вечер.',
       title: 'Лучше укладывать сейчас',
       tone: 'actSoon',
@@ -471,7 +471,7 @@ describe('buildSleepCoachCardVm', () => {
     });
 
     expect(card).toMatchObject({
-      anchor: 'Отбой около 19:00',
+      anchor: 'Отбой около 19:00 (через 40 минут)',
       body: 'День немного сдвинулся, но ночь можно мягко выровнять ранним укладыванием.',
       scenarioId: 'earlyBedtime',
       title: 'Лучше ранний отбой',
@@ -485,12 +485,12 @@ describe('buildSleepCoachCardVm', () => {
 
   it('keeps the night coach card calm when bedtime is close to the plan', () => {
     const card = buildCard({
-      now: at(20, 0),
+      now: at(20, 26),
       snapshot: baseSnapshot({
         currentDurationMinutes: 130,
-        nextSleepAt: at(20, 52),
+        nextSleepAt: at(20, 51),
         nextSleepKind: 'night',
-        predictedBedtimeAt: at(20, 52),
+        predictedBedtimeAt: at(20, 51),
         scenarios: [
           {
             detail: 'До цели бодрствования осталось мало времени. Следующий сон можно считать ночным.',
@@ -504,7 +504,7 @@ describe('buildSleepCoachCardVm', () => {
     });
 
     expect(card).toMatchObject({
-      anchor: 'Отбой около 20:52',
+      anchor: 'Отбой около 20:51 (через 25 минут)',
       body: 'До цели бодрствования осталось мало времени. Следующий сон можно считать ночным.',
       scenarioId: 'normal',
       title: 'Переходим к ночи',
@@ -677,7 +677,7 @@ describe('buildSleepCoachAlternativesSheetVm', () => {
     });
 
     expect(sheet.items[0]).toMatchObject({
-      anchor: 'Отбой около 19:00',
+      anchor: 'Отбой около 19:00 (через 11 часов)',
       id: 'earlyBedtime',
       isRecommended: true,
     });
@@ -796,7 +796,7 @@ describe('buildSleepCoachWhySheetVm', () => {
     expect(getWhySheetLines(sheet)).toContain('Сон длится 20 мин.');
     expect(getWhySheetLines(sheet)).toContain('Дневной сон уже 20 мин.');
     expect(getWhySheetLines(sheet)).toContain(
-      'Если сон закончится сейчас, отбой около 20:30.',
+      'Если сон закончится сейчас, отбой около 20:30 (через 10 часов 30 минут).',
     );
     expect(getWhySheetLines(sheet)).toContain('В эффективном плане 3 дневных сна.');
     expect(sheet.summary).toBe(
@@ -856,7 +856,9 @@ describe('buildSleepCoachWhySheetVm', () => {
     expect(getWhySheetLines(sheet)).toContain(
       'Следующий сон в 09:30 (через 1 час 30 минут).',
     );
-    expect(getWhySheetLines(sheet)).toContain('Отбой пока около 20:30.');
+    expect(getWhySheetLines(sheet)).toContain(
+      'Отбой пока около 20:30 (через 12 часов 30 минут).',
+    );
     expect(sheet.summary).toBe(
       'Поэтому пока можно бодрствовать, а ближе к окну перейти к спокойной подготовке.',
     );
@@ -884,7 +886,9 @@ describe('buildSleepCoachWhySheetVm', () => {
     });
 
     expect(sheet.scenarioId).toBe('earlyBedtime');
-    expect(getWhySheetLines(sheet)).toContain('Ориентир следующего сна: около 19:00.');
+    expect(getWhySheetLines(sheet)).toContain(
+      'Ориентир следующего сна: около 19:00 (через 40 минут).',
+    );
     expect(sheet.summary).toBe(
       'Поэтому сейчас лучше спокойно двигаться к отбою без ещё одного дневного сна.',
     );

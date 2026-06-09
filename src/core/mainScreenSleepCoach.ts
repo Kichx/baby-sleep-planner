@@ -5,7 +5,10 @@ import {
 } from '@/core/sleepCalculations';
 import { calculatePlanBedtimeRange } from '@/core/sleepPlan';
 import { formatLocalClock } from '@/core/localDateTime';
-import { formatNextSleepAtText } from '@/core/mainScreenTimeText';
+import {
+  formatClockWithRelativeDuration,
+  formatNextSleepAtText,
+} from '@/core/mainScreenTimeText';
 import type {
   RecommendationScenario,
   RecommendationScenarioId,
@@ -227,14 +230,22 @@ function getNapWindowAnchor(input: {
 }
 
 function getPredictedBedtimeAnchor(
-  snapshot: SleepSnapshot,
-  prefix: 'Отбой пока около' | 'Отбой пока можно сохранить около' | 'Отбой около',
+  input: {
+    now: Date;
+    prefix: 'Отбой пока около' | 'Отбой пока можно сохранить около' | 'Отбой около';
+    snapshot: SleepSnapshot;
+  },
 ): string | undefined {
-  if (!isValidDate(snapshot.predictedBedtimeAt)) {
+  if (!isValidDate(input.now) || !isValidDate(input.snapshot.predictedBedtimeAt)) {
     return undefined;
   }
 
-  return `${prefix} ${formatLocalClock(snapshot.predictedBedtimeAt)}`;
+  const bedtimeAtText = formatClockWithRelativeDuration({
+    now: input.now,
+    targetAt: input.snapshot.predictedBedtimeAt,
+  });
+
+  return bedtimeAtText ? `${input.prefix} ${bedtimeAtText}` : undefined;
 }
 
 function getCurrentSleepAverageEndAt(input: {
@@ -437,17 +448,29 @@ function getScenarioAnchor(input: {
 }): string | undefined {
   if (input.scenario.id === 'earlyBedtime') {
     return (
-      getPredictedBedtimeAnchor(input.snapshot, 'Отбой около') ??
+      getPredictedBedtimeAnchor({
+        now: input.now,
+        prefix: 'Отбой около',
+        snapshot: input.snapshot,
+      }) ??
       getBedtimeRangeAnchor(input.plan, input.sleepDayStart)
     );
   }
 
   if (input.snapshot.state === 'sleeping') {
-    return getPredictedBedtimeAnchor(input.snapshot, 'Отбой пока около');
+    return getPredictedBedtimeAnchor({
+      now: input.now,
+      prefix: 'Отбой пока около',
+      snapshot: input.snapshot,
+    });
   }
 
   if (input.snapshot.nextSleepKind === 'night') {
-    return getPredictedBedtimeAnchor(input.snapshot, 'Отбой около');
+    return getPredictedBedtimeAnchor({
+      now: input.now,
+      prefix: 'Отбой около',
+      snapshot: input.snapshot,
+    });
   }
 
   return getNapWindowAnchor({
@@ -488,12 +511,21 @@ function getScenarioDetailLine(scenario: RecommendationScenario): string | null 
   return detail ? `Причина: ${detail}` : null;
 }
 
-function getPredictedBedtimeLine(snapshot: SleepSnapshot, prefix: string): string | null {
-  if (!isValidDate(snapshot.predictedBedtimeAt)) {
+function getPredictedBedtimeLine(input: {
+  now: Date;
+  prefix: string;
+  snapshot: SleepSnapshot;
+}): string | null {
+  if (!isValidDate(input.now) || !isValidDate(input.snapshot.predictedBedtimeAt)) {
     return null;
   }
 
-  return `${prefix} ${formatLocalClock(snapshot.predictedBedtimeAt)}.`;
+  const bedtimeAtText = formatClockWithRelativeDuration({
+    now: input.now,
+    targetAt: input.snapshot.predictedBedtimeAt,
+  });
+
+  return bedtimeAtText ? `${input.prefix} ${bedtimeAtText}.` : null;
 }
 
 function getActiveSleepShiftLine(input: {
@@ -524,7 +556,14 @@ function getNextSleepProjectionLine(input: {
   }
 
   if (input.snapshot.nextSleepKind === 'night') {
-    return `Ориентир следующего сна: около ${formatLocalClock(input.snapshot.nextSleepAt)}.`;
+    const nextSleepAtText = formatClockWithRelativeDuration({
+      now: input.now,
+      targetAt: input.snapshot.nextSleepAt,
+    });
+
+    return nextSleepAtText
+      ? `Ориентир следующего сна: около ${nextSleepAtText}.`
+      : null;
   }
 
   const nextSleepText = formatNextSleepAtText({
@@ -629,6 +668,7 @@ function getAwakeWhySummary(input: {
 
 function buildActiveSleepWhySheetVm(input: {
   badge?: string;
+  now: Date;
   plan: SleepPlanPreset;
   scenario: RecommendationScenario;
   snapshot: SleepSnapshot;
@@ -638,7 +678,11 @@ function buildActiveSleepWhySheetVm(input: {
     buildWhySection('Сейчас', [currentDuration ? `Сон длится ${currentDuration}.` : null]),
     buildTodayWhySection({ plan: input.plan, snapshot: input.snapshot }),
     buildWhySection('Прогноз', [
-      getPredictedBedtimeLine(input.snapshot, 'Если сон закончится сейчас, отбой около'),
+      getPredictedBedtimeLine({
+        now: input.now,
+        prefix: 'Если сон закончится сейчас, отбой около',
+        snapshot: input.snapshot,
+      }),
       getActiveSleepShiftLine({
         plan: input.plan,
         scenario: input.scenario,
@@ -697,7 +741,11 @@ function buildAwakeWhySheetVm(input: {
     ]),
     buildTodayWhySection({ plan: input.plan, snapshot: input.snapshot }),
     buildWhySection('Прогноз', [
-      getPredictedBedtimeLine(input.snapshot, 'Отбой пока около'),
+      getPredictedBedtimeLine({
+        now: input.now,
+        prefix: 'Отбой пока около',
+        snapshot: input.snapshot,
+      }),
     ]),
     buildPlanWhySection({ plan: input.plan }),
     buildWhySection('Расчёт', [
@@ -742,7 +790,12 @@ function buildActiveSleepCard(input: {
       plan: input.plan,
       sleepDayStart: input.sleepDayStart,
       snapshot: input.snapshot,
-    }) ?? getPredictedBedtimeAnchor(input.snapshot, 'Отбой пока около');
+    }) ??
+    getPredictedBedtimeAnchor({
+      now: input.now,
+      prefix: 'Отбой пока около',
+      snapshot: input.snapshot,
+    });
   const sleepCanContinue = canActiveSleepContinue(input.snapshot, input.plan);
 
   if (sleepCanContinue) {
@@ -773,13 +826,18 @@ function buildActiveSleepCard(input: {
 function buildNightCard(input: {
   badge?: string;
   metadata: NonNullable<ReturnType<typeof getScenarioMetadata>>;
+  now: Date;
   plan: SleepPlanPreset;
   scenario: RecommendationScenario;
   sleepDayStart: Date;
   snapshot: SleepSnapshot;
 }): SleepCoachCardVm {
   const anchor =
-    getPredictedBedtimeAnchor(input.snapshot, 'Отбой около') ??
+    getPredictedBedtimeAnchor({
+      now: input.now,
+      prefix: 'Отбой около',
+      snapshot: input.snapshot,
+    }) ??
     getBedtimeRangeAnchor(input.plan, input.sleepDayStart);
 
   if (input.scenario.id !== 'earlyBedtime') {
@@ -821,7 +879,11 @@ function buildAwakeCard(input: {
   if (minutesUntilNextSleep <= 0 || input.snapshot.remainingAwakeMinutes <= 0) {
     return withCommonFields({
       ...input.metadata,
-      anchor: getPredictedBedtimeAnchor(input.snapshot, 'Отбой пока можно сохранить около'),
+      anchor: getPredictedBedtimeAnchor({
+        now: input.now,
+        prefix: 'Отбой пока можно сохранить около',
+        snapshot: input.snapshot,
+      }),
       badge: input.badge,
       body: 'Бодрствование уже затянулось. Сон сейчас поможет не разогнать вечер.',
       primaryActionLabel: 'Начать сон',
@@ -903,6 +965,7 @@ export function buildSleepCoachCardVm(input: BuildSleepCoachCardVmInput): SleepC
     return buildNightCard({
       badge,
       metadata,
+      now: input.now,
       plan: input.plan,
       scenario,
       sleepDayStart: input.sleepDayStart,
@@ -947,6 +1010,7 @@ export function buildSleepCoachWhySheetVm(
   if (input.snapshot.state === 'sleeping') {
     return buildActiveSleepWhySheetVm({
       badge,
+      now: input.now,
       plan: input.plan,
       scenario,
       snapshot: input.snapshot,

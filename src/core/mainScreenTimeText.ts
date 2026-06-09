@@ -41,6 +41,28 @@ export function formatRelativeDurationLong(minutes: number): string | null {
   return `${hoursText} ${formatCount(restMinutes, 'минуту', 'минуты', 'минут')}`;
 }
 
+export function formatClockWithRelativeDuration(input: {
+  now: Date;
+  targetAt: Date;
+  pastText?: string;
+}): string | null {
+  if (!isValidDate(input.now) || !isValidDate(input.targetAt)) {
+    return null;
+  }
+
+  const clock = formatLocalClock(input.targetAt);
+  const millisecondsUntil = input.targetAt.getTime() - input.now.getTime();
+
+  if (millisecondsUntil <= 0) {
+    return `${clock} (${input.pastText ?? 'сейчас'})`;
+  }
+
+  const minutesUntil = Math.max(1, Math.ceil(millisecondsUntil / MS_PER_MINUTE));
+  const duration = formatRelativeDurationLong(minutesUntil);
+
+  return duration ? `${clock} (через ${duration})` : null;
+}
+
 export function formatNextSleepAtText(input: {
   now: Date;
   nextSleepAt: Date;
@@ -49,19 +71,11 @@ export function formatNextSleepAtText(input: {
     return null;
   }
 
-  if (input.nextSleepAt.getTime() <= input.now.getTime()) {
-    return 'Следующий сон уже можно начинать';
-  }
+  const sleepAtText = formatClockWithRelativeDuration({
+    now: input.now,
+    pastText: 'уже можно начинать',
+    targetAt: input.nextSleepAt,
+  });
 
-  const minutesUntil = Math.max(
-    1,
-    Math.round((input.nextSleepAt.getTime() - input.now.getTime()) / MS_PER_MINUTE),
-  );
-  const duration = formatRelativeDurationLong(minutesUntil);
-
-  if (!duration) {
-    return null;
-  }
-
-  return `Следующий сон в ${formatLocalClock(input.nextSleepAt)} (через ${duration})`;
+  return sleepAtText ? `Следующий сон в ${sleepAtText}` : null;
 }

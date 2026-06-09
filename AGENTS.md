@@ -382,7 +382,7 @@ The card copy must be short, calm, and safe for a tired parent. Always set the e
 
 For first-level next-sleep copy on the main screen, show one target time from `snapshot.nextSleepAt` plus one human-readable relative duration, for example `Следующий сон в 10:25 (через 2 часа 15 минут)`. Use the shared pure formatter in `src/core/mainScreenTimeText.ts` instead of duplicating min/max wake-window text in `src/core/mainScreenSleepCoach.ts`, `src/core/todayShortSummary.ts`, presentational components, or `src/app/index.tsx`. Do not show first-level ranges like `примерно через 142–147 мин`; wake-window ranges can remain in detailed planning/check screens when they are explicitly useful.
 
-For first-level bedtime copy on the main screen, keep the coach card and `Сегодня коротко` aligned around one current forecast from `snapshot.predictedBedtimeAt`. When the next step is night or the primary scenario is early bedtime, show copy such as `Отбой около HH:MM` / `Отбой: около HH:MM` instead of mixing that forecast with the wider plan bedtime range from `calculatePlanBedtimeRange(...)`. A plan range may appear in detailed planning/check views or as a fallback when no safe forecast exists, but it must not sit next to the current forecast on the first level because it looks like conflicting advice.
+For first-level bedtime copy on the main screen, keep the coach card and `Сегодня коротко` aligned around one current forecast from `snapshot.predictedBedtimeAt`. When the next step is night or the primary scenario is early bedtime, show one action time plus one human-readable relative duration, for example `Отбой около 20:51 (через 25 минут)` / `Отбой: около 20:51 (через 25 минут)`, instead of mixing that forecast with the wider plan bedtime range from `calculatePlanBedtimeRange(...)`. Use the shared pure formatter in `src/core/mainScreenTimeText.ts` for clock-plus-relative text; do not duplicate relative-duration math in `src/core/mainScreenSleepCoach.ts`, `src/core/todayShortSummary.ts`, presentational components, or `src/app/index.tsx`. A plan range may appear in detailed planning/check views or as a fallback when no safe forecast exists, but it must not sit next to the current forecast on the first level because it looks like conflicting advice.
 
 When `snapshot.nextSleepKind === 'night'`, do not automatically label the coach card as `Лучше ранний отбой`. Use early-bedtime wording only when the primary scenario id is `earlyBedtime`. If the primary scenario is `normal` because the bedtime forecast is close to the plan, keep the card calm, for example `Переходим к ночи`, and do not say that the day shifted.
 
@@ -412,6 +412,7 @@ When changing the coach card, cover at least:
 - `Другие варианты` bottom sheet opens through the existing modal pattern, uses `snapshot.scenarios`, puts the recommended scenario first, and remains read-only;
 - tracking-only without active plan and empty/one-scenario states do not show competing scenario UI on the main screen;
 - active-sleep and awake explanation VM sections show only available data and fall back calmly when data is incomplete;
+- bedtime anchors and explanation lines include both the clock time and relative duration, including the short `< 1 hour` case and the longer `> 1 hour` case;
 - all user-facing strings are free of `undefined`, `null`, and `NaN`.
 
 ## Implementation lessons from main screen short summary
@@ -422,7 +423,7 @@ Keep `src/components/TodayShortSummary.tsx` presentational. It should accept `To
 
 For today with an active plan, show `Сегодня коротко` after `SleepCoachCard` and before plan detail blocks, bottle-feeding cards, and the timeline. It may show 2-4 short rows when data exists:
 - `Следующий сон в HH:MM (через X часов Y минут)` only while the child is awake and a next nap target is available;
-- `Отбой: около HH:MM` only when predicted bedtime is available;
+- `Отбой: около HH:MM (через X часов Y минут)` only when predicted bedtime is available;
 - `Дневной сон: X` only when factual day-sleep summary is available;
 - `Кормление: X назад` only when bottle feeding is enabled and a latest feeding exists.
 
@@ -437,6 +438,7 @@ Keep `До цели бодрств.` and summed 24-hour awake time off the first
 When changing `Сегодня коротко`, cover at least:
 - today + active plan shows available compact forecast and factual rows;
 - next sleep uses one target clock time from `snapshot.nextSleepAt` with a long relative duration, not a min/max minute range;
+- bedtime uses one predicted clock time from `snapshot.predictedBedtimeAt` with a long relative duration and stays aligned with the coach card wording;
 - active sleep does not show `Следующий сон: после сна`;
 - `tracking_only` without active plan hides plan rows and can keep factual rows;
 - bottle feeding stays secondary and does not affect sleep calculations or recommendations;

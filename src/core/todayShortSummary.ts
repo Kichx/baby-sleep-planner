@@ -1,6 +1,8 @@
 import { formatBottleFeedingElapsed } from '@/core/bottleFeeding';
-import { formatLocalClock } from '@/core/localDateTime';
-import { formatNextSleepAtText } from '@/core/mainScreenTimeText';
+import {
+  formatClockWithRelativeDuration,
+  formatNextSleepAtText,
+} from '@/core/mainScreenTimeText';
 import type { BottleFeeding } from '@/types/bottleFeeding';
 import type { SleepDaySummary, SleepPlanPreset, SleepSnapshot } from '@/types/sleep';
 
@@ -155,14 +157,28 @@ function buildActiveSleepNextWindowRow(
   };
 }
 
-function buildBedtimeRow(snapshot: SleepSnapshot): TodayShortSummaryRowVm | null {
-  if (!isValidDate(snapshot.predictedBedtimeAt)) {
+function buildBedtimeRow(input: {
+  now: Date;
+  snapshot: SleepSnapshot;
+}): TodayShortSummaryRowVm | null {
+  if (!isValidDate(input.now) || !isValidDate(input.snapshot.predictedBedtimeAt)) {
+    return null;
+  }
+
+  const bedtimeAtText = normalizeLine(
+    formatClockWithRelativeDuration({
+      now: input.now,
+      targetAt: input.snapshot.predictedBedtimeAt,
+    }),
+  );
+
+  if (!bedtimeAtText) {
     return null;
   }
 
   return {
     id: 'bedtime',
-    text: `Отбой: около ${formatLocalClock(snapshot.predictedBedtimeAt)}`,
+    text: `Отбой: около ${bedtimeAtText}`,
     tone: 'primary',
   };
 }
@@ -225,7 +241,10 @@ export function buildTodayShortSummaryVm(
           snapshot: input.snapshot,
         }),
         buildActiveSleepNextWindowRow(input.snapshot),
-        buildBedtimeRow(input.snapshot),
+        buildBedtimeRow({
+          now: input.now,
+          snapshot: input.snapshot,
+        }),
       ])
     : [];
   const rows = compactRows([
