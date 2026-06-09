@@ -17,6 +17,7 @@ import { ProfileAvatar } from '@/components/ProfileAvatar';
 import { SleepPlanIcon } from '@/components/SleepPlanIcon';
 import { SleepRetrospectiveIcon } from '@/components/SleepRetrospectiveIcon';
 import { SleepCoachCard } from '@/components/SleepCoachCard';
+import { SleepCoachWhySheet } from '@/components/SleepCoachWhySheet';
 import { SleepDayTimeline } from '@/components/SleepDayTimeline';
 import { SleepSessionEditorModal } from '@/components/SleepSessionEditorModal';
 import { SummaryCard } from '@/components/SummaryCard';
@@ -41,7 +42,10 @@ import {
   inferSleepKindForStart,
   minutesBetween,
 } from '@/core/sleepCalculations';
-import { buildSleepCoachCardVm } from '@/core/mainScreenSleepCoach';
+import {
+  buildSleepCoachCardVm,
+  buildSleepCoachWhySheetVm,
+} from '@/core/mainScreenSleepCoach';
 import {
   addLocalCalendarDays,
   dateAtLocalNoon,
@@ -750,6 +754,7 @@ export default function TodaySleepScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [isChangingDayPlan, setIsChangingDayPlan] = useState(false);
   const [isPlanPickerOpen, setIsPlanPickerOpen] = useState(false);
+  const [isSleepCoachWhySheetOpen, setIsSleepCoachWhySheetOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [editorState, setEditorState] = useState<EditorState | null>(null);
   const [bottleFeedingEditorState, setBottleFeedingEditorState] =
@@ -1200,14 +1205,21 @@ export default function TodaySleepScreen() {
   const temporaryModeBadgeLabel = mainScreenSleepUi.canShowTemporaryModeBadges
     ? getTemporaryModeBadgeLabel(sleepDayTemporaryModes)
     : null;
-  const sleepCoachCard = buildSleepCoachCardVm({
+  const sleepCoachInput = {
     now,
     plan: sleepPlan,
     sleepDayStart: selectedDayStart,
     snapshot,
     temporaryModeBadge: temporaryModeBadgeLabel,
     viewState: mainScreenSleepUi,
-  });
+  };
+  const sleepCoachCard = buildSleepCoachCardVm(sleepCoachInput);
+  const sleepCoachWhySheet = buildSleepCoachWhySheetVm(sleepCoachInput);
+  useEffect(() => {
+    if (!sleepCoachWhySheet.visible && isSleepCoachWhySheetOpen) {
+      setIsSleepCoachWhySheetOpen(false);
+    }
+  }, [isSleepCoachWhySheetOpen, sleepCoachWhySheet.visible]);
   const shouldShowEarlyWakeSuggestion =
     mainScreenSleepUi.canShowCoachBlocks &&
     hasPersistedCurrentPlan &&
@@ -1394,6 +1406,18 @@ export default function TodaySleepScreen() {
 
   function openSleepPlan() {
     router.push(SLEEP_PLAN_ROUTE);
+  }
+
+  function openSleepCoachWhy() {
+    if (!sleepCoachWhySheet.visible) {
+      return;
+    }
+
+    setIsSleepCoachWhySheetOpen(true);
+  }
+
+  function closeSleepCoachWhy() {
+    setIsSleepCoachWhySheetOpen(false);
   }
 
   function openEveningPromptSleepPlan() {
@@ -2120,7 +2144,7 @@ export default function TodaySleepScreen() {
 
               <SleepCoachCard
                 onOpenAlternatives={openSleepPlan}
-                onOpenWhy={openSleepPlan}
+                onOpenWhy={openSleepCoachWhy}
                 vm={sleepCoachCard}
               />
 
@@ -2627,6 +2651,11 @@ export default function TodaySleepScreen() {
         </SafeAreaView>
       </ScrollView>
 
+      <SleepCoachWhySheet
+        onClose={closeSleepCoachWhy}
+        visible={isSleepCoachWhySheetOpen}
+        vm={sleepCoachWhySheet}
+      />
       <SleepSessionEditorModal
         existingSessions={editModalSessions}
         isSaving={isSaving}

@@ -380,6 +380,10 @@ The card copy must be short, calm, and safe for a tired parent. Always set the e
 
 Keep `src/components/SleepCoachCard.tsx` as a presentational component. It should accept `SleepCoachCardVm`, return `null` when `vm.visible=false`, render secondary actions only from `hasWhyDetails` / `hasAlternatives`, and receive navigation or modal callbacks from the screen. Do not put sleep calculations, SQLite calls, temporary-mode writes, or direct Expo Router calls inside the component.
 
+The coach card `Почему так` action should open a local bottom sheet on `/`, not navigate to `/sleep-plan` and not create a new route. Keep the exact explanation in a pure core helper such as `buildSleepCoachWhySheetVm(...)`; React may pass the current snapshot, selected scenario/scenario id, active/effective plan, next-sleep projection, predicted bedtime, day-sleep summary, active/awake duration, and temporary-mode badge, but must not recalculate bedtime or wake windows inline. The sheet is read-only UI state: do not write SQLite rows, temporary modes, snapshots, history, notifications, export/import data, or app settings when opening or closing it.
+
+Keep `src/components/SleepCoachWhySheet.tsx` presentational and use the established `Modal` + `BottomSheetSafeArea` bottom-sheet pattern. The sheet should render only available VM sections, use a calm fallback when data is incomplete, and never show empty lines or user-facing `undefined`, `null`, or `NaN`. Active-sleep explanations should focus on current sleep duration, day sleep, and bedtime projection; awake explanations should focus on current wake duration, next sleep window/projection, bedtime projection, and the calm reason for the current recommendation.
+
 On the main `/` screen, render the coach card after the hero status and primary sleep actions, before forecast cards, old scenario/regression blocks, bottle-feeding cards, and the mixed timeline. The card should be visually stronger than ordinary info cards through a calm primary accent, but avoid red, bright yellow, or warning/error styling for normal day drift. Bottle feeding must not visually outrank the sleep actions or the coach card.
 
 Before wiring the coach card into UI, lock the core view-model contract with unit tests next to `src/core/mainScreenSleepCoach.ts`. Test visible today states, hidden non-today/tracking-only/no-data states, unsafe or partial snapshots, temporary-mode badge passthrough, alternatives metadata, calm bedtime wording, absence of `undefined`/`null`/`NaN`, and that the helper does not mutate the plan or snapshot inputs.
@@ -392,6 +396,8 @@ When changing the coach card, cover at least:
 - awake states cover calm, preparation, and act-now recommendations;
 - next step is night uses early-bedtime copy;
 - temporary-mode badge and alternatives metadata pass through;
+- `Почему так` bottom sheet opens through the existing modal pattern and remains read-only;
+- active-sleep and awake explanation VM sections show only available data and fall back calmly when data is incomplete;
 - all user-facing strings are free of `undefined`, `null`, and `NaN`.
 
 ## Implementation lessons from first active plan with no sleep records

@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildSleepCoachCardVm,
+  buildSleepCoachWhySheetVm,
   type BuildSleepCoachCardVmInput,
   type SleepCoachCardVm,
+  type SleepCoachWhySheetVm,
 } from '@/core/mainScreenSleepCoach';
 import { DEFAULT_SLEEP_PLAN } from '@/constants/sleep';
 import type { SleepPlanPreset, SleepSnapshot } from '@/types/sleep';
@@ -74,6 +76,20 @@ function buildCard(overrides: Partial<BuildSleepCoachCardVmInput> = {}): SleepCo
   });
 }
 
+function buildWhySheet(
+  overrides: Partial<BuildSleepCoachCardVmInput> = {},
+): SleepCoachWhySheetVm {
+  return buildSleepCoachWhySheetVm({
+    now: at(8, 0),
+    plan: TEST_PLAN,
+    sleepDayStart: dayStart,
+    snapshot: baseSnapshot(),
+    temporaryModeBadge: null,
+    viewState: baseViewState,
+    ...overrides,
+  });
+}
+
 function expectUserStringsSafe(card: SleepCoachCardVm): void {
   const userStrings = [
     card.eyebrow,
@@ -90,12 +106,37 @@ function expectUserStringsSafe(card: SleepCoachCardVm): void {
   });
 }
 
+function expectWhySheetStringsSafe(sheet: SleepCoachWhySheetVm): void {
+  const userStrings = [
+    sheet.title,
+    sheet.badge,
+    sheet.summary,
+    ...sheet.sections.flatMap((section) => [section.title, ...section.lines]),
+  ].filter((value): value is string => typeof value === 'string');
+
+  userStrings.forEach((value) => {
+    expect(value).not.toMatch(/undefined|null|NaN/);
+
+    if (sheet.visible) {
+      expect(value.trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  sheet.sections.forEach((section) => {
+    expect(section.lines.length).toBeGreaterThan(0);
+  });
+}
+
 function expectVisibleCardBasics(card: SleepCoachCardVm): void {
   expect(card.visible).toBe(true);
   expect(card.eyebrow).toBe('Что лучше сейчас');
   expect(card.title.trim().length).toBeGreaterThan(0);
   expect(card.body.trim().length).toBeGreaterThan(0);
   expectUserStringsSafe(card);
+}
+
+function getWhySheetLines(sheet: SleepCoachWhySheetVm): string[] {
+  return sheet.sections.flatMap((section) => section.lines);
 }
 
 function clonePlan(plan: SleepPlanPreset): SleepPlanPreset {
@@ -452,5 +493,178 @@ describe('buildSleepCoachCardVm', () => {
     });
     expectUserStringsSafe(oneScenarioCard);
     expectUserStringsSafe(noScenarioCard);
+  });
+});
+
+describe('buildSleepCoachWhySheetVm', () => {
+  it('builds active-sleep explanation from current duration, day sleep, bedtime and plan', () => {
+    const sheet = buildWhySheet({
+      now: at(10, 0),
+      snapshot: baseSnapshot({
+        currentDurationMinutes: 20,
+        nextSleepAt: at(10, 0),
+        predictedBedtimeAt: at(20, 30),
+        projectedRemainingDaySleepMinutes: 40,
+        state: 'sleeping',
+        statusStartedAt: at(9, 40),
+        totalDaySleepMinutes: 20,
+      }),
+      temporaryModeBadge: 'Сегодня мягкий день',
+    });
+
+    expect(sheet).toMatchObject({
+      badge: 'Сегодня мягкий день',
+      isFallback: false,
+      scenarioId: 'normal',
+      title: 'Почему так',
+      visible: true,
+    });
+    expect(getWhySheetLines(sheet)).toContain('Сон длится 20 мин.');
+    expect(getWhySheetLines(sheet)).toContain('Дневной сон уже 20 мин.');
+    expect(getWhySheetLines(sheet)).toContain(
+      'Если сон закончится сейчас, отбой около 20:30.',
+    );
+    expect(getWhySheetLines(sheet)).toContain('В эффективном плане 3 дневных сна.');
+    expect(sheet.summary).toBe(
+      'Поэтому сейчас лучше дать поспать ещё, а после пробуждения пересчитать следующий шаг.',
+    );
+    expectWhySheetStringsSafe(sheet);
+  });
+
+  it('shows the active-sleep bedtime shift line only when the current data supports it', () => {
+    const calmSheet = buildWhySheet({
+      now: at(16, 15),
+      snapshot: baseSnapshot({
+        currentDurationMinutes: 15,
+        nextSleepAt: at(16, 15),
+        projectedRemainingDaySleepMinutes: 0,
+        state: 'sleeping',
+        statusStartedAt: at(16, 0),
+        totalDaySleepMinutes: 15,
+      }),
+    });
+    const shiftSheet = buildWhySheet({
+      now: at(18, 10),
+      snapshot: baseSnapshot({
+        currentDurationMinutes: 70,
+        nextSleepAt: at(18, 10),
+        predictedBedtimeAt: at(21, 0),
+        projectedRemainingDaySleepMinutes: 0,
+        state: 'sleeping',
+        statusStartedAt: at(17, 0),
+        totalDaySleepMinutes: 70,
+      }),
+    });
+
+    expect(getWhySheetLines(calmSheet)).not.toContain(
+      'Если сон продлится ещё, отбой может сдвинуться.',
+    );
+    expect(getWhySheetLines(shiftSheet)).toContain(
+      'Если сон продлится ещё, отбой может сдвинуться.',
+    );
+    expect(shiftSheet.summary).toBe(
+      'Поэтому сейчас лучше мягко завершить сон в ближайшее время, чтобы вечер остался спокойным.',
+    );
+    expectWhySheetStringsSafe(calmSheet);
+    expectWhySheetStringsSafe(shiftSheet);
+  });
+
+  it('builds awake explanation with wake duration, next sleep projection and bedtime', () => {
+    const sheet = buildWhySheet();
+
+    expect(sheet).toMatchObject({
+      isFallback: false,
+      scenarioId: 'normal',
+      title: 'Почему так',
+      visible: true,
+    });
+    expect(getWhySheetLines(sheet)).toContain('Бодрствует 1 ч.');
+    expect(getWhySheetLines(sheet)).toContain('Ориентир следующего сна: 09:00–10:00.');
+    expect(getWhySheetLines(sheet)).toContain('Отбой пока около 20:30.');
+    expect(sheet.summary).toBe(
+      'Поэтому пока можно бодрствовать, а ближе к окну перейти к спокойной подготовке.',
+    );
+    expectWhySheetStringsSafe(sheet);
+  });
+
+  it('uses early-bedtime explanation when the next step is night', () => {
+    const sheet = buildWhySheet({
+      now: at(18, 20),
+      snapshot: baseSnapshot({
+        currentDurationMinutes: 140,
+        nextSleepAt: at(19, 0),
+        nextSleepKind: 'night',
+        predictedBedtimeAt: at(19, 0),
+        scenarios: [
+          {
+            detail: 'Ночь лучше начать раньше.',
+            id: 'earlyBedtime',
+            priority: 'primary',
+            title: 'Отбой раньше',
+          },
+        ],
+        statusStartedAt: at(16, 0),
+      }),
+    });
+
+    expect(sheet.scenarioId).toBe('earlyBedtime');
+    expect(getWhySheetLines(sheet)).toContain('Ориентир следующего сна: около 19:00.');
+    expect(sheet.summary).toBe(
+      'Поэтому сейчас лучше спокойно двигаться к отбою без ещё одного дневного сна.',
+    );
+    expectWhySheetStringsSafe(sheet);
+  });
+
+  it('returns calm fallback copy when detailed data is not available', () => {
+    const sheet = buildWhySheet({
+      snapshot: null,
+    });
+
+    expect(sheet).toMatchObject({
+      isFallback: true,
+      sections: [],
+      summary:
+        'Пока мало данных для точного объяснения. После следующей записи сна расчёт станет понятнее.',
+      title: 'Почему так',
+      visible: true,
+    });
+    expectWhySheetStringsSafe(sheet);
+  });
+
+  it('stays hidden for tracking-only without an active plan', () => {
+    const sheet = buildWhySheet({
+      plan: null,
+      viewState: {
+        ...baseViewState,
+        canShowCoachBlocks: false,
+        hasActiveTargetPlan: false,
+        isTrackingOnlyWithoutPlan: true,
+        showPlanBasedPredictions: false,
+      },
+    });
+
+    expect(sheet.visible).toBe(false);
+    expect(sheet.sections).toEqual([]);
+    expect(sheet.summary).toBe('');
+    expectWhySheetStringsSafe(sheet);
+  });
+
+  it('does not mutate plan or snapshot while building the explanation', () => {
+    const plan = clonePlan(TEST_PLAN);
+    const snapshot = baseSnapshot();
+    const planBefore = clonePlan(plan);
+    const snapshotBefore = cloneSnapshot(snapshot);
+
+    const sheet = buildWhySheet({
+      plan,
+      snapshot,
+      temporaryModeBadge: 'Сегодня ранний подъём',
+    });
+
+    expect(sheet.badge).toBe('Сегодня ранний подъём');
+    expect(sheet.visible).toBe(true);
+    expect(plan).toEqual(planBefore);
+    expect(snapshot).toEqual(snapshotBefore);
+    expectWhySheetStringsSafe(sheet);
   });
 });

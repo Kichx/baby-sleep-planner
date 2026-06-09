@@ -30,6 +30,21 @@ export type SleepCoachCardVm = {
   hasAlternatives: boolean;
 };
 
+export type SleepCoachWhySectionVm = {
+  title: string;
+  lines: string[];
+};
+
+export type SleepCoachWhySheetVm = {
+  visible: boolean;
+  title: string;
+  badge?: string;
+  scenarioId?: RecommendationScenarioId;
+  sections: SleepCoachWhySectionVm[];
+  summary: string;
+  isFallback: boolean;
+};
+
 type SleepCoachSourceViewState = {
   canShowCoachBlocks: boolean;
   hasActiveTargetPlan: boolean;
@@ -48,7 +63,12 @@ export type BuildSleepCoachCardVmInput = {
   viewState: SleepCoachSourceViewState;
 };
 
+export type BuildSleepCoachWhySheetVmInput = BuildSleepCoachCardVmInput;
+
 const EYEBROW = 'Что лучше сейчас';
+const WHY_TITLE = 'Почему так';
+const WHY_FALLBACK_SUMMARY =
+  'Пока мало данных для точного объяснения. После следующей записи сна расчёт станет понятнее.';
 const DAY_MINUTES = 24 * 60;
 const PREPARE_THRESHOLD_MINUTES = 30;
 
@@ -62,11 +82,19 @@ const HIDDEN_SLEEP_COACH_CARD_VM: SleepCoachCardVm = {
   hasAlternatives: false,
 };
 
+const HIDDEN_SLEEP_COACH_WHY_SHEET_VM: SleepCoachWhySheetVm = {
+  visible: false,
+  title: WHY_TITLE,
+  sections: [],
+  summary: '',
+  isFallback: false,
+};
+
 function isValidDate(value: Date | null | undefined): value is Date {
   return value instanceof Date && Number.isFinite(value.getTime());
 }
 
-function isValidFiniteNumber(value: number): boolean {
+function isValidFiniteNumber(value: unknown): value is number {
   return Number.isFinite(value);
 }
 
@@ -78,7 +106,9 @@ function hasSafeSnapshotDates(snapshot: SleepSnapshot): boolean {
     isValidFiniteNumber(snapshot.currentDurationMinutes) &&
     isValidFiniteNumber(snapshot.completedNaps) &&
     isValidFiniteNumber(snapshot.projectedRemainingDaySleepMinutes) &&
-    isValidFiniteNumber(snapshot.remainingAwakeMinutes)
+    isValidFiniteNumber(snapshot.remainingAwakeMinutes) &&
+    isValidFiniteNumber(snapshot.totalAwakeMinutes) &&
+    isValidFiniteNumber(snapshot.totalDaySleepMinutes)
   );
 }
 
@@ -103,7 +133,7 @@ function getScenarioMetadata(snapshot: SleepSnapshot): {
 
   return {
     hasAlternatives: snapshot.scenarios.length > 1,
-    hasWhyDetails: scenario.detail.trim().length > 0,
+    hasWhyDetails: true,
     scenarioId: scenario.id,
   };
 }
@@ -207,6 +237,356 @@ function canActiveSleepContinue(snapshot: SleepSnapshot, plan: SleepPlanPreset):
     snapshot.projectedRemainingDaySleepMinutes > 0 ||
     snapshot.currentDurationMinutes < shortNapLimitMinutes
   );
+}
+
+function formatDurationForWhy(minutes: number): string | null {
+  if (!isValidFiniteNumber(minutes)) {
+    return null;
+  }
+
+  const roundedMinutes = Math.max(0, Math.round(minutes));
+  const hours = Math.floor(roundedMinutes / 60);
+  const restMinutes = roundedMinutes % 60;
+
+  if (hours === 0) {
+    return `${restMinutes} мин`;
+  }
+
+  if (restMinutes === 0) {
+    return `${hours} ч`;
+  }
+
+  return `${hours} ч ${restMinutes} мин`;
+}
+
+function formatNapCountForWhy(count: number): string | null {
+  if (!isValidFiniteNumber(count)) {
+    return null;
+  }
+
+  const roundedCount = Math.max(0, Math.round(count));
+  const mod10 = roundedCount % 10;
+  const mod100 = roundedCount % 100;
+  const suffix =
+    mod10 === 1 && mod100 !== 11
+      ? 'дневной сон'
+      : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
+        ? 'дневных сна'
+        : 'дневных снов';
+
+  return `${roundedCount} ${suffix}`;
+}
+
+function normalizeWhyLine(line: string | null | undefined): string | null {
+  const trimmedLine = line?.trim();
+
+  if (!trimmedLine || /undefined|null|NaN/.test(trimmedLine)) {
+    return null;
+  }
+
+  return trimmedLine;
+}
+
+function buildWhySection(
+  title: string,
+  rawLines: Array<string | null | undefined>,
+): SleepCoachWhySectionVm | null {
+  const lines = rawLines
+    .map((line) => normalizeWhyLine(line))
+    .filter((line): line is string => line !== null);
+
+  if (lines.length === 0) {
+    return null;
+  }
+
+  return { title, lines };
+}
+
+function compactWhySections(
+  sections: Array<SleepCoachWhySectionVm | null>,
+): SleepCoachWhySectionVm[] {
+  return sections.filter((section): section is SleepCoachWhySectionVm => section !== null);
+}
+
+function buildFallbackWhySheetVm(badge: string | undefined): SleepCoachWhySheetVm {
+  return {
+    visible: true,
+    title: WHY_TITLE,
+    badge,
+    sections: [],
+    summary: WHY_FALLBACK_SUMMARY,
+    isFallback: true,
+  };
+}
+
+function canShowWhySheetShell(viewState: SleepCoachSourceViewState): boolean {
+  return (
+    viewState.canShowCoachBlocks &&
+    viewState.hasActiveTargetPlan &&
+    viewState.isTodaySelected &&
+    !viewState.isTrackingOnlyWithoutPlan &&
+    !viewState.showPlanStartNoDataHint &&
+    viewState.showPlanBasedPredictions
+  );
+}
+
+function getScenarioLine(scenario: RecommendationScenario): string | null {
+  const title = normalizeWhyLine(scenario.title);
+
+  return title ? `Рекомендация: ${title}.` : null;
+}
+
+function getScenarioDetailLine(scenario: RecommendationScenario): string | null {
+  const detail = normalizeWhyLine(scenario.detail);
+
+  return detail ? `Причина: ${detail}` : null;
+}
+
+function getPredictedBedtimeLine(snapshot: SleepSnapshot, prefix: string): string | null {
+  if (!isValidDate(snapshot.predictedBedtimeAt)) {
+    return null;
+  }
+
+  return `${prefix} ${formatLocalClock(snapshot.predictedBedtimeAt)}.`;
+}
+
+function getActiveSleepShiftLine(input: {
+  plan: SleepPlanPreset;
+  scenario: RecommendationScenario;
+  snapshot: SleepSnapshot;
+}): string | null {
+  const sleepCanContinue = canActiveSleepContinue(input.snapshot, input.plan);
+  const scenarioText = `${input.scenario.title} ${input.scenario.detail}`.toLowerCase();
+  const scenarioMentionsEveningShift =
+    scenarioText.includes('позже') ||
+    scenarioText.includes('сдвин') ||
+    scenarioText.includes('вечер');
+
+  if (!sleepCanContinue || scenarioMentionsEveningShift) {
+    return 'Если сон продлится ещё, отбой может сдвинуться.';
+  }
+
+  return null;
+}
+
+function getNextSleepProjectionLine(input: {
+  now: Date;
+  plan: SleepPlanPreset;
+  snapshot: SleepSnapshot;
+}): string | null {
+  if (!isValidDate(input.snapshot.nextSleepAt) || !isValidDate(input.snapshot.statusStartedAt)) {
+    return null;
+  }
+
+  if (input.snapshot.nextSleepKind === 'night') {
+    return `Ориентир следующего сна: около ${formatLocalClock(input.snapshot.nextSleepAt)}.`;
+  }
+
+  const wakeWindow = getWakeWindowForNextNap(input.snapshot.completedNaps, input.plan);
+  const startAt = addMinutes(input.snapshot.statusStartedAt, wakeWindow.minWakeMinutes);
+  const endAt = addMinutes(input.snapshot.statusStartedAt, wakeWindow.maxWakeMinutes);
+
+  if (isValidDate(startAt) && isValidDate(endAt) && endAt.getTime() >= startAt.getTime()) {
+    return `Ориентир следующего сна: ${formatLocalClock(startAt)}–${formatLocalClock(endAt)}.`;
+  }
+
+  const minutesUntilNextSleep = minutesBetween(input.now, input.snapshot.nextSleepAt);
+
+  if (isValidFiniteNumber(minutesUntilNextSleep) && minutesUntilNextSleep > 0) {
+    return `Ориентир следующего сна: примерно через ${minutesUntilNextSleep} мин.`;
+  }
+
+  return `Ориентир следующего сна: около ${formatLocalClock(input.snapshot.nextSleepAt)}.`;
+}
+
+function buildTodayWhySection(input: {
+  plan: SleepPlanPreset;
+  snapshot: SleepSnapshot;
+}): SleepCoachWhySectionVm | null {
+  const totalDaySleep = formatDurationForWhy(input.snapshot.totalDaySleepMinutes);
+  const projectedDaySleep = formatDurationForWhy(
+    input.snapshot.projectedRemainingDaySleepMinutes,
+  );
+  const completedNaps = isValidFiniteNumber(input.snapshot.completedNaps)
+    ? Math.max(0, Math.round(input.snapshot.completedNaps))
+    : null;
+  const plannedNaps = isValidFiniteNumber(input.plan.napCount)
+    ? Math.max(0, Math.round(input.plan.napCount))
+    : null;
+
+  return buildWhySection('Сегодня', [
+    totalDaySleep ? `Дневной сон уже ${totalDaySleep}.` : null,
+    completedNaps !== null && plannedNaps !== null
+      ? `Дневных снов: ${completedNaps} из ${plannedNaps}.`
+      : null,
+    projectedDaySleep && input.snapshot.projectedRemainingDaySleepMinutes > 0
+      ? `В прогнозе ещё дневного сна ${projectedDaySleep}.`
+      : null,
+  ]);
+}
+
+function buildPlanWhySection(input: {
+  plan: SleepPlanPreset;
+}): SleepCoachWhySectionVm | null {
+  const plannedNaps = formatNapCountForWhy(input.plan.napCount);
+  const targetDaySleep = formatDurationForWhy(input.plan.targetDaySleepMinutes);
+  const targetAwake = formatDurationForWhy(input.plan.targetAwakeMinutes);
+
+  return buildWhySection('План на сегодня', [
+    plannedNaps ? `В эффективном плане ${plannedNaps}.` : null,
+    targetDaySleep ? `Цель дневного сна: ${targetDaySleep}.` : null,
+    targetAwake ? `Цель бодрствования: ${targetAwake}.` : null,
+  ]);
+}
+
+function getActiveSleepWhySummary(input: {
+  plan: SleepPlanPreset;
+  scenarioId: RecommendationScenarioId;
+  snapshot: SleepSnapshot;
+}): string {
+  if (!canActiveSleepContinue(input.snapshot, input.plan)) {
+    return 'Поэтому сейчас лучше мягко завершить сон в ближайшее время, чтобы вечер остался спокойным.';
+  }
+
+  if (input.scenarioId === 'capLastNap') {
+    return 'Поэтому сейчас лучше дать поспать ещё, но не затягивать вечерний сон слишком сильно.';
+  }
+
+  return 'Поэтому сейчас лучше дать поспать ещё, а после пробуждения пересчитать следующий шаг.';
+}
+
+function getAwakeWhySummary(input: {
+  minutesUntilNextSleep: number;
+  scenarioId: RecommendationScenarioId;
+  snapshot: SleepSnapshot;
+}): string {
+  if (input.snapshot.nextSleepKind === 'night' || input.scenarioId === 'earlyBedtime') {
+    return 'Поэтому сейчас лучше спокойно двигаться к отбою без ещё одного дневного сна.';
+  }
+
+  if (input.scenarioId === 'microNap') {
+    return 'Поэтому лучше держать следующий сон коротким и оставить вечер спокойным.';
+  }
+
+  if (input.scenarioId === 'capLastNap') {
+    return 'Поэтому следующий сон лучше не затягивать, чтобы отбой остался ближе к плану.';
+  }
+
+  if (input.scenarioId === 'stretchWakeWindow') {
+    return 'Поэтому можно бодрствовать ещё немного и начать подготовку ближе к окну.';
+  }
+
+  if (input.minutesUntilNextSleep <= 0 || input.snapshot.remainingAwakeMinutes <= 0) {
+    return 'Поэтому сейчас лучше начать сон спокойно, без спешки.';
+  }
+
+  if (input.minutesUntilNextSleep <= PREPARE_THRESHOLD_MINUTES) {
+    return 'Поэтому лучше начать подготовку ко сну сейчас, спокойно и без спешки.';
+  }
+
+  return 'Поэтому пока можно бодрствовать, а ближе к окну перейти к спокойной подготовке.';
+}
+
+function buildActiveSleepWhySheetVm(input: {
+  badge?: string;
+  plan: SleepPlanPreset;
+  scenario: RecommendationScenario;
+  snapshot: SleepSnapshot;
+}): SleepCoachWhySheetVm {
+  const currentDuration = formatDurationForWhy(input.snapshot.currentDurationMinutes);
+  const sections = compactWhySections([
+    buildWhySection('Сейчас', [currentDuration ? `Сон длится ${currentDuration}.` : null]),
+    buildTodayWhySection({ plan: input.plan, snapshot: input.snapshot }),
+    buildWhySection('Прогноз', [
+      getPredictedBedtimeLine(input.snapshot, 'Если сон закончится сейчас, отбой около'),
+      getActiveSleepShiftLine({
+        plan: input.plan,
+        scenario: input.scenario,
+        snapshot: input.snapshot,
+      }),
+    ]),
+    buildPlanWhySection({ plan: input.plan }),
+    buildWhySection('Расчёт', [
+      getScenarioLine(input.scenario),
+      getScenarioDetailLine(input.scenario),
+    ]),
+  ]);
+  const summary = normalizeWhyLine(
+    getActiveSleepWhySummary({
+      plan: input.plan,
+      scenarioId: input.scenario.id,
+      snapshot: input.snapshot,
+    }),
+  );
+
+  if (sections.length === 0 || !summary) {
+    return buildFallbackWhySheetVm(input.badge);
+  }
+
+  return {
+    visible: true,
+    title: WHY_TITLE,
+    badge: input.badge,
+    scenarioId: input.scenario.id,
+    sections,
+    summary,
+    isFallback: false,
+  };
+}
+
+function buildAwakeWhySheetVm(input: {
+  badge?: string;
+  now: Date;
+  plan: SleepPlanPreset;
+  scenario: RecommendationScenario;
+  snapshot: SleepSnapshot;
+}): SleepCoachWhySheetVm {
+  const currentDuration = formatDurationForWhy(input.snapshot.currentDurationMinutes);
+  const remainingAwake = formatDurationForWhy(input.snapshot.remainingAwakeMinutes);
+  const minutesUntilNextSleep = minutesBetween(input.now, input.snapshot.nextSleepAt);
+  const sections = compactWhySections([
+    buildWhySection('Сейчас', [
+      currentDuration ? `Бодрствует ${currentDuration}.` : null,
+      remainingAwake ? `До цели бодрствования осталось ${remainingAwake}.` : null,
+    ]),
+    buildWhySection('Ориентир', [
+      getNextSleepProjectionLine({
+        now: input.now,
+        plan: input.plan,
+        snapshot: input.snapshot,
+      }),
+    ]),
+    buildTodayWhySection({ plan: input.plan, snapshot: input.snapshot }),
+    buildWhySection('Прогноз', [
+      getPredictedBedtimeLine(input.snapshot, 'Отбой пока около'),
+    ]),
+    buildPlanWhySection({ plan: input.plan }),
+    buildWhySection('Расчёт', [
+      getScenarioLine(input.scenario),
+      getScenarioDetailLine(input.scenario),
+    ]),
+  ]);
+  const summary = normalizeWhyLine(
+    getAwakeWhySummary({
+      minutesUntilNextSleep,
+      scenarioId: input.scenario.id,
+      snapshot: input.snapshot,
+    }),
+  );
+
+  if (sections.length === 0 || !summary) {
+    return buildFallbackWhySheetVm(input.badge);
+  }
+
+  return {
+    visible: true,
+    title: WHY_TITLE,
+    badge: input.badge,
+    scenarioId: input.scenario.id,
+    sections,
+    summary,
+    isFallback: false,
+  };
 }
 
 function buildActiveSleepCard(input: {
@@ -372,6 +752,49 @@ export function buildSleepCoachCardVm(input: BuildSleepCoachCardVmInput): SleepC
     metadata,
     now: input.now,
     plan: input.plan,
+    snapshot: input.snapshot,
+  });
+}
+
+export function buildSleepCoachWhySheetVm(
+  input: BuildSleepCoachWhySheetVmInput,
+): SleepCoachWhySheetVm {
+  const badge = getBadge(input.temporaryModeBadge);
+
+  if (!canShowWhySheetShell(input.viewState)) {
+    return HIDDEN_SLEEP_COACH_WHY_SHEET_VM;
+  }
+
+  if (
+    !input.snapshot ||
+    !input.plan ||
+    !isValidDate(input.now) ||
+    !isValidDate(input.sleepDayStart) ||
+    !hasSafeSnapshotDates(input.snapshot)
+  ) {
+    return buildFallbackWhySheetVm(badge);
+  }
+
+  const scenario = getPrimaryScenario(input.snapshot);
+
+  if (!scenario) {
+    return buildFallbackWhySheetVm(badge);
+  }
+
+  if (input.snapshot.state === 'sleeping') {
+    return buildActiveSleepWhySheetVm({
+      badge,
+      plan: input.plan,
+      scenario,
+      snapshot: input.snapshot,
+    });
+  }
+
+  return buildAwakeWhySheetVm({
+    badge,
+    now: input.now,
+    plan: input.plan,
+    scenario,
     snapshot: input.snapshot,
   });
 }
