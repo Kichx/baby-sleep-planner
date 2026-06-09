@@ -2190,6 +2190,7 @@ export default function TodaySleepScreen() {
               {bottleFeedingEnabled ? (
                 <View style={styles.bottleFeedingCard}>
                   <Pressable
+                    accessibilityLabel="Открыть кормление бутылочкой"
                     accessibilityRole="button"
                     onPress={openBottleFeeding}
                     style={({ pressed }) => [
@@ -2200,18 +2201,18 @@ export default function TodaySleepScreen() {
                     <Text
                       adjustsFontSizeToFit
                       minimumFontScale={0.86}
-                      numberOfLines={2}
+                      numberOfLines={1}
                       style={styles.bottleFeedingValue}>
                       {formatLatestBottleFeedingLine(latestBottleFeeding, now)}
                     </Text>
-                    <Text numberOfLines={2} style={styles.bottleFeedingCaption}>
+                    <Text numberOfLines={1} style={styles.bottleFeedingCaption}>
                       {todayBottleFeedingStatsLine}
                     </Text>
                   </Pressable>
                   <PrimaryButton
                     compact
                     disabled={isLoading || isSaving}
-                    label="+ Добавить"
+                    label="+ Кормление"
                     onPress={openCreateBottleFeedingEditor}
                     style={styles.bottleFeedingButton}
                     textStyle={styles.bottleFeedingButtonText}
@@ -3089,50 +3090,49 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   bottleFeedingCard: {
-    minHeight: 84,
-    justifyContent: 'center',
+    minHeight: 64,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
-    position: 'relative',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
     backgroundColor: colors.surface,
   },
   bottleFeedingTextBlock: {
     flex: 1,
     minWidth: 0,
-    gap: spacing.xs,
+    gap: 2,
     borderRadius: radius.sm,
-    padding: spacing.xs,
-    margin: -spacing.xs,
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
   },
   bottleFeedingTextBlockPressed: {
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.surfaceMuted,
   },
   bottleFeedingTitle: {
     color: colors.textMuted,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '800',
   },
   bottleFeedingValue: {
     color: colors.text,
-    fontSize: 18,
-    fontWeight: '900',
-    paddingRight: 108,
+    fontSize: 14,
+    fontWeight: '800',
   },
   bottleFeedingCaption: {
     color: colors.textMuted,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
-    lineHeight: 17,
+    lineHeight: 16,
   },
   bottleFeedingButton: {
-    position: 'absolute',
-    top: spacing.sm,
-    right: spacing.md,
-    minWidth: 96,
-    minHeight: 36,
+    flexShrink: 0,
+    minWidth: 106,
+    minHeight: 34,
+    borderColor: colors.border,
     borderRadius: radius.sm,
     paddingHorizontal: spacing.sm,
   },
