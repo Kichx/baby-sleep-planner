@@ -372,7 +372,7 @@ describe('buildSleepCoachCardVm', () => {
     const card = buildCard();
 
     expect(card).toMatchObject({
-      anchor: 'Сон примерно через 60–120 мин',
+      anchor: 'Следующий сон в 09:30 (через 1 час 30 минут)',
       body: 'Следующий сон ожидается не сразу. Ближе к окну лучше перейти к спокойной подготовке.',
       title: 'Пока можно бодрствовать',
       tone: 'calm',
@@ -393,7 +393,7 @@ describe('buildSleepCoachCardVm', () => {
     });
 
     expect(card).toMatchObject({
-      anchor: 'Ориентир сна: 09:00–10:00',
+      anchor: 'Следующий сон в 09:00 (через 15 минут)',
       body: 'Окно бодрствования уже близко к ориентиру. Лучше начать укладывание спокойно, без спешки.',
       title: 'Пора готовиться ко сну',
       tone: 'prepare',
@@ -590,7 +590,9 @@ describe('buildSleepCoachAlternativesSheetVm', () => {
     });
     expect(sheet.items[1].isRecommended).toBe(false);
     expect(sheet.items[1].badge).toBeUndefined();
-    expect(sheet.items[0].anchor).toBe('Ориентир сна: 09:00–10:00');
+    expect(sheet.items[0].anchor).toBe(
+      'Следующий сон в 09:30 (через 1 час 30 минут)',
+    );
     expectAlternativesSheetStringsSafe(sheet);
   });
 
@@ -794,7 +796,9 @@ describe('buildSleepCoachWhySheetVm', () => {
       visible: true,
     });
     expect(getWhySheetLines(sheet)).toContain('Бодрствует 1 ч.');
-    expect(getWhySheetLines(sheet)).toContain('Ориентир следующего сна: 09:00–10:00.');
+    expect(getWhySheetLines(sheet)).toContain(
+      'Следующий сон в 09:30 (через 1 час 30 минут).',
+    );
     expect(getWhySheetLines(sheet)).toContain('Отбой пока около 20:30.');
     expect(sheet.summary).toBe(
       'Поэтому пока можно бодрствовать, а ближе к окну перейти к спокойной подготовке.',

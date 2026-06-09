@@ -378,6 +378,8 @@ Visibility must stay conservative:
 
 The card copy must be short, calm, and safe for a tired parent. Always set the eyebrow to `Что лучше сейчас`; return one title/body/anchor at most; never let user-facing strings contain `undefined`, `null`, or `NaN`; and do not show "Следующий сон после сна" or similar next-sleep wording while an active sleep is running. If `soft_day`, `early_wake`, or both temporary modes are active, pass the existing badge label through to the VM instead of deriving modes again.
 
+For first-level next-sleep copy on the main screen, show one target time from `snapshot.nextSleepAt` plus one human-readable relative duration, for example `Следующий сон в 10:25 (через 2 часа 15 минут)`. Use the shared pure formatter in `src/core/mainScreenTimeText.ts` instead of duplicating min/max wake-window text in `src/core/mainScreenSleepCoach.ts`, `src/core/todayShortSummary.ts`, presentational components, or `src/app/index.tsx`. Do not show first-level ranges like `примерно через 142–147 мин`; wake-window ranges can remain in detailed planning/check screens when they are explicitly useful.
+
 Keep `src/components/SleepCoachCard.tsx` as a presentational component. It should accept `SleepCoachCardVm`, return `null` when `vm.visible=false`, render secondary actions only from `hasWhyDetails` / `hasAlternatives`, and receive navigation or modal callbacks from the screen. Do not put sleep calculations, SQLite calls, temporary-mode writes, or direct Expo Router calls inside the component.
 
 The coach card `Почему так` action should open a local bottom sheet on `/`, not navigate to `/sleep-plan` and not create a new route. Keep the exact explanation in a pure core helper such as `buildSleepCoachWhySheetVm(...)`; React may pass the current snapshot, selected scenario/scenario id, active/effective plan, next-sleep projection, predicted bedtime, day-sleep summary, active/awake duration, and temporary-mode badge, but must not recalculate bedtime or wake windows inline. The sheet is read-only UI state: do not write SQLite rows, temporary modes, snapshots, history, notifications, export/import data, or app settings when opening or closing it.
@@ -413,7 +415,7 @@ The main `/` screen should use one compact `Сегодня коротко` block
 Keep `src/components/TodayShortSummary.tsx` presentational. It should accept `TodayShortSummaryVm`, return `null` when `vm.visible=false`, render only rows provided by the VM, and receive the `Подробнее` callback from the screen. Do not put sleep calculations, SQLite calls, feeding writes, temporary-mode writes, or direct Expo Router calls inside the component.
 
 For today with an active plan, show `Сегодня коротко` after `SleepCoachCard` and before plan detail blocks, bottle-feeding cards, and the timeline. It may show 2-4 short rows when data exists:
-- `Следующий сон: примерно через X-Y мин` only while the child is awake and a next nap window is available;
+- `Следующий сон в HH:MM (через X часов Y минут)` only while the child is awake and a next nap target is available;
 - `Отбой: около HH:MM` only when predicted bedtime is available;
 - `Дневной сон: X` only when factual day-sleep summary is available;
 - `Кормление: X назад` only when bottle feeding is enabled and a latest feeding exists.
@@ -428,6 +430,7 @@ Keep `До цели бодрств.` and summed 24-hour awake time off the first
 
 When changing `Сегодня коротко`, cover at least:
 - today + active plan shows available compact forecast and factual rows;
+- next sleep uses one target clock time from `snapshot.nextSleepAt` with a long relative duration, not a min/max minute range;
 - active sleep does not show `Следующий сон: после сна`;
 - `tracking_only` without active plan hides plan rows and can keep factual rows;
 - bottle feeding stays secondary and does not affect sleep calculations or recommendations;

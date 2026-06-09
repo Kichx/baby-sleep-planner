@@ -1,10 +1,6 @@
 import { formatBottleFeedingElapsed } from '@/core/bottleFeeding';
-import {
-  addMinutes,
-  getWakeWindowForNextNap,
-  minutesBetween,
-} from '@/core/sleepCalculations';
 import { formatLocalClock } from '@/core/localDateTime';
+import { formatNextSleepAtText } from '@/core/mainScreenTimeText';
 import type { BottleFeeding } from '@/types/bottleFeeding';
 import type { SleepDaySummary, SleepPlanPreset, SleepSnapshot } from '@/types/sleep';
 
@@ -117,64 +113,30 @@ function canShowPlanRows(
   );
 }
 
-function formatNextSleepWaitRange(input: {
+function formatNextSleepLabel(input: {
   now: Date;
-  plan: SleepPlanPreset;
   snapshot: SleepSnapshot;
 }): string | null {
   if (
     input.snapshot.state !== 'awake' ||
     input.snapshot.nextSleepKind === 'night' ||
     !isValidDate(input.now) ||
-    !isValidDate(input.snapshot.statusStartedAt) ||
-    !isValidFiniteNumber(input.snapshot.completedNaps)
+    !isValidDate(input.snapshot.nextSleepAt)
   ) {
     return null;
   }
 
-  const completedNaps = Math.max(0, Math.round(input.snapshot.completedNaps));
-  const wakeWindow = getWakeWindowForNextNap(completedNaps, input.plan);
-
-  if (
-    !wakeWindow ||
-    !isValidFiniteNumber(wakeWindow.minWakeMinutes) ||
-    !isValidFiniteNumber(wakeWindow.maxWakeMinutes)
-  ) {
-    return null;
-  }
-
-  const startAt = addMinutes(input.snapshot.statusStartedAt, wakeWindow.minWakeMinutes);
-  const endAt = addMinutes(input.snapshot.statusStartedAt, wakeWindow.maxWakeMinutes);
-
-  if (!isValidDate(startAt) || !isValidDate(endAt) || endAt.getTime() < startAt.getTime()) {
-    return null;
-  }
-
-  const minMinutes = minutesBetween(input.now, startAt);
-  const maxMinutes = Math.max(minMinutes, minutesBetween(input.now, endAt));
-
-  if (maxMinutes <= 0) {
-    return 'уже пора';
-  }
-
-  if (minMinutes <= 0) {
-    return `примерно в ближайшие ${maxMinutes} мин`;
-  }
-
-  if (minMinutes === maxMinutes) {
-    return `примерно через ${minMinutes} мин`;
-  }
-
-  return `примерно через ${minMinutes}–${maxMinutes} мин`;
+  return formatNextSleepAtText({
+    nextSleepAt: input.snapshot.nextSleepAt,
+    now: input.now,
+  });
 }
 
 function buildNextSleepRow(input: {
   now: Date;
-  plan: SleepPlanPreset;
   snapshot: SleepSnapshot;
 }): TodayShortSummaryRowVm | null {
-  const waitLabel = formatNextSleepWaitRange(input);
-  const text = normalizeLine(waitLabel ? `Следующий сон: ${waitLabel}` : null);
+  const text = normalizeLine(formatNextSleepLabel(input));
 
   return text ? { id: 'nextSleep', text, tone: 'primary' } : null;
 }
@@ -260,7 +222,6 @@ export function buildTodayShortSummaryVm(
     ? compactRows([
         buildNextSleepRow({
           now: input.now,
-          plan: input.plan,
           snapshot: input.snapshot,
         }),
         buildActiveSleepNextWindowRow(input.snapshot),

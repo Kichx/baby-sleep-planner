@@ -1,11 +1,11 @@
 import {
   addMinutes,
   dateAtMinutes,
-  getWakeWindowForNextNap,
   minutesBetween,
 } from '@/core/sleepCalculations';
 import { calculatePlanBedtimeRange } from '@/core/sleepPlan';
 import { formatLocalClock } from '@/core/localDateTime';
+import { formatNextSleepAtText } from '@/core/mainScreenTimeText';
 import type {
   RecommendationScenario,
   RecommendationScenarioId,
@@ -212,30 +212,18 @@ function getBedtimeRangeAnchor(plan: SleepPlanPreset, sleepDayStart: Date): stri
 
 function getNapWindowAnchor(input: {
   now: Date;
-  plan: SleepPlanPreset;
   snapshot: SleepSnapshot;
-  variant: 'relative' | 'clock';
 }): string | undefined {
-  const wakeWindow = getWakeWindowForNextNap(input.snapshot.completedNaps, input.plan);
-  const startAt = addMinutes(input.snapshot.statusStartedAt, wakeWindow.minWakeMinutes);
-  const endAt = addMinutes(input.snapshot.statusStartedAt, wakeWindow.maxWakeMinutes);
-
-  if (!isValidDate(startAt) || !isValidDate(endAt) || endAt.getTime() < startAt.getTime()) {
+  if (!isValidDate(input.snapshot.nextSleepAt)) {
     return `Ориентир сна: ${formatLocalClock(input.snapshot.nextSleepAt)}`;
   }
 
-  if (input.variant === 'relative') {
-    const minMinutes = minutesBetween(input.now, startAt);
-    const maxMinutes = Math.max(minMinutes, minutesBetween(input.now, endAt));
-
-    if (maxMinutes > 0) {
-      return minMinutes === maxMinutes
-        ? `Сон примерно через ${minMinutes} мин`
-        : `Сон примерно через ${minMinutes}–${maxMinutes} мин`;
-    }
-  }
-
-  return `Ориентир сна: ${formatLocalClock(startAt)}–${formatLocalClock(endAt)}`;
+  return (
+    formatNextSleepAtText({
+      nextSleepAt: input.snapshot.nextSleepAt,
+      now: input.now,
+    }) ?? `Ориентир сна: ${formatLocalClock(input.snapshot.nextSleepAt)}`
+  );
 }
 
 function getPredictedBedtimeAnchor(
@@ -412,9 +400,7 @@ function getScenarioAnchor(input: {
 
   return getNapWindowAnchor({
     now: input.now,
-    plan: input.plan,
     snapshot: input.snapshot,
-    variant: 'clock',
   });
 }
 
@@ -479,10 +465,9 @@ function getActiveSleepShiftLine(input: {
 
 function getNextSleepProjectionLine(input: {
   now: Date;
-  plan: SleepPlanPreset;
   snapshot: SleepSnapshot;
 }): string | null {
-  if (!isValidDate(input.snapshot.nextSleepAt) || !isValidDate(input.snapshot.statusStartedAt)) {
+  if (!isValidDate(input.snapshot.nextSleepAt)) {
     return null;
   }
 
@@ -490,18 +475,13 @@ function getNextSleepProjectionLine(input: {
     return `Ориентир следующего сна: около ${formatLocalClock(input.snapshot.nextSleepAt)}.`;
   }
 
-  const wakeWindow = getWakeWindowForNextNap(input.snapshot.completedNaps, input.plan);
-  const startAt = addMinutes(input.snapshot.statusStartedAt, wakeWindow.minWakeMinutes);
-  const endAt = addMinutes(input.snapshot.statusStartedAt, wakeWindow.maxWakeMinutes);
+  const nextSleepText = formatNextSleepAtText({
+    nextSleepAt: input.snapshot.nextSleepAt,
+    now: input.now,
+  });
 
-  if (isValidDate(startAt) && isValidDate(endAt) && endAt.getTime() >= startAt.getTime()) {
-    return `Ориентир следующего сна: ${formatLocalClock(startAt)}–${formatLocalClock(endAt)}.`;
-  }
-
-  const minutesUntilNextSleep = minutesBetween(input.now, input.snapshot.nextSleepAt);
-
-  if (isValidFiniteNumber(minutesUntilNextSleep) && minutesUntilNextSleep > 0) {
-    return `Ориентир следующего сна: примерно через ${minutesUntilNextSleep} мин.`;
+  if (nextSleepText) {
+    return `${nextSleepText}.`;
   }
 
   return `Ориентир следующего сна: около ${formatLocalClock(input.snapshot.nextSleepAt)}.`;
@@ -660,7 +640,6 @@ function buildAwakeWhySheetVm(input: {
     buildWhySection('Ориентир', [
       getNextSleepProjectionLine({
         now: input.now,
-        plan: input.plan,
         snapshot: input.snapshot,
       }),
     ]),
@@ -781,9 +760,7 @@ function buildAwakeCard(input: {
       ...input.metadata,
       anchor: getNapWindowAnchor({
         now: input.now,
-        plan: input.plan,
         snapshot: input.snapshot,
-        variant: 'clock',
       }),
       badge: input.badge,
       body: 'Окно бодрствования уже близко к ориентиру. Лучше начать укладывание спокойно, без спешки.',
@@ -798,9 +775,7 @@ function buildAwakeCard(input: {
     ...input.metadata,
     anchor: getNapWindowAnchor({
       now: input.now,
-      plan: input.plan,
       snapshot: input.snapshot,
-      variant: 'relative',
     }),
     badge: input.badge,
     body: 'Следующий сон ожидается не сразу. Ближе к окну лучше перейти к спокойной подготовке.',

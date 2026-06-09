@@ -145,13 +145,28 @@ describe('buildTodayShortSummaryVm', () => {
       visible: true,
     });
     expect(rowTexts(summary)).toEqual([
-      'Следующий сон: примерно через 60–120 мин',
+      'Следующий сон в 09:30 (через 1 час 30 минут)',
       'Отбой: около 20:30',
       'Дневной сон: 30 мин',
       'Кормление: 45 мин назад',
     ]);
     expect(summary.rows.find((row) => row.id === 'feeding')?.tone).toBe('secondary');
     expect(rowTexts(summary).join(' ')).not.toContain('До цели бодрств.');
+    expectUserStringsSafe(summary);
+  });
+
+  it('shows the next sleep as one target time with hours and minutes', () => {
+    const summary = buildSummary({
+      now: at(8, 10),
+      snapshot: baseSnapshot({
+        nextSleepAt: at(10, 25),
+      }),
+    });
+
+    expect(rowTexts(summary)[0]).toBe(
+      'Следующий сон в 10:25 (через 2 часа 15 минут)',
+    );
+    expect(rowTexts(summary)[0]).not.toMatch(/примерно|–|142|147/);
     expectUserStringsSafe(summary);
   });
 
