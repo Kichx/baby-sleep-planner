@@ -434,6 +434,34 @@ When changing `Сегодня коротко`, cover at least:
 - past/future selected days keep their existing retrospective/planning behavior;
 - all user-facing strings are free of `undefined`, `null`, and `NaN`.
 
+## Implementation lessons from main screen last records preview
+
+The main `/` screen should show a compact `Последние записи` preview on the first level instead of automatically expanding the full mixed `Сегодня/Вчера` timeline. The full mixed timeline must remain available through an explicit action such as `Все записи`.
+
+Use `src/core/dayFeed.ts` as the source for displayed mixed rows. Do not duplicate nested/standalone feeding assignment or same-time sorting rules in `src/app/index.tsx` or presentational components. If `dayFeed.ts` changes, update or add `src/core/dayFeed.test.ts`.
+
+For the first-level preview:
+- show only the selected day, not yesterday, until the parent explicitly opens all records;
+- cap visible rows at 3-5 records, newest first;
+- keep row copy short, for example `Сон · 17:19 — сейчас · 32 мин`, `Кормление · 14:02 · 160 мл`, `Сон · 13:17–14:56 · 1 ч 39 мин`;
+- show the calm empty state `Пока записей за сегодня нет. Начните с первого сна или внесите его вручную.` for today's empty day;
+- keep the preview component presentational and pass edit/open callbacks from the screen.
+
+Preserve mixed timeline behavior:
+- bottle feeding disabled means feeding rows are not shown;
+- bottle feeding enabled keeps feedings inside sleep nested, feedings outside sleep standalone, and a feeding with the same visible time after the sleep row;
+- the full timeline can show selected and previous day groups only after the explicit action;
+- changing the selected day should collapse the full timeline again so `Вчера` is not expanded automatically on the today screen;
+- editing from preview or full timeline must use the existing sleep/feeding editors, including the `latestSleepSessionId` guard so an old sleep record cannot be changed to ongoing unless it is the latest global sleep record.
+
+When changing this area, cover at least:
+- default main screen shows no more than 3-5 last records;
+- `Все записи` reveals the full mixed timeline without losing edit access;
+- nested feedings do not duplicate as standalone preview rows;
+- feeding visibility follows the profile setting;
+- `cmd /c npm run typecheck` and `cmd /c npm run test` pass;
+- smoke-test the main screen in a narrow Expo web viewport or on Android and check that the preview appears before the full timeline.
+
 ## Implementation lessons from first active plan with no sleep records
 
 When a parent chooses a permanent target day plan for the first time and returns to the main `/` screen later in the same day, the app may have an active plan but no sleep records for the current sleep day. Do not treat this as a real all-day awake interval from `plan.dayStartMinutes`.
