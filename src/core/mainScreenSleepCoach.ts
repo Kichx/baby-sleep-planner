@@ -7,6 +7,7 @@ import { calculatePlanBedtimeRange } from '@/core/sleepPlan';
 import { formatLocalClock } from '@/core/localDateTime';
 import {
   formatClockWithRelativeDuration,
+  formatNextSleepApproxText,
   formatNextSleepAtText,
 } from '@/core/mainScreenTimeText';
 import type {
@@ -223,6 +224,22 @@ function getNapWindowAnchor(input: {
 
   return (
     formatNextSleepAtText({
+      nextSleepAt: input.snapshot.nextSleepAt,
+      now: input.now,
+    }) ?? `Ориентир сна: ${formatLocalClock(input.snapshot.nextSleepAt)}`
+  );
+}
+
+function getCalmNapWindowAnchor(input: {
+  now: Date;
+  snapshot: SleepSnapshot;
+}): string | undefined {
+  if (!isValidDate(input.snapshot.nextSleepAt)) {
+    return `Ориентир сна: ${formatLocalClock(input.snapshot.nextSleepAt)}`;
+  }
+
+  return (
+    formatNextSleepApproxText({
       nextSleepAt: input.snapshot.nextSleepAt,
       now: input.now,
     }) ?? `Ориентир сна: ${formatLocalClock(input.snapshot.nextSleepAt)}`
@@ -911,15 +928,15 @@ function buildAwakeCard(input: {
 
   return withCommonFields({
     ...input.metadata,
-    anchor: getNapWindowAnchor({
+    anchor: getCalmNapWindowAnchor({
       now: input.now,
       snapshot: input.snapshot,
     }),
     badge: input.badge,
-    body: 'Следующий сон ожидается не сразу. Ближе к окну лучше перейти к спокойной подготовке.',
+    body: 'До следующего сна ещё есть время. Можно заниматься обычными делами, а ближе к окну — перейти к спокойной подготовке.',
     primaryActionLabel: 'Начать сон',
     secondaryActionLabel: 'Внести сон',
-    title: 'Пока можно бодрствовать',
+    title: 'Пока бодрствуем спокойно',
     tone: 'calm',
   });
 }

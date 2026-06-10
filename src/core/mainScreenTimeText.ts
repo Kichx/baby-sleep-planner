@@ -41,6 +41,26 @@ export function formatRelativeDurationLong(minutes: number): string | null {
   return `${hoursText} ${formatCount(restMinutes, 'минуту', 'минуты', 'минут')}`;
 }
 
+function formatRelativeDurationCompact(minutes: number): string | null {
+  if (!Number.isFinite(minutes)) {
+    return null;
+  }
+
+  const roundedMinutes = Math.max(0, Math.round(minutes));
+  const hours = Math.floor(roundedMinutes / 60);
+  const restMinutes = roundedMinutes % 60;
+
+  if (hours === 0) {
+    return `${restMinutes} мин`;
+  }
+
+  if (restMinutes === 0) {
+    return `${hours} ч`;
+  }
+
+  return `${hours} ч ${restMinutes} мин`;
+}
+
 export function formatClockWithRelativeDuration(input: {
   now: Date;
   targetAt: Date;
@@ -63,6 +83,27 @@ export function formatClockWithRelativeDuration(input: {
   return duration ? `${clock} (через ${duration})` : null;
 }
 
+function formatClockWithCompactRelativeDuration(input: {
+  now: Date;
+  targetAt: Date;
+}): string | null {
+  if (!isValidDate(input.now) || !isValidDate(input.targetAt)) {
+    return null;
+  }
+
+  const clock = formatLocalClock(input.targetAt);
+  const millisecondsUntil = input.targetAt.getTime() - input.now.getTime();
+
+  if (millisecondsUntil <= 0) {
+    return `${clock} · уже можно начинать`;
+  }
+
+  const minutesUntil = Math.max(1, Math.ceil(millisecondsUntil / MS_PER_MINUTE));
+  const duration = formatRelativeDurationCompact(minutesUntil);
+
+  return duration ? `${clock} · через ${duration}` : null;
+}
+
 export function formatNextSleepAtText(input: {
   now: Date;
   nextSleepAt: Date;
@@ -78,4 +119,20 @@ export function formatNextSleepAtText(input: {
   });
 
   return sleepAtText ? `Следующий сон в ${sleepAtText}` : null;
+}
+
+export function formatNextSleepApproxText(input: {
+  now: Date;
+  nextSleepAt: Date;
+}): string | null {
+  if (!isValidDate(input.now) || !isValidDate(input.nextSleepAt)) {
+    return null;
+  }
+
+  const sleepAtText = formatClockWithCompactRelativeDuration({
+    now: input.now,
+    targetAt: input.nextSleepAt,
+  });
+
+  return sleepAtText ? `Следующий сон около ${sleepAtText}` : null;
 }
