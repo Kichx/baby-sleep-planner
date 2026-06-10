@@ -3,11 +3,14 @@ import { describe, expect, it } from 'vitest';
 import {
   BOTTLE_FEEDING_EMPTY_TEXT,
   buildBottleFeedingDailyTrend,
+  calculateBottleFeedingDailyTrendAverages,
   calculateBottleFeedingStats,
   calculateBottleFeedingStatsInRange,
   calculateBottleFeedingTopUpStats,
   filterBottleFeedingsInCalendarDay,
   formatBottleFeedingCount,
+  formatBottleFeedingDailyTrendAverageCountLine,
+  formatBottleFeedingDailyTrendAverageVolumeLine,
   formatBottleFeedingElapsed,
   formatBottleFeedingRecordLine,
   formatBottleFeedingReminderBody,
@@ -138,6 +141,68 @@ describe('bottle feeding calculations', () => {
       { count: 0, hasRecords: false, totalVolumeMl: 0 },
       { count: 1, hasRecords: true, totalVolumeMl: 100 },
     ]);
+  });
+
+  it('calculates daily trend averages only from days with records', () => {
+    const averages = calculateBottleFeedingDailyTrendAverages([
+      {
+        count: 2,
+        date: new Date('2026-06-03T09:00:00.000Z'),
+        hasRecords: true,
+        totalVolumeMl: 210,
+      },
+      {
+        count: 0,
+        date: new Date('2026-06-04T09:00:00.000Z'),
+        hasRecords: false,
+        totalVolumeMl: 0,
+      },
+      {
+        count: 1,
+        date: new Date('2026-06-05T09:00:00.000Z'),
+        hasRecords: true,
+        totalVolumeMl: 150,
+      },
+      {
+        count: 0,
+        date: new Date('2026-06-06T09:00:00.000Z'),
+        hasRecords: false,
+        totalVolumeMl: 0,
+      },
+      {
+        count: 1,
+        date: new Date('2026-06-07T09:00:00.000Z'),
+        hasRecords: true,
+        totalVolumeMl: 100,
+      },
+    ]);
+
+    expect(averages.recordedDays).toBe(3);
+    expect(averages.averageTotalVolumeMl).toBeCloseTo(153.33, 2);
+    expect(averages.averageCount).toBeCloseTo(1.33, 2);
+    expect(formatBottleFeedingDailyTrendAverageVolumeLine(averages)).toBe('Ср. 153 мл');
+    expect(formatBottleFeedingDailyTrendAverageCountLine(averages)).toBe(
+      'Ср. 1,3 кормления',
+    );
+  });
+
+  it('keeps daily trend averages empty when all days have no records', () => {
+    const averages = calculateBottleFeedingDailyTrendAverages([
+      {
+        count: 0,
+        date: new Date('2026-06-03T09:00:00.000Z'),
+        hasRecords: false,
+        totalVolumeMl: 0,
+      },
+    ]);
+
+    expect(averages).toEqual({
+      averageCount: null,
+      averageTotalVolumeMl: null,
+      recordedDays: 0,
+    });
+    expect(formatBottleFeedingDailyTrendAverageVolumeLine(averages)).toBeNull();
+    expect(formatBottleFeedingDailyTrendAverageCountLine(averages)).toBeNull();
   });
 
   it('counts feedings and sums volume', () => {

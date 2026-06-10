@@ -21,8 +21,11 @@ import { colors, radius, spacing } from '@/constants/theme';
 import {
   BOTTLE_FEEDING_EMPTY_TEXT,
   buildBottleFeedingDailyTrend,
+  calculateBottleFeedingDailyTrendAverages,
   calculateBottleFeedingStats,
   formatBottleFeedingCount,
+  formatBottleFeedingDailyTrendAverageCountLine,
+  formatBottleFeedingDailyTrendAverageVolumeLine,
   formatBottleFeedingRecordLine,
   formatBottleFeedingStatsLine,
   formatLatestBottleFeedingLine,
@@ -228,6 +231,19 @@ function formatTrendMetricSummary(
   return formatBottleFeedingCount(totalStats.count);
 }
 
+function formatTrendMetricAverage(
+  points: readonly BottleFeedingDailyTrendPoint[],
+  metric: FeedingTrendMetric,
+): string | null {
+  const averages = calculateBottleFeedingDailyTrendAverages(points);
+
+  if (metric === 'volume') {
+    return formatBottleFeedingDailyTrendAverageVolumeLine(averages);
+  }
+
+  return formatBottleFeedingDailyTrendAverageCountLine(averages);
+}
+
 function FeedingTrendMetricChart({
   isLoading,
   metric,
@@ -244,6 +260,7 @@ function FeedingTrendMetricChart({
   const maxValue = getMaxTrendMetric(points, metric);
   const scaleLabels = getTrendScaleLabels(maxValue);
   const summaryLine = formatTrendMetricSummary(points, metric, isLoading);
+  const averageLine = formatTrendMetricAverage(points, metric);
   const barFillStyle =
     metric === 'volume' ? styles.trendMetricBarFillVolume : styles.trendMetricBarFillCount;
 
@@ -254,9 +271,16 @@ function FeedingTrendMetricChart({
           <Text style={styles.trendMetricTitle}>{title}</Text>
           <Text style={styles.trendMetricSubtitle}>{unitLabel}</Text>
         </View>
-        <Text numberOfLines={1} style={styles.trendMetricSummary}>
-          {summaryLine}
-        </Text>
+        <View style={styles.trendMetricSummaryBlock}>
+          <Text adjustsFontSizeToFit numberOfLines={1} style={styles.trendMetricSummary}>
+            {summaryLine}
+          </Text>
+          {averageLine ? (
+            <Text adjustsFontSizeToFit numberOfLines={1} style={styles.trendMetricAverage}>
+              {averageLine}
+            </Text>
+          ) : null}
+        </View>
       </View>
 
       <View style={styles.trendMetricBody}>
@@ -317,6 +341,7 @@ function FeedingTrendChart({
         <View style={styles.trendTitleBlock}>
           <Text style={styles.trendTitle}>Графики кормлений</Text>
           <Text style={styles.trendSubtitle}>{formatTrendPeriodLabel(periodDays)}</Text>
+          <Text style={styles.trendAverageHint}>Среднее по дням с записями</Text>
         </View>
         <View style={styles.trendPeriodSelector}>
           {TREND_PERIOD_OPTIONS.map((option) => {
@@ -1031,6 +1056,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
   },
+  trendAverageHint: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
   trendPeriodSelector: {
     minHeight: 36,
     flexDirection: 'row',
@@ -1092,11 +1122,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
-  trendMetricSummary: {
+  trendMetricSummaryBlock: {
     maxWidth: '44%',
+    minWidth: 98,
+    alignItems: 'flex-end',
+    flexShrink: 1,
+    gap: 2,
+  },
+  trendMetricSummary: {
     color: colors.text,
     fontSize: 14,
     fontWeight: '900',
+    textAlign: 'right',
+  },
+  trendMetricAverage: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
     textAlign: 'right',
   },
   trendMetricBody: {

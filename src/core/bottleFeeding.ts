@@ -22,6 +22,12 @@ export interface BottleFeedingDailyTrendPoint {
   totalVolumeMl: number;
 }
 
+export interface BottleFeedingDailyTrendAverages {
+  averageCount: number | null;
+  averageTotalVolumeMl: number | null;
+  recordedDays: number;
+}
+
 export function getBottleFeedingCalendarDayRange(
   date: Date,
   timeZone?: string,
@@ -163,6 +169,38 @@ export function buildBottleFeedingDailyTrend(
   });
 }
 
+export function calculateBottleFeedingDailyTrendAverages(
+  points: readonly BottleFeedingDailyTrendPoint[],
+): BottleFeedingDailyTrendAverages {
+  const recordedPoints = points.filter((point) => point.hasRecords);
+  const recordedDays = recordedPoints.length;
+
+  if (recordedDays === 0) {
+    return {
+      averageCount: null,
+      averageTotalVolumeMl: null,
+      recordedDays: 0,
+    };
+  }
+
+  const totals = recordedPoints.reduce(
+    (stats, point) => ({
+      count: stats.count + point.count,
+      totalVolumeMl: stats.totalVolumeMl + point.totalVolumeMl,
+    }),
+    {
+      count: 0,
+      totalVolumeMl: 0,
+    },
+  );
+
+  return {
+    averageCount: totals.count / recordedDays,
+    averageTotalVolumeMl: totals.totalVolumeMl / recordedDays,
+    recordedDays,
+  };
+}
+
 export function isBottleFeedingTopUpVolume(
   volumeMl: number,
   topUpThresholdMl: number,
@@ -290,6 +328,42 @@ export function formatLatestBottleFeedingLine(
 
 export function formatBottleFeedingStatsLine(stats: BottleFeedingStats): string {
   return `${stats.totalVolumeMl} мл · ${formatBottleFeedingCount(stats.count)}`;
+}
+
+function formatAverageNumber(value: number): string {
+  if (Number.isInteger(value)) {
+    return String(value);
+  }
+
+  return value.toFixed(1).replace('.', ',');
+}
+
+function formatAverageBottleFeedingCount(value: number): string {
+  if (Number.isInteger(value)) {
+    return formatBottleFeedingCount(value);
+  }
+
+  return `${formatAverageNumber(value)} кормления`;
+}
+
+export function formatBottleFeedingDailyTrendAverageVolumeLine(
+  averages: BottleFeedingDailyTrendAverages,
+): string | null {
+  if (averages.averageTotalVolumeMl === null) {
+    return null;
+  }
+
+  return `Ср. ${Math.round(averages.averageTotalVolumeMl)} мл`;
+}
+
+export function formatBottleFeedingDailyTrendAverageCountLine(
+  averages: BottleFeedingDailyTrendAverages,
+): string | null {
+  if (averages.averageCount === null) {
+    return null;
+  }
+
+  return `Ср. ${formatAverageBottleFeedingCount(averages.averageCount)}`;
 }
 
 export function formatTodayBottleFeedingStatsLine(stats: BottleFeedingStats): string {
