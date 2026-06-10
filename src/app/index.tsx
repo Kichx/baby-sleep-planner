@@ -59,6 +59,10 @@ import {
 } from '@/core/localDateTime';
 import { deriveMainScreenSleepUiState } from '@/core/mainScreenFlow';
 import {
+  filterSleepSessionsForDisplayedDay,
+  sleepSessionOverlapsDisplayedDay,
+} from '@/core/mainScreenDaySessions';
+import {
   dateFromSleepDayDateKey,
   formatSleepDayDateKey,
 } from '@/core/sleepDay';
@@ -458,35 +462,6 @@ function getSleepDayStartForSelection(
   return dateAtMinutes(dateAtNoon(selectedDate), plan.dayStartMinutes);
 }
 
-function getVisibleSessionEnd(session: SleepSession, now: Date, dayEnd: Date): Date {
-  if (session.endedAt) {
-    return new Date(session.endedAt);
-  }
-
-  return new Date(Math.min(now.getTime(), dayEnd.getTime()));
-}
-
-function sleepSessionOverlapsDay(
-  session: SleepSession,
-  dayStart: Date,
-  dayEnd: Date,
-  now: Date,
-  options: { includeNightEndingAtStart?: boolean } = {},
-): boolean {
-  const startedAt = new Date(session.startedAt);
-  const endedAt = getVisibleSessionEnd(session, now, dayEnd);
-  const endsAtDayStart =
-    options.includeNightEndingAtStart === true &&
-    session.kind === 'night' &&
-    session.endedAt !== null &&
-    endedAt.getTime() === dayStart.getTime();
-
-  return (
-    (startedAt.getTime() < dayEnd.getTime() && endedAt.getTime() > dayStart.getTime()) ||
-    endsAtDayStart
-  );
-}
-
 function formatDateLabel(date: Date): string {
   return formatLocalDateLabel(date, {
     day: 'numeric',
@@ -728,8 +703,11 @@ export default function TodaySleepScreen() {
       const previousDayStart = addMinutes(dayStart, -DAY_MINUTES);
       const loadedSessions = await listSleepSessionsInRange(db, previousDayStart, dayEnd);
       const latestSleepSession = await getLatestSleepSession(db);
-      const nearbySessionsForDisplay = loadedSessions.filter((session) =>
-        sleepSessionOverlapsDay(session, previousDayStart, dayEnd, currentNow),
+      const nearbySessionsForDisplay = filterSleepSessionsForDisplayedDay(
+        loadedSessions,
+        previousDayStart,
+        dayEnd,
+        currentNow,
       );
 
       return {
@@ -973,12 +951,16 @@ export default function TodaySleepScreen() {
   ]);
   const selectedSessionsForDay = useMemo(
     () =>
-      nearbySessions.filter((session) =>
-        sleepSessionOverlapsDay(session, selectedDayStart, selectedDayEnd, now, {
-          includeNightEndingAtStart: actualTodayDayStart !== null,
-        }),
+      filterSleepSessionsForDisplayedDay(
+        nearbySessions,
+        selectedDayStart,
+        selectedDayEnd,
+        now,
+        {
+          includeNightEndingAtStart: isToday,
+        },
       ),
-    [actualTodayDayStart, nearbySessions, now, selectedDayEnd, selectedDayStart],
+    [isToday, nearbySessions, now, selectedDayEnd, selectedDayStart],
   );
   const sessionDayGroups = useMemo<SessionDayGroup[]>(() => {
     const shouldShowBottleFeedingsInTimeline =
@@ -994,14 +976,19 @@ export default function TodaySleepScreen() {
       : [];
     const previousGroupSessions = nearbySessions.filter((session) => {
       if (
-        sleepSessionOverlapsDay(session, selectedDayStart, selectedDayEnd, now, {
-          includeNightEndingAtStart: actualTodayDayStart !== null,
+        sleepSessionOverlapsDisplayedDay(session, selectedDayStart, selectedDayEnd, now, {
+          includeNightEndingAtStart: isToday,
         })
       ) {
         return false;
       }
 
-      return sleepSessionOverlapsDay(session, previousDayStart, selectedDayStart, now);
+      return sleepSessionOverlapsDisplayedDay(
+        session,
+        previousDayStart,
+        selectedDayStart,
+        now,
+      );
     });
     const previousGroupFeedings = shouldShowBottleFeedingsInTimeline
       ? filterBottleFeedingsInCalendarDay(nearbyBottleFeedings, previousDate)
@@ -1069,7 +1056,7 @@ export default function TodaySleepScreen() {
     selectedDayStart,
     selectedSessionsForDay,
     showFeedingsInTimeline,
-    actualTodayDayStart,
+    isToday,
   ]);
   useEffect(() => {
     const routeDate = parseSelectedDateParam(params.date);
