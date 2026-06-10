@@ -66,6 +66,29 @@ function buildClosingNightScenario(
   };
 }
 
+function buildPostMicroNapNightScenario(
+  predictedBedtimeDeltaMinutes: number,
+  priority: RecommendationScenario['priority'] = 'secondary',
+): RecommendationScenario {
+  if (predictedBedtimeDeltaMinutes > 0) {
+    return {
+      id: 'normal',
+      title: 'Ночь после микросна',
+      detail:
+        'После микросна оставляем обычное вечернее окно бодрствования. Отбой может выйти позже плана, поэтому следующий сон лучше держать коротким.',
+      priority,
+    };
+  }
+
+  return {
+    id: 'normal',
+    title: 'Ночь после микросна',
+    detail:
+      'После микросна оставляем обычное вечернее окно бодрствования перед ночью. Отбой остаётся близко к плану.',
+    priority,
+  };
+}
+
 export function buildRecommendationScenarios(input: RecommendationInput): RecommendationScenario[] {
   const predictedBedtimeDeltaMinutes = applyRecommendationTimeTolerance(
     input.predictedBedtimeDeltaMinutes,
@@ -84,10 +107,10 @@ export function buildRecommendationScenarios(input: RecommendationInput): Recomm
 
   if (input.projectedMicroNapMinutes > 0) {
     const nightScenario =
-      input.nextSleepKind === 'night' && predictedBedtimeDeltaMinutes >= 0
-        ? buildClosingNightScenario(predictedBedtimeDeltaMinutes, 'secondary')
+      predictedBedtimeDeltaMinutes >= 0
+        ? buildPostMicroNapNightScenario(predictedBedtimeDeltaMinutes, 'secondary')
         : buildEarlyBedtimeScenario(
-            'Если следующий сон будет коротким, лучше сдвинуть ночь раньше.',
+            'Даже с обычным окном после микросна отбой получается раньше плана. Можно спокойно закрыть день раньше.',
             'secondary',
           );
 
@@ -95,7 +118,7 @@ export function buildRecommendationScenarios(input: RecommendationInput): Recomm
       {
         id: 'microNap',
         title: 'Микросон',
-        detail: `Окно бодрствования получится длинным. В прогноз помещается микро-сон на ${formatDuration(
+        detail: `Чтобы оставить обычное последнее окно перед ночью, в прогноз помещается микро-сон на ${formatDuration(
           input.projectedMicroNapMinutes,
         )}.`,
         priority: 'primary',

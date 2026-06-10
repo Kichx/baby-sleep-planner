@@ -99,4 +99,24 @@ describe('buildRecommendationScenarios', () => {
       priority: 'secondary',
     });
   });
+
+  it('keeps the post-micro-nap night advice on plan when the bedtime forecast is close', () => {
+    const scenarios = buildScenarios({
+      nextSleepKind: 'nap',
+      predictedBedtimeDeltaMinutes: 0,
+      projectedMicroNapMinutes: 20,
+    });
+
+    expect(scenarios[0]).toMatchObject({
+      id: 'microNap',
+      priority: 'primary',
+    });
+    expect(scenarios[0].detail).toContain('обычное последнее окно');
+    expect(scenarios[1]).toMatchObject({
+      id: 'normal',
+      priority: 'secondary',
+      title: 'Ночь после микросна',
+    });
+    expect(scenarios[1].detail).toContain('обычное вечернее окно');
+  });
 });

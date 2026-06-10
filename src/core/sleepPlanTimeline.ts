@@ -1,4 +1,5 @@
 import type { SleepPlanPreset, WakeWindowPreset } from '@/types/sleep';
+import { getFinalWakeWindowForPlan } from '@/core/sleepPlan';
 
 export type SleepPlanTimelineItemKind = 'wakeUp' | 'wakeWindow' | 'nap' | 'night';
 
@@ -39,37 +40,6 @@ function buildNapSleepDurations(plan: SleepPlanPreset): number[] {
 
 function getFallbackWakeWindowTarget(plan: SleepPlanPreset): number {
   return Math.max(1, Math.round(plan.targetAwakeMinutes / (plan.napCount + 1)));
-}
-
-function getFinalWakeWindow(plan: SleepPlanPreset): WakeWindowPreset {
-  const wakeWindowTargetsTotal = plan.wakeWindows.reduce(
-    (total, wakeWindow) => total + wakeWindow.targetWakeMinutes,
-    0,
-  );
-  const wakeWindowMinTotal = plan.wakeWindows.reduce(
-    (total, wakeWindow) => total + wakeWindow.minWakeMinutes,
-    0,
-  );
-  const wakeWindowMaxTotal = plan.wakeWindows.reduce(
-    (total, wakeWindow) => total + wakeWindow.maxWakeMinutes,
-    0,
-  );
-  const minWakeMinutes = Math.max(1, plan.targetAwakeMinMinutes - wakeWindowMinTotal);
-  const maxWakeMinutes = Math.max(
-    minWakeMinutes,
-    plan.targetAwakeMaxMinutes - wakeWindowMaxTotal,
-  );
-  const targetWakeMinutes = Math.min(
-    Math.max(plan.targetAwakeMinutes - wakeWindowTargetsTotal, minWakeMinutes),
-    maxWakeMinutes,
-  );
-
-  return {
-    maxWakeMinutes,
-    minWakeMinutes,
-    napNumber: plan.napCount + 1,
-    targetWakeMinutes,
-  };
 }
 
 function getDisplayWakeWindow(plan: SleepPlanPreset, index: number): WakeWindowPreset {
@@ -137,7 +107,7 @@ export function buildSleepPlanTimelineItems(plan: SleepPlanPreset): SleepPlanTim
     cursorMinutes = sleepEndMinutes;
   }
 
-  const finalWakeWindow = getFinalWakeWindow(plan);
+  const finalWakeWindow = getFinalWakeWindowForPlan(plan);
   const nightStartMinutes = normalizePlanClockMinutes(
     cursorMinutes + finalWakeWindow.targetWakeMinutes,
   );

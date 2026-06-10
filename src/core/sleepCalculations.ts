@@ -4,7 +4,7 @@ import {
   formatLocalDateKey,
   getLocalMinutesFromMidnight,
 } from '@/core/localDateTime';
-import { calculatePlanBedtimeRange } from '@/core/sleepPlan';
+import { calculatePlanBedtimeRange, getFinalWakeWindowForPlan } from '@/core/sleepPlan';
 import type {
   SleepDaySummary,
   SleepKind,
@@ -246,8 +246,45 @@ function buildBedtimeProjection(input: BedtimeProjectionInput): BedtimeProjectio
 
   while (awakeLeft > 0 && usedNaps < input.plan.napCount && sleepDeficitMinutes > 0) {
     const wakeWindow = getWakeWindowForNextNap(usedNaps, input.plan);
+    const finalWakeWindow = getFinalWakeWindowForPlan(input.plan);
     const currentWakeMinutes = minutesBetween(wakeStartedAt, cursor);
     const awakeBeforeNextNap = Math.max(0, wakeWindow.targetWakeMinutes - currentWakeMinutes);
+    const isLastActualPlannedNap =
+      input.state === 'awake' &&
+      input.completedNaps === input.plan.napCount - 1 &&
+      usedNaps === input.completedNaps;
+    const shouldUseMicroNapBridge =
+      isLastActualPlannedNap &&
+      input.plan.microNapMinutes > 0 &&
+      awakeLeft < awakeBeforeNextNap + finalWakeWindow.targetWakeMinutes;
+
+    if (shouldUseMicroNapBridge) {
+      const awakeBeforeMicroNap = Math.max(0, wakeWindow.minWakeMinutes - currentWakeMinutes);
+      const microNapStartAt = addMinutes(cursor, awakeBeforeMicroNap);
+      const microNapEndAt = addMinutes(microNapStartAt, input.plan.microNapMinutes);
+      const canAddMicroNap =
+        awakeLeft > awakeBeforeMicroNap &&
+        microNapEndAt.getTime() <= latestEveningNapEndAt.getTime() &&
+        input.totalDaySleepMinutes +
+          projectedRemainingDaySleepMinutes +
+          input.plan.microNapMinutes <=
+          input.plan.targetDaySleepMaxMinutes;
+
+      if (canAddMicroNap) {
+        if (!nextSleepAt) {
+          nextSleepAt = microNapStartAt;
+          nextSleepKind = 'nap';
+        }
+
+        cursor = microNapEndAt;
+        awakeLeft = finalWakeWindow.targetWakeMinutes;
+        projectedMicroNapMinutes = input.plan.microNapMinutes;
+        projectedRemainingDaySleepMinutes += input.plan.microNapMinutes;
+        usedNaps = input.plan.napCount;
+        wakeStartedAt = cursor;
+        break;
+      }
+    }
 
     if (awakeLeft <= awakeBeforeNextNap) {
       break;
@@ -283,6 +320,7 @@ function buildBedtimeProjection(input: BedtimeProjectionInput): BedtimeProjectio
 
   if (awakeLeft > 0 && usedNaps >= input.plan.napCount && input.plan.microNapMinutes > 0) {
     const wakeWindow = getWakeWindowForNextNap(usedNaps, input.plan);
+    const finalWakeWindow = getFinalWakeWindowForPlan(input.plan);
     const currentWakeMinutes = minutesBetween(wakeStartedAt, cursor);
     const finalWakeMinutes = currentWakeMinutes + awakeLeft;
     const awakeBeforeMicroNap = Math.max(0, wakeWindow.targetWakeMinutes - currentWakeMinutes);
@@ -304,7 +342,7 @@ function buildBedtimeProjection(input: BedtimeProjectionInput): BedtimeProjectio
       }
 
       cursor = microNapEndAt;
-      awakeLeft -= awakeBeforeMicroNap;
+      awakeLeft = finalWakeWindow.targetWakeMinutes;
       projectedMicroNapMinutes = input.plan.microNapMinutes;
       projectedRemainingDaySleepMinutes += input.plan.microNapMinutes;
     }

@@ -215,6 +215,8 @@ Recommendations must explain the reason in simple terms.
 
 Small clock-time differences must not create anxious advice. For main-screen recommendation scenarios, treat bedtime forecast deltas within `RECOMMENDATION_TIME_TOLERANCE_MINUTES` from `src/core/recommendations.ts` as on-plan. Keep the current default at 10 minutes unless a later product decision changes it. Do not duplicate this tolerance in UI components; normalize it in pure core recommendation logic and cover both slightly early and slightly late bedtime forecasts with tests.
 
+When a single planned daytime nap remains but the remaining awake budget cannot fit both the current average wake window and the average final wake window before night, prefer a micro-nap bridge instead of stretching the current wake window or projecting a full nap. The micro-nap may start at the current time only after the minimum current wake window is reached; otherwise schedule it at that minimum boundary. After the micro-nap, bedtime projection must preserve the plan's average final wake window. Keep this in pure core logic and make shared-day projections reuse the same `buildTodaySleepSnapshot` result instead of recalculating bedtime from the projected micro-nap as a shorter leftover wake budget.
+
 Example:
 "Current wake time is already close to the upper limit. If the next nap is short, consider a 20-minute micro-nap or move bedtime earlier."
 

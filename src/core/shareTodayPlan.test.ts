@@ -118,8 +118,8 @@ describe('buildTodayPlanShareText', () => {
     expect(message).toContain('• 1-й сон: с 09:40, идёт 20 мин');
     expect(message).toContain('• Текущий сон: ориентир до 10:45');
     expect(message).toContain('• 2-й сон: 13:19-14:24');
-    expect(message).toContain('• 3-й сон: 16:58-18:03');
-    expect(message).toContain('• Отбой: 20:20');
+    expect(message).toContain('• 3-й сон: 16:54-17:14');
+    expect(message).toContain('• Отбой: 19:47');
   });
 
   it('handles a day without sleep records', () => {

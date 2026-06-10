@@ -307,6 +307,18 @@ function getProjectedNapDuration(snapshotRemainingSleepMinutes: number, plan: Sl
   return Math.min(getTargetNapMinutes(plan), Math.max(0, snapshotRemainingSleepMinutes));
 }
 
+function isProjectedMicroNap(
+  snapshot: ReturnType<typeof buildTodaySleepSnapshot>,
+  napDurationMinutes: number,
+  plan: SleepPlanPreset,
+): boolean {
+  return (
+    plan.microNapMinutes > 0 &&
+    napDurationMinutes === plan.microNapMinutes &&
+    snapshot.scenarios.some((scenario) => scenario.id === 'microNap')
+  );
+}
+
 function closeActiveSession(
   sessions: SleepSession[],
   activeSessionId: string,
@@ -423,6 +435,16 @@ function buildFutureSleepRows(
       kind: 'nap',
       startAt: napStartAt,
     });
+
+    if (isProjectedMicroNap(snapshot, napDurationMinutes, plan)) {
+      rows.push({
+        endAt: null,
+        isCurrent: false,
+        kind: 'night',
+        startAt: snapshot.predictedBedtimeAt,
+      });
+      break;
+    }
 
     simulatedSessions = appendProjectedNap(simulatedSessions, index, napStartAt, napEndAt);
     cursor = napEndAt;

@@ -290,6 +290,38 @@ export function buildWakeWindowsForPlan(input: {
   }));
 }
 
+export function getFinalWakeWindowForPlan(plan: SleepPlanPreset): WakeWindowPreset {
+  const wakeWindowTargetsTotal = plan.wakeWindows.reduce(
+    (total, wakeWindow) => total + wakeWindow.targetWakeMinutes,
+    0,
+  );
+  const wakeWindowMinTotal = plan.wakeWindows.reduce(
+    (total, wakeWindow) => total + wakeWindow.minWakeMinutes,
+    0,
+  );
+  const wakeWindowMaxTotal = plan.wakeWindows.reduce(
+    (total, wakeWindow) => total + wakeWindow.maxWakeMinutes,
+    0,
+  );
+  const minWakeMinutes = Math.max(1, plan.targetAwakeMinMinutes - wakeWindowMinTotal);
+  const maxWakeMinutes = Math.max(
+    minWakeMinutes,
+    plan.targetAwakeMaxMinutes - wakeWindowMaxTotal,
+  );
+  const targetWakeMinutes = clamp(
+    plan.targetAwakeMinutes - wakeWindowTargetsTotal,
+    minWakeMinutes,
+    maxWakeMinutes,
+  );
+
+  return {
+    maxWakeMinutes,
+    minWakeMinutes,
+    napNumber: plan.napCount + 1,
+    targetWakeMinutes,
+  };
+}
+
 export function deriveEveningSleepRulesForPlan(input: EveningSleepRulesInput): EveningSleepRules {
   const napCount = clampNapCount(input.napCount);
   const bedtimeRange = calculatePlanBedtimeRange(input);
