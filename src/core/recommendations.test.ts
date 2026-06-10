@@ -79,4 +79,24 @@ describe('buildRecommendationScenarios', () => {
       priority: 'primary',
     });
   });
+
+  it('makes the last-nap cap the primary advice when a daytime nap still remains late in the day', () => {
+    const scenarios = buildScenarios({
+      completedNaps: 2,
+      currentWakeMinutes: 130,
+      nextSleepKind: 'nap',
+      predictedBedtimeDeltaMinutes: 0,
+      remainingAwakeMinutes: 180,
+    });
+
+    expect(scenarios[0]).toMatchObject({
+      id: 'capLastNap',
+      title: 'Укоротить сон',
+      priority: 'primary',
+    });
+    expect(scenarios[1]).toMatchObject({
+      id: 'normal',
+      priority: 'secondary',
+    });
+  });
 });

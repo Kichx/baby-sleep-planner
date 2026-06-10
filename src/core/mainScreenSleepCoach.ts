@@ -889,9 +889,11 @@ function buildAwakeCard(input: {
   metadata: NonNullable<ReturnType<typeof getScenarioMetadata>>;
   now: Date;
   plan: SleepPlanPreset;
+  scenario: RecommendationScenario;
   snapshot: SleepSnapshot;
 }): SleepCoachCardVm {
   const minutesUntilNextSleep = minutesBetween(input.now, input.snapshot.nextSleepAt);
+  const cappedNapDuration = formatDurationForWhy(input.plan.maxEveningNapMinutes);
 
   if (minutesUntilNextSleep <= 0 || input.snapshot.remainingAwakeMinutes <= 0) {
     return withCommonFields({
@@ -907,6 +909,26 @@ function buildAwakeCard(input: {
       secondaryActionLabel: 'Внести сон',
       title: 'Лучше укладывать сейчас',
       tone: 'actSoon',
+    });
+  }
+
+  if (input.scenario.id === 'capLastNap' && cappedNapDuration) {
+    const isCloseToNapWindow = minutesUntilNextSleep <= PREPARE_THRESHOLD_MINUTES;
+
+    return withCommonFields({
+      ...input.metadata,
+      anchor: getNapWindowAnchor({
+        now: input.now,
+        snapshot: input.snapshot,
+      }),
+      badge: input.badge,
+      body: isCloseToNapWindow
+        ? `Окно уже близко. Вечерний сон лучше держать до ${cappedNapDuration}, чтобы отбой не ушёл поздно.`
+        : `До сна ещё есть время. Вечерний сон лучше держать до ${cappedNapDuration}, чтобы отбой не ушёл поздно.`,
+      primaryActionLabel: 'Начать сон',
+      secondaryActionLabel: 'Внести сон',
+      title: isCloseToNapWindow ? 'Готовимся к короткому сну' : 'Следующий сон покороче',
+      tone: 'adjustDay',
     });
   }
 
@@ -995,6 +1017,7 @@ export function buildSleepCoachCardVm(input: BuildSleepCoachCardVmInput): SleepC
     metadata,
     now: input.now,
     plan: input.plan,
+    scenario,
     snapshot: input.snapshot,
   });
 }

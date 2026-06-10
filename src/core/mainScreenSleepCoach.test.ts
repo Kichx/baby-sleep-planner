@@ -427,6 +427,52 @@ describe('buildSleepCoachCardVm', () => {
     expectVisibleCardBasics(card);
   });
 
+  it('surfaces the last-nap cap advice on the first-level awake card', () => {
+    const card = buildCard({
+      now: at(17, 34),
+      plan: {
+        ...TEST_PLAN,
+        maxEveningNapMinutes: 35,
+      },
+      snapshot: baseSnapshot({
+        completedNaps: 2,
+        currentDurationMinutes: 132,
+        nextSleepAt: at(18, 5),
+        predictedBedtimeAt: at(20, 59),
+        projectedRemainingDaySleepMinutes: 35,
+        remainingAwakeMinutes: 76,
+        scenarios: [
+          {
+            detail: 'Последний вечерний сон лучше держать до 35 мин, чтобы не увести ночь поздно.',
+            id: 'capLastNap',
+            priority: 'primary',
+            title: 'Укоротить сон',
+          },
+          {
+            detail: 'День близко к плану. Следующий сон можно вести по текущему окну.',
+            id: 'normal',
+            priority: 'secondary',
+            title: 'Обычный план',
+          },
+        ],
+        statusStartedAt: at(15, 22),
+        totalAwakeMinutes: 584,
+        totalDaySleepMinutes: 144,
+      }),
+    });
+
+    expect(card).toMatchObject({
+      anchor: 'Следующий сон в 18:05 (через 31 минуту)',
+      body: 'До сна ещё есть время. Вечерний сон лучше держать до 35 мин, чтобы отбой не ушёл поздно.',
+      scenarioId: 'capLastNap',
+      title: 'Следующий сон покороче',
+      tone: 'adjustDay',
+      visible: true,
+    });
+    expect(card.body).toContain('до 35 мин');
+    expectVisibleCardBasics(card);
+  });
+
   it('shows a preparation recommendation when the sleep window is close', () => {
     const card = buildCard({
       now: at(8, 45),
@@ -881,6 +927,55 @@ describe('buildSleepCoachWhySheetVm', () => {
     );
     expect(sheet.summary).toBe(
       'Поэтому пока можно спокойно бодрствовать, а ближе к окну перейти к подготовке.',
+    );
+    expectWhySheetStringsSafe(sheet);
+  });
+
+  it('explains the last-nap cap advice when it is the current recommendation', () => {
+    const sheet = buildWhySheet({
+      now: at(17, 34),
+      plan: {
+        ...TEST_PLAN,
+        maxEveningNapMinutes: 35,
+      },
+      snapshot: baseSnapshot({
+        completedNaps: 2,
+        currentDurationMinutes: 132,
+        nextSleepAt: at(18, 5),
+        predictedBedtimeAt: at(20, 59),
+        projectedRemainingDaySleepMinutes: 35,
+        remainingAwakeMinutes: 76,
+        scenarios: [
+          {
+            detail: 'Последний вечерний сон лучше держать до 35 мин, чтобы не увести ночь поздно.',
+            id: 'capLastNap',
+            priority: 'primary',
+            title: 'Укоротить сон',
+          },
+          {
+            detail: 'День близко к плану. Следующий сон можно вести по текущему окну.',
+            id: 'normal',
+            priority: 'secondary',
+            title: 'Обычный план',
+          },
+        ],
+        statusStartedAt: at(15, 22),
+        totalAwakeMinutes: 584,
+        totalDaySleepMinutes: 144,
+      }),
+    });
+
+    expect(sheet).toMatchObject({
+      isFallback: false,
+      scenarioId: 'capLastNap',
+      visible: true,
+    });
+    expect(getWhySheetLines(sheet)).toContain('Рекомендация: Укоротить сон.');
+    expect(getWhySheetLines(sheet)).toContain(
+      'Причина: Последний вечерний сон лучше держать до 35 мин, чтобы не увести ночь поздно.',
+    );
+    expect(sheet.summary).toBe(
+      'Поэтому следующий сон лучше не затягивать, чтобы отбой остался ближе к плану.',
     );
     expectWhySheetStringsSafe(sheet);
   });

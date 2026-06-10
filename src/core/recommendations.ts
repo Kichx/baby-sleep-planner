@@ -146,13 +146,13 @@ export function buildRecommendationScenarios(input: RecommendationInput): Recomm
         detail: `Последний вечерний сон лучше держать до ${formatDuration(
           input.maxEveningNapMinutes,
         )}, чтобы не увести ночь поздно.`,
-        priority: 'secondary',
+        priority: 'primary',
       },
       {
         id: 'normal',
         title: 'Обычный план',
         detail: 'День близко к плану. Следующий сон можно вести по текущему окну.',
-        priority: 'primary',
+        priority: 'secondary',
       },
     ];
   }
