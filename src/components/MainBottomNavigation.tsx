@@ -117,9 +117,11 @@ export function MainBottomNavigation() {
               key={item.path}
               onPress={() => router.replace(item.href)}
               style={({ pressed }) => [styles.item, pressed ? styles.itemPressed : null]}>
-              <View
-                style={[styles.activeIndicator, isActive ? styles.activeIndicatorVisible : null]}
-              />
+              <View style={styles.activeIndicatorSlot}>
+                <View
+                  style={[styles.activeIndicator, isActive ? styles.activeIndicatorVisible : null]}
+                />
+              </View>
               <View style={styles.iconSlot}>{renderIcon(item.icon, isActive)}</View>
               <Text
                 adjustsFontSizeToFit
@@ -156,18 +158,21 @@ const styles = StyleSheet.create({
     position: 'relative',
     flex: 1,
     minWidth: 0,
-    minHeight: 54,
+    minHeight: 56,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 3,
+    gap: 2,
     borderRadius: radius.sm,
   },
   itemPressed: {
     backgroundColor: colors.surfaceMuted,
   },
+  activeIndicatorSlot: {
+    height: 7,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
   activeIndicator: {
-    position: 'absolute',
-    top: 3,
     width: 28,
     height: 3,
     borderRadius: 2,
