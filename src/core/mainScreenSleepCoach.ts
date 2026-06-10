@@ -96,7 +96,7 @@ const ALTERNATIVES_FALLBACK_SUMMARY =
 const WHY_FALLBACK_SUMMARY =
   'Пока мало данных для точного объяснения. После следующей записи сна расчёт станет понятнее.';
 const DAY_MINUTES = 24 * 60;
-const PREPARE_THRESHOLD_MINUTES = 30;
+const PREPARE_THRESHOLD_MINUTES = 15;
 
 const HIDDEN_SLEEP_COACH_CARD_VM: SleepCoachCardVm = {
   visible: false,
@@ -680,7 +680,7 @@ function getAwakeWhySummary(input: {
     return 'Поэтому лучше начать подготовку ко сну сейчас, спокойно и без спешки.';
   }
 
-  return 'Поэтому пока можно бодрствовать, а ближе к окну перейти к спокойной подготовке.';
+  return 'Поэтому пока можно спокойно бодрствовать, а ближе к окну перейти к подготовке.';
 }
 
 function buildActiveSleepWhySheetVm(input: {
@@ -933,7 +933,7 @@ function buildAwakeCard(input: {
       snapshot: input.snapshot,
     }),
     badge: input.badge,
-    body: 'До следующего сна ещё есть время. Можно заниматься обычными делами, а ближе к окну — перейти к спокойной подготовке.',
+    body: 'До следующего сна ещё есть время. Пока лучше спокойное бодрствование: обычные дела и подготовка ближе к окну.',
     primaryActionLabel: 'Начать сон',
     secondaryActionLabel: 'Внести сон',
     title: 'Пока бодрствуем спокойно',

@@ -398,12 +398,32 @@ describe('buildSleepCoachCardVm', () => {
 
     expect(card).toMatchObject({
       anchor: 'Следующий сон около 09:30 · через 1 ч 30 мин',
-      body: 'До следующего сна ещё есть время. Можно заниматься обычными делами, а ближе к окну — перейти к спокойной подготовке.',
+      body: 'До следующего сна ещё есть время. Пока лучше спокойное бодрствование: обычные дела и подготовка ближе к окну.',
       title: 'Пока бодрствуем спокойно',
       tone: 'calm',
       visible: true,
     });
-    expect(card.body).toContain('подготовке');
+    expect(card.body).toContain('спокойное бодрствование');
+    expectVisibleCardBasics(card);
+  });
+
+  it('keeps the calm recommendation when the sleep window is more than 15 minutes away', () => {
+    const card = buildCard({
+      now: at(8, 40),
+      snapshot: baseSnapshot({
+        currentDurationMinutes: 100,
+        nextSleepAt: at(9, 0),
+        statusStartedAt: at(7, 0),
+      }),
+    });
+
+    expect(card).toMatchObject({
+      anchor: 'Следующий сон около 09:00 · через 20 мин',
+      body: 'До следующего сна ещё есть время. Пока лучше спокойное бодрствование: обычные дела и подготовка ближе к окну.',
+      title: 'Пока бодрствуем спокойно',
+      tone: 'calm',
+      visible: true,
+    });
     expectVisibleCardBasics(card);
   });
 
@@ -860,7 +880,7 @@ describe('buildSleepCoachWhySheetVm', () => {
       'Отбой пока около 20:30 (через 12 часов 30 минут).',
     );
     expect(sheet.summary).toBe(
-      'Поэтому пока можно бодрствовать, а ближе к окну перейти к спокойной подготовке.',
+      'Поэтому пока можно спокойно бодрствовать, а ближе к окну перейти к подготовке.',
     );
     expectWhySheetStringsSafe(sheet);
   });
