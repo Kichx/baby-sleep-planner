@@ -311,7 +311,7 @@ describe('buildSleepCoachCardVm', () => {
     });
 
     expect(card).toMatchObject({
-      anchor: 'Средний ориентир: до 10:45, осталось 45 мин',
+      anchor: 'Средний ориентир: до 10:40, осталось 40 мин',
       body: 'Сон пока короткий. Пусть доберёт, а после пробуждения пересчитаем следующий шаг.',
       eyebrow: 'Что лучше сейчас',
       title: 'Дать поспать ещё',
@@ -323,7 +323,32 @@ describe('buildSleepCoachCardVm', () => {
       'Следующий сон после сна',
     );
     expect(card.anchor).toContain('Средний ориентир');
-    expect(card.anchor).toContain('осталось 45 мин');
+    expect(card.anchor).toContain('осталось 40 мин');
+    expectVisibleCardBasics(card);
+  });
+
+  it('limits the active nap anchor by projected remaining day sleep', () => {
+    const card = buildCard({
+      now: at(18, 28),
+      snapshot: baseSnapshot({
+        completedNaps: 2,
+        currentDurationMinutes: 20,
+        nextSleepAt: at(18, 28),
+        predictedBedtimeAt: at(20, 59),
+        projectedRemainingDaySleepMinutes: 25,
+        remainingAwakeMinutes: 152,
+        state: 'sleeping',
+        statusStartedAt: at(18, 8),
+        totalDaySleepMinutes: 163,
+      }),
+    });
+
+    expect(card).toMatchObject({
+      anchor: 'Средний ориентир: до 18:53, осталось 25 мин',
+      title: 'Дать поспать ещё',
+      tone: 'calm',
+      visible: true,
+    });
     expectVisibleCardBasics(card);
   });
 
@@ -341,7 +366,7 @@ describe('buildSleepCoachCardVm', () => {
     });
 
     expect(card).toMatchObject({
-      anchor: 'Средний ориентир: до 18:05, осталось 0 мин',
+      anchor: 'Средний ориентир: до 18:10, осталось 0 мин',
       body: 'Если сон сильно затянется, отбой может уйти позже. Лучше мягко завершить сон в ближайшее время.',
       title: 'Скоро завершить сон',
       tone: 'adjustDay',

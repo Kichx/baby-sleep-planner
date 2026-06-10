@@ -266,6 +266,7 @@ function getPredictedBedtimeAnchor(
 }
 
 function getCurrentSleepAverageEndAt(input: {
+  now: Date;
   plan: SleepPlanPreset;
   sleepDayStart: Date;
   snapshot: SleepSnapshot;
@@ -289,7 +290,28 @@ function getCurrentSleepAverageEndAt(input: {
     return null;
   }
 
-  return addMinutes(input.snapshot.statusStartedAt, targetNapMinutes);
+  const latestEveningNapEndAt = dateAtSleepDayMinutes(
+    input.sleepDayStart,
+    input.plan.latestEveningNapEndMinutes,
+  );
+  const averageNapRemainingMinutes = Math.max(
+    0,
+    targetNapMinutes - input.snapshot.currentDurationMinutes,
+  );
+  const eveningLimitRemainingMinutes = minutesBetween(input.now, latestEveningNapEndAt);
+  let currentNapRemainingMinutes = Math.min(
+    averageNapRemainingMinutes,
+    eveningLimitRemainingMinutes,
+  );
+
+  if (input.snapshot.projectedRemainingDaySleepMinutes > 0) {
+    currentNapRemainingMinutes = Math.min(
+      currentNapRemainingMinutes,
+      input.snapshot.projectedRemainingDaySleepMinutes,
+    );
+  }
+
+  return addMinutes(input.now, currentNapRemainingMinutes);
 }
 
 function getCurrentSleepAverageEndAnchor(input: {
@@ -299,6 +321,7 @@ function getCurrentSleepAverageEndAnchor(input: {
   snapshot: SleepSnapshot;
 }): string | undefined {
   const endAt = getCurrentSleepAverageEndAt({
+    now: input.now,
     plan: input.plan,
     sleepDayStart: input.sleepDayStart,
     snapshot: input.snapshot,
