@@ -1,0 +1,20 @@
+  --non-interactive is not supported, use $CI=1 instead
+Starting project at D:\baby-sleep-planner
+Using src/app as the root directory for Expo Router.
+React Compiler enabled
+Starting Metro Bundler
+
+Waiting on http://localhost:8082
+Logs for your project will appear below.
+Web Bundled 9908ms node_modules\expo-router\entry.js (1011 modules)
+λ Bundled 10862ms node_modules\expo\node_modules\@expo\cli\node_modules\@expo\router-server\node\render.js (1123 modules)
+Web Bundled 5001ms node_modules\expo-router\entry.js (1015 modules)
+Web  INFO  %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold
+Web  LOG  Running application "main" with appParams:
+ {"hydrate": undefined, "rootTag": "#root"} 
+Development-level warnings: ON.
+Performance optimizations: OFF.
+Web Bundled 1158ms node_modules\expo-sqlite\web\worker.ts (1 module)
+λ Bundled 2817ms node_modules\expo\node_modules\@expo\cli\node_modules\@expo\router-server\node\render.js (1 module)
+Web Bundled 3561ms node_modules\expo-router\entry.js (1 module)
+Web  WARN  Image: style.tintColor is deprecated. Please use props.tintColor.
