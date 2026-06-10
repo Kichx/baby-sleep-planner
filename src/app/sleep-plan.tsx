@@ -2286,14 +2286,26 @@ function ChildProfilePromptModal({
                   isBusy ? styles.disabledCard : null,
                 ]}>
                 <View style={styles.profilePromptBirthDateTextBlock}>
-                  <Text style={styles.compactLabel}>Дата рождения ребёнка</Text>
-                  <Text numberOfLines={1} style={styles.profilePromptBirthDateValue}>
+                  <View style={styles.profilePromptBirthDateHeader}>
+                    <Text numberOfLines={1} style={styles.compactLabel}>
+                      Дата рождения
+                    </Text>
+                    <Text
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.86}
+                      numberOfLines={1}
+                      style={styles.profilePromptAgeText}>
+                      {ageLabel}
+                    </Text>
+                  </View>
+                  <Text
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.86}
+                    numberOfLines={1}
+                    style={styles.profilePromptBirthDateValue}>
                     {birthDateLabel}
                   </Text>
                 </View>
-                <Text numberOfLines={2} style={styles.profilePromptAgeText}>
-                  {ageLabel}
-                </Text>
               </Pressable>
             </View>
             <View style={styles.nameDialogActions}>
@@ -5323,11 +5335,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   profilePromptBirthDateField: {
-    minHeight: 62,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.md,
+    minHeight: 72,
+    justifyContent: 'center',
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
@@ -5339,8 +5348,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primarySoft,
   },
   profilePromptBirthDateTextBlock: {
-    flex: 1,
     gap: spacing.xs,
+    minWidth: 0,
+  },
+  profilePromptBirthDateHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
     minWidth: 0,
   },
   profilePromptBirthDateValue: {
@@ -5349,9 +5364,9 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   profilePromptAgeText: {
-    maxWidth: 132,
+    flexShrink: 1,
     color: colors.primary,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '800',
     textAlign: 'right',
   },

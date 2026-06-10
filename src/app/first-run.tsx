@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Stack, type Href, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import {
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -26,6 +27,7 @@ import { completeOnboardingTrackingOnly, updateChildProfileName } from '@/db';
 
 const HOME_ROUTE = '/' as Href;
 const SLEEP_PLAN_ROUTE = '/sleep-plan?source=first-run&returnTo=home' as Href;
+const appIconSource = require('../../assets/images/icon.png');
 
 const EXAMPLES = [
   'Следующий сон: примерно в 10:20',
@@ -35,7 +37,7 @@ const EXAMPLES = [
 
 const HOW_IT_WORKS_STEPS = [
   {
-    body: 'Например: подъём, количество дневных снов и примерный отбой.',
+    body: 'Можно собрать его самому или выбрать готовый вариант по возрасту: подъём, дневные сны и примерный отбой.',
     title: 'Вы выбираете План дня',
   },
   {
@@ -120,8 +122,24 @@ export default function FirstRunScreen() {
       <ScrollView style={styles.screen} contentContainerStyle={styles.scrollContent}>
         <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
           <View style={styles.content}>
+            <Image
+              accessibilityIgnoresInvertColors
+              accessibilityLabel="Иконка приложения Режимка"
+              source={appIconSource}
+              style={styles.appIcon}
+            />
+
             <View style={styles.headerBlock}>
-              <Text style={styles.title}>План дня для сна малыша</Text>
+              <View style={styles.titleBlock}>
+                <Text style={styles.title}>Режимка</Text>
+                <Text
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.86}
+                  numberOfLines={1}
+                  style={styles.titleSlogan}>
+                  меньше считать, больше спать
+                </Text>
+              </View>
               <Text style={styles.text}>
                 Приложение помогает понять, сколько ребёнок бодрствует, когда ждать следующий
                 сон и во сколько лучше уходить в ночь.
@@ -129,6 +147,7 @@ export default function FirstRunScreen() {
             </View>
 
             <View style={styles.exampleBlock}>
+              <Text style={styles.exampleLabel}>Пример подсказки</Text>
               {EXAMPLES.map((example) => (
                 <View key={example} style={styles.exampleRow}>
                   <View style={styles.exampleDot} />
@@ -300,14 +319,32 @@ const styles = StyleSheet.create({
   content: {
     gap: spacing.lg,
   },
+  appIcon: {
+    width: 76,
+    height: 76,
+    alignSelf: 'center',
+    borderRadius: 18,
+  },
   headerBlock: {
     gap: spacing.sm,
+  },
+  titleBlock: {
+    alignItems: 'center',
+    gap: 2,
   },
   title: {
     color: colors.text,
     fontSize: 26,
     fontWeight: '800',
     lineHeight: 31,
+    textAlign: 'center',
+  },
+  titleSlogan: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: '800',
+    lineHeight: 22,
+    textAlign: 'center',
   },
   text: {
     color: colors.textMuted,
@@ -322,6 +359,13 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     padding: spacing.sm,
     backgroundColor: colors.surface,
+  },
+  exampleLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: '800',
+    lineHeight: 16,
+    textTransform: 'uppercase',
   },
   exampleRow: {
     minHeight: 30,

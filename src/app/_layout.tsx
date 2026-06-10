@@ -1,7 +1,9 @@
+import '@/textScaling';
+
 import { Stack, usePathname } from 'expo-router';
 import { SQLiteProvider } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, initialWindowMetrics } from 'react-native-safe-area-context';
 
 import {
@@ -26,9 +28,14 @@ function AppShell() {
             },
             headerShadowVisible: false,
             headerTintColor: colors.text,
-            headerTitleStyle: {
-              fontWeight: '800',
-            },
+            headerTitle: ({ children, tintColor }) => (
+              <Text
+                allowFontScaling={false}
+                numberOfLines={1}
+                style={[styles.headerTitle, tintColor ? { color: tintColor } : null]}>
+                {children}
+              </Text>
+            ),
             contentStyle: {
               backgroundColor: colors.background,
             },
@@ -108,5 +115,10 @@ const styles = StyleSheet.create({
   stackHost: {
     flex: 1,
     minHeight: 0,
+  },
+  headerTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '800',
   },
 });

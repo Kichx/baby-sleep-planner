@@ -2116,12 +2116,7 @@ export default function TodaySleepScreen() {
                 <>
                   <View style={styles.section}>
                     <View style={styles.scenarioHeader}>
-                      <View style={styles.scenarioTitleBlock}>
-                        <Text style={styles.sectionTitle}>План дня</Text>
-                        <Text numberOfLines={1} style={styles.scenarioPlanLabel}>
-                          Активный план: {currentPlanName}
-                        </Text>
-                      </View>
+                      <Text style={styles.sectionTitle}>План дня</Text>
                       <Pressable
                         accessibilityLabel="Поделиться планом дня"
                         accessibilityRole="button"
@@ -2142,6 +2137,13 @@ export default function TodaySleepScreen() {
                         </Text>
                       </Pressable>
                     </View>
+                    <Text
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.88}
+                      numberOfLines={2}
+                      style={styles.scenarioPlanLabel}>
+                      Активный план: {currentPlanName}
+                    </Text>
                     {shouldShowEarlyWakeSuggestion ? (
                       <View style={styles.earlyWakeSuggestionCard}>
                         <Text style={styles.earlyWakeSuggestionText}>
@@ -2451,7 +2453,7 @@ export default function TodaySleepScreen() {
                                 <Text numberOfLines={1} style={styles.sessionTitle}>
                                   {effectiveKind === 'night' ? 'Ночной сон' : 'Сон'}
                                 </Text>
-                                <Text numberOfLines={1} style={styles.sessionTime}>
+                                <Text numberOfLines={2} style={styles.sessionTime}>
                                   {formatSessionTimeRange(startedAt, endedAt, now)}
                                 </Text>
                               </View>
@@ -2517,7 +2519,7 @@ export default function TodaySleepScreen() {
                             <Text numberOfLines={1} style={styles.sessionTitle}>
                               {effectiveKind === 'night' ? 'Ночной сон' : 'Сон'}
                             </Text>
-                            <Text numberOfLines={1} style={styles.sessionTime}>
+                            <Text numberOfLines={2} style={styles.sessionTime}>
                               {formatSessionTimeRange(startedAt, endedAt, now)}
                             </Text>
                           </View>
@@ -2588,9 +2590,9 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-    gap: spacing.lg,
+    gap: spacing.md,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
+    paddingTop: spacing.xs,
     paddingBottom: spacing.xl,
   },
   datePickerBlock: {
@@ -2733,12 +2735,12 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   hero: {
-    minHeight: 122,
+    minHeight: 104,
     borderRadius: radius.sm,
     borderLeftWidth: 5,
     borderLeftColor: colors.primary,
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm,
     justifyContent: 'center',
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -3170,15 +3172,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: spacing.sm,
   },
-  scenarioTitleBlock: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
   scenarioPlanLabel: {
+    minWidth: 0,
     color: colors.textMuted,
     fontSize: 13,
     fontWeight: '800',
+    lineHeight: 18,
   },
   sharePlanButton: {
     minHeight: 34,
@@ -3282,7 +3281,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   sessionRow: {
-    height: TIMELINE_ROW_HEIGHT,
+    minHeight: TIMELINE_ROW_HEIGHT,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
@@ -3302,7 +3301,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   sessionCardMain: {
-    height: TIMELINE_ROW_HEIGHT,
+    minHeight: TIMELINE_ROW_HEIGHT,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     flexDirection: 'row',
@@ -3373,7 +3372,7 @@ const styles = StyleSheet.create({
   sessionInfo: {
     flex: 1,
     minWidth: 0,
-    gap: spacing.xs,
+    gap: 2,
   },
   sessionMeta: {
     flexShrink: 0,
@@ -3388,6 +3387,7 @@ const styles = StyleSheet.create({
   sessionTime: {
     color: colors.textMuted,
     fontSize: 14,
+    lineHeight: 18,
   },
   sessionDuration: {
     color: colors.text,
