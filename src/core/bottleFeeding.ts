@@ -212,6 +212,23 @@ export function formatBottleFeedingTopUpCount(count: number): string {
   return formatRussianCount(count, 'доешка', 'доешки', 'доешек');
 }
 
+function formatBottleFeedingCountWithTopUps(stats: {
+  regularCount: number;
+  topUpCount: number;
+}): string {
+  if (stats.topUpCount === 0) {
+    return formatBottleFeedingCount(stats.regularCount);
+  }
+
+  if (stats.regularCount === 0) {
+    return formatBottleFeedingTopUpCount(stats.topUpCount);
+  }
+
+  return `${formatBottleFeedingCount(stats.regularCount)} и ${formatBottleFeedingTopUpCount(
+    stats.topUpCount,
+  )}`;
+}
+
 export function formatBottleFeedingElapsed(startedAt: Date, now: Date): string {
   const elapsedMinutes = Math.max(
     0,
@@ -300,14 +317,23 @@ export function formatTodayBottleFeedingStatsWithTopUpsLine(
     )}`;
   }
 
-  const countLabel =
-    stats.regularCount > 0
-      ? `${formatBottleFeedingCount(stats.regularCount)} и ${formatBottleFeedingTopUpCount(
-          stats.topUpCount,
-        )}`
-      : formatBottleFeedingTopUpCount(stats.topUpCount);
+  const countLabel = formatBottleFeedingCountWithTopUps(stats);
 
   return `Сегодня: ${stats.totalVolumeMl} мл · ${countLabel}`;
+}
+
+export function formatTodayBottleFeedingCountWithTopUpsLine(
+  feedings: readonly Pick<BottleFeeding, 'volumeMl'>[],
+  topUpThresholdMl: number,
+): string {
+  const stats = calculateBottleFeedingTopUpStats(feedings, topUpThresholdMl);
+  const totalCount = stats.regularCount + stats.topUpCount;
+
+  if (totalCount === 0) {
+    return 'Сегодня: пока нет записей';
+  }
+
+  return `Сегодня: ${formatBottleFeedingCountWithTopUps(stats)}`;
 }
 
 export function formatBottleFeedingReminderInterval(minutes: number): string {

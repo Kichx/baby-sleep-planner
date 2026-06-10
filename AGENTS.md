@@ -967,6 +967,8 @@ On the home feeding card, if top-ups exist, show the ordinary feeding count excl
 
 Show the `Доешка` badge consistently in the dedicated `/bottle-feeding` timeline, standalone mixed sleep/feed rows on `/`, and nested feeding rows inside sleep cards. The badge is display-only and must not affect sleep timelines, wake-window calculations, recommendations, active sleep state, reminders, or persisted bottle-feeding rows.
 
+Use the shared `BottleFeedingIcon` component for bottle-feeding visual markers across the home feeding card, the main mixed `Всё по порядку` timeline, and the dedicated `/bottle-feeding` timeline. For timeline rows, use the `timeline` variant so the bottle icon matches the size and framed badge treatment of sleep icons. Do not revive `EventTypeBadge kind="bottleFeeding"` or duplicate bottle-icon View styles inside screens unless the shared component is explicitly being replaced.
+
 When the home feeding card caption can include `... и 1 доешка`, keep the `+ Добавить` action from stealing caption width: position it on the top/right or otherwise reserve space only for the latest-feeding line, and allow the caption to wrap to two lines on narrow screens. Verify the layout with web/native UI where possible.
 
 When showing bottle feedings in day feeds, treat them as display-only events. It is fine to mix `BottleFeeding` rows with sleep rows in chronological order, but do not pass feedings into sleep timelines, day summaries, recommendations, active sleep state, or start/stop logic. A feeding inside a sleep interval must not split the sleep session, change sleep duration, end active sleep, start a new sleep, or affect sleep recommendations.

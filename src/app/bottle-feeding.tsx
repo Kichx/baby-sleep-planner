@@ -11,7 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BottleFeedingEditorModal } from '@/components/BottleFeedingEditorModal';
-import { EventTypeBadge } from '@/components/EventTypeBadge';
+import { BottleFeedingIcon } from '@/components/BottleFeedingIcon';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import {
   DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML,
@@ -798,7 +798,7 @@ export default function BottleFeedingScreen() {
                             styles.feedRow,
                             pressed ? styles.feedRowPressed : null,
                           ]}>
-                          <EventTypeBadge kind="bottleFeeding" quiet />
+                          <BottleFeedingIcon variant="timeline" />
                           <Text numberOfLines={1} style={styles.feedRowText}>
                             {recordLine}
                           </Text>

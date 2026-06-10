@@ -17,6 +17,7 @@ import {
   formatBottleFeedingTopUpCount,
   formatBottleFeedingStatsLine,
   formatLatestBottleFeedingLine,
+  formatTodayBottleFeedingCountWithTopUpsLine,
   formatTodayBottleFeedingStatsLine,
   formatTodayBottleFeedingStatsWithTopUpsLine,
   getBottleFeedingCalendarDayRange,
@@ -329,6 +330,21 @@ describe('bottle feeding calculations', () => {
         30,
       ),
     ).toBe('Сегодня: 30 мл · 1 доешка');
+    expect(formatTodayBottleFeedingCountWithTopUpsLine(feedings, 30)).toBe(
+      'Сегодня: 2 кормления и 1 доешка',
+    );
+    expect(formatTodayBottleFeedingCountWithTopUpsLine(feedings, 20)).toBe(
+      'Сегодня: 3 кормления',
+    );
+    expect(
+      formatTodayBottleFeedingCountWithTopUpsLine(
+        [feeding('top-up-only', '2026-05-31T08:00:00.000Z', 30)],
+        30,
+      ),
+    ).toBe('Сегодня: 1 доешка');
+    expect(formatTodayBottleFeedingCountWithTopUpsLine([], 30)).toBe(
+      'Сегодня: пока нет записей',
+    );
   });
 
   it('formats reminder status lines calmly', () => {

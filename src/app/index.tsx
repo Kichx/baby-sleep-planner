@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { BottleFeedingEditorModal } from '@/components/BottleFeedingEditorModal';
+import { BottleFeedingIcon } from '@/components/BottleFeedingIcon';
 import { EventTypeBadge } from '@/components/EventTypeBadge';
 import { SleepCoachAlternativesSheet } from '@/components/SleepCoachAlternativesSheet';
 import { SleepCoachCard } from '@/components/SleepCoachCard';
@@ -84,7 +85,7 @@ import {
   filterBottleFeedingsInCalendarDay,
   formatBottleFeedingRecordLine,
   formatLatestBottleFeedingLine,
-  formatTodayBottleFeedingStatsWithTopUpsLine,
+  formatTodayBottleFeedingCountWithTopUpsLine,
   getBottleFeedingCalendarDayRange,
   isBottleFeedingTopUp,
 } from '@/core/bottleFeeding';
@@ -920,7 +921,7 @@ export default function TodaySleepScreen() {
   const isToday = dayType === 'today';
   const todayBottleFeedingStatsLine = useMemo(
     () =>
-      formatTodayBottleFeedingStatsWithTopUpsLine(
+      formatTodayBottleFeedingCountWithTopUpsLine(
         todayBottleFeedings,
         bottleFeedingTopUpThresholdMl,
       ),
@@ -2072,11 +2073,13 @@ export default function TodaySleepScreen() {
                       styles.bottleFeedingContentButton,
                       pressed ? styles.bottleFeedingContentButtonPressed : null,
                     ]}>
-                    <EventTypeBadge kind="bottleFeeding" quiet />
                     <View style={styles.bottleFeedingTextBlock}>
-                      <Text numberOfLines={1} style={styles.bottleFeedingTitle}>
-                        Кормление
-                      </Text>
+                      <View style={styles.bottleFeedingTitleRow}>
+                        <BottleFeedingIcon />
+                        <Text numberOfLines={1} style={styles.bottleFeedingTitle}>
+                          Кормление
+                        </Text>
+                      </View>
                       <Text
                         adjustsFontSizeToFit
                         minimumFontScale={0.86}
@@ -2084,7 +2087,11 @@ export default function TodaySleepScreen() {
                         style={styles.bottleFeedingValue}>
                         {formatLatestBottleFeedingLine(latestBottleFeeding, now)}
                       </Text>
-                      <Text numberOfLines={1} style={styles.bottleFeedingCaption}>
+                      <Text
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.82}
+                        numberOfLines={1}
+                        style={styles.bottleFeedingCaption}>
                         {todayBottleFeedingStatsLine}
                       </Text>
                     </View>
@@ -2314,20 +2321,7 @@ export default function TodaySleepScreen() {
                     showFeedingsInTimeline ? styles.timelineFilterButtonActive : null,
                     pressed ? styles.timelineFilterButtonPressed : null,
                   ]}>
-                  <View style={styles.timelineFilterBottleIcon}>
-                    <View
-                      style={[
-                        styles.timelineFilterBottleCap,
-                        showFeedingsInTimeline ? styles.timelineFilterBottleAccentActive : null,
-                      ]}
-                    />
-                    <View
-                      style={[
-                        styles.timelineFilterBottleBody,
-                        showFeedingsInTimeline ? styles.timelineFilterBottleAccentActive : null,
-                      ]}
-                    />
-                  </View>
+                  <BottleFeedingIcon active={showFeedingsInTimeline} />
                   <Text
                     numberOfLines={1}
                     style={[
@@ -2406,7 +2400,7 @@ export default function TodaySleepScreen() {
                               group.key === 'previous' ? styles.previousSessionRow : null,
                               pressed ? styles.bottleFeedingRowPressed : null,
                             ]}>
-                            <EventTypeBadge kind="bottleFeeding" quiet />
+                            <BottleFeedingIcon variant="timeline" />
                             <Text
                               numberOfLines={1}
                               style={[styles.sessionTitle, styles.bottleFeedingLine]}>
@@ -2485,7 +2479,7 @@ export default function TodaySleepScreen() {
                                       styles.sleepFeedingRow,
                                       pressed ? styles.sleepFeedingRowPressed : null,
                                     ]}>
-                                    <EventTypeBadge kind="bottleFeeding" quiet />
+                                    <BottleFeedingIcon variant="timeline" />
                                     <Text numberOfLines={1} style={styles.sleepFeedingLine}>
                                       {recordLine}
                                     </Text>
@@ -3012,7 +3006,13 @@ const styles = StyleSheet.create({
     minWidth: 0,
     gap: 2,
   },
+  bottleFeedingTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
   bottleFeedingTitle: {
+    flexShrink: 1,
     color: colors.textMuted,
     fontSize: 14,
     fontWeight: '800',
@@ -3126,30 +3126,6 @@ const styles = StyleSheet.create({
   },
   timelineFilterButtonPressed: {
     backgroundColor: colors.surfaceMuted,
-  },
-  timelineFilterBottleIcon: {
-    width: 18,
-    height: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  timelineFilterBottleCap: {
-    width: 7,
-    height: 3,
-    borderRadius: 2,
-    backgroundColor: colors.textMuted,
-  },
-  timelineFilterBottleBody: {
-    width: 10,
-    height: 12,
-    borderRadius: 4,
-    borderWidth: 1.5,
-    borderColor: colors.textMuted,
-    backgroundColor: colors.surface,
-  },
-  timelineFilterBottleAccentActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primary,
   },
   timelineFilterButtonText: {
     color: colors.textMuted,
