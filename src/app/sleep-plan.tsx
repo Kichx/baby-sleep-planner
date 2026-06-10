@@ -559,7 +559,9 @@ function formatPresetTemplateNightSleep(preset: AgeSleepPlanPresetTemplate): str
 }
 
 function formatPresetTemplateWakeUpAround(preset: AgeSleepPlanPresetTemplate): string {
-  return formatClockMinutes(preset.plan.wakeUpStartMinutes);
+  return formatClockMinutes(
+    getClockMidpointMinutes(preset.plan.wakeUpStartMinutes, preset.plan.wakeUpEndMinutes),
+  );
 }
 
 function getPresetTemplateMeaningText(
@@ -1781,6 +1783,13 @@ function PresetPreviewCard({
       <View style={styles.presetPreviewList}>
         <Text style={styles.presetPreviewRow}>
           Подъём около {formatPresetTemplateWakeUpAround(preset)}
+        </Text>
+        <Text
+          adjustsFontSizeToFit
+          minimumFontScale={0.86}
+          numberOfLines={1}
+          style={styles.presetPreviewHint}>
+          Можно оставить так или изменить под ваш режим
         </Text>
         <Text style={styles.presetPreviewRow}>{formatPlanNapCount(preset.napCount)}</Text>
         <Text style={styles.presetPreviewRow}>
@@ -4228,13 +4237,20 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   presetPreviewList: {
-    gap: spacing.xs,
+    gap: 2,
   },
   presetPreviewRow: {
     color: colors.text,
     fontSize: 14,
     lineHeight: 20,
     fontWeight: '700',
+  },
+  presetPreviewHint: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '400',
+    opacity: 0.72,
   },
   presetActions: {
     gap: spacing.sm,

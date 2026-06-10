@@ -33,7 +33,7 @@ describe('sleep day date keys', () => {
     expect(
       getSleepDayDateKeysForInterval(
         new Date(2026, 0, 2, 22, 0),
-        new Date(2026, 0, 3, 7, 0),
+        new Date(2026, 0, 3, 6, 50),
         DEFAULT_SLEEP_PLAN,
       ),
     ).toEqual(['2026-01-02']);

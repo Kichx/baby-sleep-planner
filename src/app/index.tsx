@@ -2005,11 +2005,15 @@ export default function TodaySleepScreen() {
                       isSleeping ? styles.heroStatusDotSleeping : styles.heroStatusDotAwake,
                     ]}
                   />
-                  <Text style={styles.currentStatus}>
+                  <Text
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.82}
+                    numberOfLines={1}
+                    style={styles.currentStatus}>
                     {isLoading
                       ? 'Загрузка'
                       : shouldShowPlanStartNoDataHint
-                        ? 'План готов'
+                        ? 'План готов, ждём записи сна'
                       : shouldShowHeroPlaceholder
                         ? 'Пока нет записей'
                         : isSleeping
@@ -2759,6 +2763,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.textMuted,
   },
   currentStatus: {
+    flexShrink: 1,
     color: colors.textMuted,
     fontSize: 15,
     fontWeight: '800',

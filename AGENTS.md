@@ -294,6 +294,14 @@ When changing effective-plan logic, cover at least:
 - combined mode order;
 - base `TargetDayPlan` is not mutated.
 
+## Implementation lessons from preset wake-up defaults and no-record plan state
+
+Default wake-up time for starter plans is a product decision, not screen-local copy. Keep default wake-up constants in `src/core/sleepPlanDefaults.ts` and use them for both `DEFAULT_SLEEP_PLAN` and age-based preset templates. If the default wake-up range changes, update related projection/share/calculation fixtures, evening-rule expectations, and focused tests for both fallback and age preset plans.
+
+When a preset preview says `Подъём около ...`, derive the displayed time from the midpoint of the wake-up range, not from the lower boundary. If the preview needs to explain that the plan can be adjusted, keep the note short, one-line, muted, and visually secondary so it does not compete with the plan facts or action buttons.
+
+On the main `/` screen, when an active plan exists but today's selected sleep day has no sleep records (`showPlanStartNoDataHint=true`), the hero status must not say only `План готов`. That reads as if the day is already okay. Use explicit copy that says the app is waiting for facts, for example `План готов, ждём записи сна`, keep forecast/coach blocks hidden, and keep the supporting no-data card focused on entering the first sleep record.
+
 ## Implementation lessons from main screen effective-plan integration
 
 The main `/` screen must use the effective plan for today's calculations, but it must keep the base `SleepDayPlan` as the source of truth for plan name, source plan id, and temporary mode persistence.

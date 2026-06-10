@@ -185,7 +185,7 @@ describe('data transfer backup parsing', () => {
 
     expect(parsedBackup.data.targetDayPlans[0]).toMatchObject({
       evening_rules_mode: 'auto',
-      latest_evening_nap_end_minutes: 1200,
+      latest_evening_nap_end_minutes: 1190,
       max_evening_nap_minutes: 45,
       micro_nap_minutes: 20,
     });

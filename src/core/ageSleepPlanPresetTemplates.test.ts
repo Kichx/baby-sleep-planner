@@ -87,6 +87,18 @@ describe('getAgeSleepPlanPresetTemplateCatalog', () => {
     expect(options[0].catalog.ageBand.id).toBe(AGE_SLEEP_PLAN_PRESET_TEMPLATE_BANDS[0].id);
   });
 
+  it('uses a 06:50-07:10 wake-up range for every preset option', () => {
+    const options = getAllAgeSleepPlanPresetTemplateOptions(null);
+
+    expect(options.length).toBeGreaterThan(0);
+
+    for (const { preset } of options) {
+      expect(preset.plan.wakeUpStartMinutes).toBe(6 * 60 + 50);
+      expect(preset.plan.wakeUpEndMinutes).toBe(7 * 60 + 10);
+      expect(preset.plan.dayStartMinutes).toBe(6 * 60 + 50);
+    }
+  });
+
   it('formats a clear target plan name from a preset template', () => {
     const catalog = getAgeSleepPlanPresetTemplateCatalog({ ageMonths: 5 });
 

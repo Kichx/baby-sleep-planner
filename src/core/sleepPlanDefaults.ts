@@ -1,0 +1,3 @@
+export const DEFAULT_WAKE_UP_START_MINUTES = 6 * 60 + 50;
+export const DEFAULT_WAKE_UP_END_MINUTES = 7 * 60 + 10;
+export const DEFAULT_MIN_NIGHT_SLEEP_MINUTES = 3 * 60;

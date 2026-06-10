@@ -68,17 +68,17 @@ describe('buildTodaySleepSnapshot bedtime projection', () => {
   it('keeps a normal 3-nap day near the target bedtime', () => {
     const snapshot = buildTodaySleepSnapshot(
       [
-        sleepSession('nap-1', 'nap', 9, 34, 10, 39),
-        sleepSession('nap-2', 'nap', 13, 13, 14, 18),
-        sleepSession('nap-3', 'nap', 16, 52, 17, 57),
+        sleepSession('nap-1', 'nap', 9, 24, 10, 29),
+        sleepSession('nap-2', 'nap', 13, 3, 14, 8),
+        sleepSession('nap-3', 'nap', 16, 42, 17, 47),
       ],
-      at(17, 57),
+      at(17, 47),
       DEFAULT_SLEEP_PLAN,
     );
 
-    expect(clock(snapshot.nextSleepAt)).toBe('20:30');
+    expect(clock(snapshot.nextSleepAt)).toBe('20:20');
     expect(snapshot.nextSleepKind).toBe('night');
-    expect(clock(snapshot.predictedBedtimeAt)).toBe('20:30');
+    expect(clock(snapshot.predictedBedtimeAt)).toBe('20:20');
     expect(snapshot.projectedRemainingDaySleepMinutes).toBe(0);
   });
 
@@ -118,34 +118,34 @@ describe('buildTodaySleepSnapshot bedtime projection', () => {
   it('adds the remaining planned naps after an early morning wake', () => {
     const snapshot = buildTodaySleepSnapshot([], at(7, 30), DEFAULT_SLEEP_PLAN);
 
-    expect(clock(snapshot.nextSleepAt)).toBe('09:34');
+    expect(clock(snapshot.nextSleepAt)).toBe('09:24');
     expect(snapshot.nextSleepKind).toBe('nap');
-    expect(clock(snapshot.predictedBedtimeAt)).toBe('20:30');
+    expect(clock(snapshot.predictedBedtimeAt)).toBe('20:20');
     expect(snapshot.projectedRemainingDaySleepMinutes).toBe(195);
   });
 
   it('does not try to recover all missed sleep after a short first nap', () => {
     const snapshot = buildTodaySleepSnapshot(
-      [sleepSession('nap-1', 'nap', 9, 34, 10, 4)],
-      at(10, 4),
+      [sleepSession('nap-1', 'nap', 9, 24, 9, 54)],
+      at(9, 54),
       DEFAULT_SLEEP_PLAN,
     );
 
-    expect(clock(snapshot.predictedBedtimeAt)).toBe('19:55');
+    expect(clock(snapshot.predictedBedtimeAt)).toBe('19:45');
     expect(snapshot.projectedRemainingDaySleepMinutes).toBe(130);
   });
 
   it('limits projected sleep to one remaining slot after two short naps', () => {
     const snapshot = buildTodaySleepSnapshot(
       [
-        sleepSession('nap-1', 'nap', 9, 34, 10, 4),
-        sleepSession('nap-2', 'nap', 12, 38, 13, 8),
+        sleepSession('nap-1', 'nap', 9, 24, 9, 54),
+        sleepSession('nap-2', 'nap', 12, 28, 12, 58),
       ],
-      at(13, 8),
+      at(12, 58),
       DEFAULT_SLEEP_PLAN,
     );
 
-    expect(clock(snapshot.predictedBedtimeAt)).toBe('19:20');
+    expect(clock(snapshot.predictedBedtimeAt)).toBe('19:10');
     expect(snapshot.projectedRemainingDaySleepMinutes).toBe(65);
     expect(snapshot.scenarios[0]).toMatchObject({
       id: 'capLastNap',
@@ -156,8 +156,8 @@ describe('buildTodaySleepSnapshot bedtime projection', () => {
   it('allows a late third nap when it still fits before the evening nap cutoff', () => {
     const snapshot = buildTodaySleepSnapshot(
       [
-        sleepSession('nap-1', 'nap', 9, 34, 10, 39),
-        sleepSession('nap-2', 'nap', 13, 13, 14, 18),
+        sleepSession('nap-1', 'nap', 9, 24, 10, 29),
+        sleepSession('nap-2', 'nap', 13, 3, 14, 8),
       ],
       at(17, 30),
       DEFAULT_SLEEP_PLAN,
@@ -165,7 +165,7 @@ describe('buildTodaySleepSnapshot bedtime projection', () => {
 
     expect(clock(snapshot.nextSleepAt)).toBe('17:30');
     expect(snapshot.nextSleepKind).toBe('nap');
-    expect(clock(snapshot.predictedBedtimeAt)).toBe('20:30');
+    expect(clock(snapshot.predictedBedtimeAt)).toBe('20:20');
     expect(snapshot.projectedRemainingDaySleepMinutes).toBe(65);
   });
 
@@ -176,7 +176,7 @@ describe('buildTodaySleepSnapshot bedtime projection', () => {
       DEFAULT_SLEEP_PLAN,
     );
 
-    expect(clock(snapshot.predictedBedtimeAt)).toBe('20:30');
+    expect(clock(snapshot.predictedBedtimeAt)).toBe('20:20');
     expect(snapshot.projectedRemainingDaySleepMinutes).toBe(175);
   });
 
@@ -193,7 +193,7 @@ describe('buildTodaySleepSnapshot bedtime projection', () => {
 
     expect(clock(snapshot.nextSleepAt)).toBe('17:34');
     expect(snapshot.nextSleepKind).toBe('nap');
-    expect(clock(snapshot.predictedBedtimeAt)).toBe('19:05');
+    expect(clock(snapshot.predictedBedtimeAt)).toBe('18:55');
     expect(snapshot.projectedRemainingDaySleepMinutes).toBe(20);
     expect(snapshot.scenarios[0]).toMatchObject({
       id: 'microNap',
@@ -240,9 +240,9 @@ describe('buildTodaySleepSnapshot bedtime projection', () => {
       DEFAULT_SLEEP_PLAN,
     );
 
-    expect(clock(snapshot.nextSleepAt)).toBe('19:25');
+    expect(clock(snapshot.nextSleepAt)).toBe('19:15');
     expect(snapshot.nextSleepKind).toBe('night');
-    expect(clock(snapshot.predictedBedtimeAt)).toBe('19:25');
+    expect(clock(snapshot.predictedBedtimeAt)).toBe('19:15');
     expect(snapshot.projectedRemainingDaySleepMinutes).toBe(0);
   });
 
@@ -258,9 +258,9 @@ describe('buildTodaySleepSnapshot bedtime projection', () => {
       DEFAULT_SLEEP_PLAN,
     );
 
-    expect(clock(snapshot.nextSleepAt)).toBe('20:20');
+    expect(clock(snapshot.nextSleepAt)).toBe('20:10');
     expect(snapshot.nextSleepKind).toBe('night');
-    expect(clock(snapshot.predictedBedtimeAt)).toBe('20:20');
+    expect(clock(snapshot.predictedBedtimeAt)).toBe('20:10');
     expect(snapshot.projectedRemainingDaySleepMinutes).toBe(0);
   });
 
@@ -306,10 +306,10 @@ describe('buildSleepDaySummary retrospective summary', () => {
   it('summarizes a normal 3-nap day as close to the plan', () => {
     const summary = buildSleepDaySummary(
       [
-        sleepSessionWithDayOffsets('nap-1', 'nap', 0, 9, 34, 0, 10, 39),
-        sleepSessionWithDayOffsets('nap-2', 'nap', 0, 13, 13, 0, 14, 18),
-        sleepSessionWithDayOffsets('nap-3', 'nap', 0, 16, 52, 0, 17, 57),
-        sleepSessionWithDayOffsets('night', 'night', 0, 20, 30, 1, 7, 0),
+        sleepSessionWithDayOffsets('nap-1', 'nap', 0, 9, 24, 0, 10, 29),
+        sleepSessionWithDayOffsets('nap-2', 'nap', 0, 13, 3, 0, 14, 8),
+        sleepSessionWithDayOffsets('nap-3', 'nap', 0, 16, 42, 0, 17, 47),
+        sleepSessionWithDayOffsets('night', 'night', 0, 20, 20, 1, 6, 50),
       ],
       referenceDate,
       afterSleepDay,
@@ -325,8 +325,8 @@ describe('buildSleepDaySummary retrospective summary', () => {
     expect(summary.targetBedtimeDeltaMinutes).toBe(0);
     expect(summary.verdictLabel).toBe('День близко к плану');
     expect(summary.feedbackLines).toEqual(['Основные показатели близко к плану']);
-    expect(summary.bedtimeAt ? clock(summary.bedtimeAt) : null).toBe('20:30');
-    expect(summary.wakeUpAt ? clock(summary.wakeUpAt) : null).toBe('07:00');
+    expect(summary.bedtimeAt ? clock(summary.bedtimeAt) : null).toBe('20:20');
+    expect(summary.wakeUpAt ? clock(summary.wakeUpAt) : null).toBe('06:50');
   });
 
   it('highlights a day with too little awake time', () => {
@@ -342,9 +342,9 @@ describe('buildSleepDaySummary retrospective summary', () => {
       DEFAULT_SLEEP_PLAN,
     );
 
-    expect(summary.targetAwakeDeltaMinutes).toBe(-135);
+    expect(summary.targetAwakeDeltaMinutes).toBe(-125);
     expect(summary.verdictLabel).toBe('Бодрствования меньше цели');
-    expect(summary.feedbackLines[0]).toBe('Бодрствования на 2 ч 15 мин меньше цели');
+    expect(summary.feedbackLines[0]).toBe('Бодрствования на 2 ч 5 мин меньше цели');
   });
 
   it('highlights a day with too much awake time', () => {
@@ -368,10 +368,10 @@ describe('buildSleepDaySummary retrospective summary', () => {
   it('highlights short daytime sleep even when total awake time is close', () => {
     const summary = buildSleepDaySummary(
       [
-        sleepSessionWithDayOffsets('nap-1', 'nap', 0, 9, 30, 0, 10, 0),
-        sleepSessionWithDayOffsets('nap-2', 'nap', 0, 12, 30, 0, 13, 0),
-        sleepSessionWithDayOffsets('nap-3', 'nap', 0, 16, 0, 0, 16, 30),
-        sleepSessionWithDayOffsets('night', 'night', 0, 18, 45, 1, 7, 0),
+        sleepSessionWithDayOffsets('nap-1', 'nap', 0, 9, 20, 0, 9, 50),
+        sleepSessionWithDayOffsets('nap-2', 'nap', 0, 12, 20, 0, 12, 50),
+        sleepSessionWithDayOffsets('nap-3', 'nap', 0, 15, 50, 0, 16, 20),
+        sleepSessionWithDayOffsets('night', 'night', 0, 18, 35, 1, 6, 50),
       ],
       referenceDate,
       afterSleepDay,
@@ -397,8 +397,8 @@ describe('buildSleepDaySummary retrospective summary', () => {
       DEFAULT_SLEEP_PLAN,
     );
 
-    expect(summary.targetBedtimeDeltaMinutes).toBe(50);
-    expect(summary.feedbackLines).toContain('Отбой на 50 мин позже плана');
+    expect(summary.targetBedtimeDeltaMinutes).toBe(70);
+    expect(summary.feedbackLines).toContain('Отбой на 1 ч 10 мин позже плана');
     expect(summary.bedtimeAt ? clock(summary.bedtimeAt) : null).toBe('22:20');
     expect(summary.wakeUpAt ? clock(summary.wakeUpAt) : null).toBe('08:00');
   });

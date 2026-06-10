@@ -365,7 +365,7 @@ describe('buildSleepCoachCardVm', () => {
     });
 
     expect(card).toMatchObject({
-      anchor: 'Средний ориентир: до 07:15, осталось 9 ч 15 мин',
+      anchor: 'Средний ориентир: до 07:00, осталось 9 ч',
       title: 'Дать поспать ещё',
       tone: 'calm',
       visible: true,

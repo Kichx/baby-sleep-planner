@@ -119,7 +119,7 @@ describe('buildTodayPlanShareText', () => {
     expect(message).toContain('• Текущий сон: ориентир до 10:45');
     expect(message).toContain('• 2-й сон: 13:19-14:24');
     expect(message).toContain('• 3-й сон: 16:58-18:03');
-    expect(message).toContain('• Отбой: 20:30');
+    expect(message).toContain('• Отбой: 20:20');
   });
 
   it('handles a day without sleep records', () => {
@@ -133,13 +133,13 @@ describe('buildTodayPlanShareText', () => {
 
     expect(message).toContain('Сон на сегодня: ребёнок');
     expect(message).toContain('Ориентир: Основной');
-    expect(message).toContain('• Подъём: 07:00');
-    expect(message).toContain('• Сейчас бодрствует с 07:00 (30 мин)');
+    expect(message).toContain('• Подъём: 06:50');
+    expect(message).toContain('• Сейчас бодрствует с 06:50 (40 мин)');
     expect(message).toContain('• Дневных снов пока не было');
-    expect(message).toContain('• 1-й сон: 09:34-10:39');
-    expect(message).toContain('• 2-й сон: 13:13-14:18');
-    expect(message).toContain('• 3-й сон: 16:52-17:57');
-    expect(message).toContain('• Отбой: 20:30');
+    expect(message).toContain('• 1-й сон: 09:24-10:29');
+    expect(message).toContain('• 2-й сон: 13:03-14:08');
+    expect(message).toContain('• 3-й сон: 16:42-17:47');
+    expect(message).toContain('• Отбой: 20:20');
   });
 
   it('includes today bottle feeding summary and elapsed time since the latest feeding', () => {

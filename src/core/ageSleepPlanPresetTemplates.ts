@@ -11,6 +11,11 @@ import {
   calculatePlanBedtimeRange,
   deriveEveningSleepRulesForPlan,
 } from '@/core/sleepPlan';
+import {
+  DEFAULT_MIN_NIGHT_SLEEP_MINUTES,
+  DEFAULT_WAKE_UP_END_MINUTES,
+  DEFAULT_WAKE_UP_START_MINUTES,
+} from '@/core/sleepPlanDefaults';
 
 export type AgeSleepPlanPresetTemplateAgeBandId =
   | 'preset_template_0_2_months'
@@ -68,9 +73,6 @@ export interface AgeSleepPlanPresetTemplateOption {
 }
 
 const DAY_MINUTES = 24 * 60;
-const DEFAULT_WAKE_UP_START_MINUTES = 7 * 60;
-const DEFAULT_WAKE_UP_END_MINUTES = 7 * 60 + 30;
-const DEFAULT_MIN_NIGHT_SLEEP_MINUTES = 3 * 60;
 
 export const AGE_SLEEP_PLAN_PRESET_TEMPLATE_BANDS: readonly AgeSleepPlanPresetTemplateAgeBand[] =
   [
