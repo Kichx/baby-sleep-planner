@@ -1701,6 +1701,12 @@ When creating or updating pages:
   `https://developer.atlassian.com/cloud/confluence/rest/v2/` and
   `https://developer.atlassian.com/cloud/confluence/rest/v1/`.
 
+Confluence diagrams and flowcharts:
+- This Confluence site does not render Mermaid blocks created through Markdown/Rovo as visual diagrams; they appear as code macros. Do not use Mermaid for user-facing Confluence diagrams unless the user explicitly wants source code.
+- If the user asks for an editable/native Confluence diagram, build it from ordinary Confluence content such as tables, headings, panels, and highlighted cells in storage XHTML. Keep conditions and outcomes in separate editable cells so the page can be changed later in the Confluence editor.
+- If the user asks for a visual-only diagram, a generated PNG/SVG attachment can be used, but first state that it will not be easily editable in Confluence.
+- After updating a page with a diagram-like section, verify the storage body has no unintended `<ac:structured-macro ac:name="code">` Mermaid macros and read the page back or inspect storage XHTML to confirm the Russian text and editable tables are present.
+
 For large existing Confluence pages, use a storage-body patch workflow instead of manual partial updates:
 - Treat the fetched body as Confluence storage XHTML, not rendered Markdown. Rendered headings and rows can be stored as `<h2>Отдельный экран <code>Кормление</code></h2>`, links can be `<ac:link>...`, and punctuation can be HTML entities such as `&mdash;`. Before writing, inspect the exact storage slice around every target marker instead of matching a copied Markdown line.
 - Do not pass a small snippet to `_updateconfluencepage` for a page update. Page update tools and REST `PUT /wiki/api/v2/pages/<pageId>` replace the page body. Use them only with the full desired body.
