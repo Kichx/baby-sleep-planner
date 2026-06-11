@@ -8,7 +8,7 @@ import {
 } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { BottleFeedingEditorModal } from '@/components/BottleFeedingEditorModal';
@@ -201,6 +201,7 @@ const DAY_MINUTES = 24 * 60;
 const ACTIVE_SLEEP_DETAIL_SECONDS = 5 * 60;
 const DEFAULT_TIMER_REFRESH_MS = 30_000;
 const ACTIVE_SLEEP_DETAIL_REFRESH_MS = 1_000;
+const HOME_HEADER_CONTENT_HEIGHT = 44;
 const TIMELINE_ROW_HEIGHT = 62;
 const MAX_PAST_DAY_FEEDBACK_LINES = 3;
 const FIRST_RUN_ROUTE = '/first-run' as Href;
@@ -636,6 +637,20 @@ function CurrentTimerText({
       style={styles.currentTimer}>
       {isLoading ? '--' : timerValue}
     </Text>
+  );
+}
+
+function HomeHeader() {
+  const insets = useSafeAreaInsets();
+
+  return (
+    <View style={[styles.homeHeader, { paddingTop: insets.top }]}>
+      <View style={styles.homeHeaderContent}>
+        <Text allowFontScaling={false} numberOfLines={1} style={styles.homeHeaderTitle}>
+          Сон
+        </Text>
+      </View>
+    </View>
   );
 }
 
@@ -1943,7 +1958,7 @@ export default function TodaySleepScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Сон' }} />
+      <Stack.Screen options={{ header: () => <HomeHeader /> }} />
       <ScrollView style={styles.screen} contentContainerStyle={styles.scrollContent}>
         <SafeAreaView edges={['bottom']} style={styles.safeArea}>
           {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
@@ -2592,8 +2607,21 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: spacing.md,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xs,
+    paddingTop: 0,
     paddingBottom: spacing.xl,
+  },
+  homeHeader: {
+    backgroundColor: colors.background,
+    paddingHorizontal: spacing.lg,
+  },
+  homeHeaderContent: {
+    height: HOME_HEADER_CONTENT_HEIGHT,
+    justifyContent: 'center',
+  },
+  homeHeaderTitle: {
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: '800',
   },
   datePickerBlock: {
     minHeight: 34,
