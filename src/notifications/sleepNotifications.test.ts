@@ -10,6 +10,7 @@ const syncMocks = vi.hoisted(() => ({
   hideBottleFeedingReminderNotification: vi.fn(async () => undefined),
   hideSleepReminderNotification: vi.fn(async () => undefined),
   loadExpoNotificationsModule: vi.fn(),
+  refreshSleepWidgetInBackground: vi.fn(),
   resetBottleFeedingReminderNotificationRuntimeState: vi.fn(),
   resetExpoNotificationRuntimeState: vi.fn(),
   syncActiveSleepNotificationFromDatabase: vi.fn(async () => undefined),
@@ -45,6 +46,10 @@ vi.mock('@/notifications/sleepReminderNotification', () => ({
     syncMocks.syncSleepReminderNotificationFromDatabase,
 }));
 
+vi.mock('@/widgets/sleepWidget', () => ({
+  refreshSleepWidgetInBackground: syncMocks.refreshSleepWidgetInBackground,
+}));
+
 const db = {} as SQLiteDatabase;
 
 async function loadSubject() {
@@ -77,6 +82,7 @@ describe('sleep notification sync', () => {
         syncMocks.syncBottleFeedingReminderNotificationFromDatabase,
       ).not.toHaveBeenCalled();
       expect(syncMocks.syncSleepReminderNotificationFromDatabase).not.toHaveBeenCalled();
+      expect(syncMocks.refreshSleepWidgetInBackground).toHaveBeenCalledTimes(1);
     },
   );
 
@@ -89,6 +95,7 @@ describe('sleep notification sync', () => {
     });
 
     expect(dbMocks.getOnboardingState).toHaveBeenCalledTimes(1);
+    expect(syncMocks.refreshSleepWidgetInBackground).toHaveBeenCalledTimes(1);
     expect(syncMocks.syncActiveSleepNotificationFromDatabase).toHaveBeenCalledWith(db, now);
     expect(syncMocks.syncSleepReminderNotificationFromDatabase).toHaveBeenCalledWith(db, now);
     expect(syncMocks.syncBottleFeedingReminderNotificationFromDatabase).toHaveBeenCalledWith(
@@ -112,6 +119,7 @@ describe('sleep notification sync', () => {
 
     expect(syncMocks.resetBottleFeedingReminderNotificationRuntimeState).toHaveBeenCalledTimes(1);
     expect(syncMocks.resetExpoNotificationRuntimeState).toHaveBeenCalledTimes(1);
+    expect(syncMocks.refreshSleepWidgetInBackground).toHaveBeenCalledTimes(1);
     expect(syncMocks.hideActiveSleepNotification).toHaveBeenCalledTimes(1);
     expect(syncMocks.hideSleepReminderNotification).toHaveBeenCalledTimes(1);
     expect(syncMocks.hideBottleFeedingReminderNotification).toHaveBeenCalledTimes(1);

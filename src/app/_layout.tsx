@@ -13,6 +13,12 @@ import {
 import { colors } from '@/constants/theme';
 import { DATABASE_NAME, migrateDatabase } from '@/db';
 import { ActiveSleepNotificationSync } from '@/notifications/ActiveSleepNotificationSync';
+import { refreshSleepWidgetInBackground } from '@/widgets/sleepWidget';
+
+async function initializeDatabase(db: Parameters<typeof migrateDatabase>[0]) {
+  await migrateDatabase(db);
+  refreshSleepWidgetInBackground();
+}
 
 function AppShell() {
   const pathname = usePathname();
@@ -98,7 +104,7 @@ function AppShell() {
 export default function RootLayout() {
   return (
     <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-      <SQLiteProvider databaseName={DATABASE_NAME} onInit={migrateDatabase}>
+      <SQLiteProvider databaseName={DATABASE_NAME} onInit={initializeDatabase}>
         <ActiveSleepNotificationSync />
         <AppShell />
       </SQLiteProvider>

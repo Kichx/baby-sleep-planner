@@ -18,6 +18,7 @@ import {
   hideSleepReminderNotification,
   syncSleepReminderNotificationFromDatabase,
 } from '@/notifications/sleepReminderNotification';
+import { refreshSleepWidgetInBackground } from '@/widgets/sleepWidget';
 
 export interface SleepNotificationSyncOptions {
   showOverdueBottleFeedingReminder?: boolean;
@@ -29,6 +30,7 @@ export async function syncSleepNotificationsFromDatabase(
   options: SleepNotificationSyncOptions = {},
 ) {
   const onboardingState = await getOnboardingState(db).catch(() => null);
+  refreshSleepWidgetInBackground();
 
   if (onboardingState !== 'plan_saved') {
     return;
@@ -44,6 +46,7 @@ export async function syncSleepNotificationsFromDatabase(
 export async function cancelAllLocalSleepNotifications(): Promise<void> {
   resetBottleFeedingReminderNotificationRuntimeState();
   resetExpoNotificationRuntimeState();
+  refreshSleepWidgetInBackground();
 
   await Promise.allSettled([
     hideActiveSleepNotification(),

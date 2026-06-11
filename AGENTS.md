@@ -815,6 +815,27 @@ TypeScript checks and unit tests do not compile Kotlin inline modules. Any chang
 Before considering active sleep notifications done, verify:
 - Expo Go still starts without importing or crashing on `expo-notifications`;
 - Expo inline-module discovery sees the Kotlin module when native notification code was added;
+
+## Implementation lessons from Android sleep widget
+
+For the Android home-screen sleep widget, keep the user-facing behavior minimal: one compact widget that shows `Бодрствует` / `Сон идёт`, a short timestamp detail, and one action button. Do not show a live elapsed timer in the widget; Android widget updates are not continuous enough for that. Keep the live timer in the active sleep notification and in the app UI.
+
+In Expo SDK 56, `expo-widgets` is not the right path for Android home-screen widgets. Use a native Android `AppWidgetProvider` plus `RemoteViews`, registered through the existing config plugin. Keep Android widget XML resources as source files under `native/android/res/...` and have the config plugin copy them into the generated Android project. Do not edit or commit generated `/android` files.
+
+Widget button taps can run while the React/JS runtime is not alive. Do not route the core start/stop action through React state, Expo Router, screen handlers, or selected-day UI arrays. The widget must perform a small native SQLite transaction against the global active sleep state, then refresh itself and the active sleep notification. JS may only request a best-effort widget refresh after normal in-app mutations.
+
+When native widget code reads the Expo SQLite database, use the Expo SQLite default location: `context.filesDir/SQLite/<DATABASE_NAME>`. Do not use `context.getDatabasePath(DATABASE_NAME)`, because that points at Android's default `/databases` directory and will not see the app's `SQLiteProvider` database.
+
+Before allowing the widget to write, check `PRAGMA user_version >= DATABASE_VERSION`. If the database does not exist or is older than the bundled schema, show `Откройте приложение` and avoid writing. The app migration should refresh the widget after `migrateDatabase` completes.
+
+Widget writes must preserve the same product boundaries as the app:
+- create or stop only `sleep_sessions`;
+- update needed `sleep_day_plan_snapshot` rows from the active target plan or fallback plan;
+- do not create `target_day_plan`, write temporary modes, rewrite saved history beyond affected snapshots, request notification permissions, or add backend/cloud behavior.
+
+After running `expo prebuild --platform android --no-install` for verification, check for and undo unrelated generated side effects such as `package.json` script rewrites. The generated `/android` folder is ignored and should be removed after inspection unless the task explicitly asks to keep native project output.
+
+TypeScript checks and Vitest do not compile Android widget Kotlin or validate `RemoteViews` resources. For widget changes, at minimum verify the config plugin with prebuild and inline-module scanner, but the feature is not fully verified until an Android APK/dev build is compiled and smoke-tested on a device with the widget added to the home screen.
 - starting sleep creates or refreshes the notification in an APK/dev build;
 - the notification elapsed time keeps changing while the app is backgrounded, without reopening the app;
 - stopping sleep dismisses it;
