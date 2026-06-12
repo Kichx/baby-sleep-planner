@@ -21,6 +21,7 @@ import androidx.core.content.ContextCompat
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import kotlin.math.max
+import widgets.SleepToggleWidgetProvider
 
 class ActiveSleepChronometer : Module() {
   override fun definition() = ModuleDefinition {
@@ -47,6 +48,7 @@ class ActiveSleepChronometer : Module() {
           context.startService(intent)
         }
 
+        SleepToggleWidgetProvider.refreshAll(context)
         true
       } catch (_: Exception) {
         false
@@ -58,6 +60,7 @@ class ActiveSleepChronometer : Module() {
       val context = reactContext.applicationContext
 
       ActiveSleepNotificationService.cancelNotifications(context)
+      SleepToggleWidgetProvider.refreshAll(context)
 
       try {
         context.startService(ActiveSleepNotificationService.createHideIntent(context))
@@ -121,11 +124,13 @@ class ActiveSleepNotificationService : Service() {
 
     try {
       ensureChannel(this)
-      cancelLegacyNotification(this)
       startActiveForeground()
+      cancelLegacyNotification(this)
       scheduleNextUpdate()
+      SleepToggleWidgetProvider.refreshAll(this)
     } catch (_: Exception) {
-      stopTracking()
+      showStatusNotificationFallback()
+      stopTracking(cancelNotifications = false)
       return START_NOT_STICKY
     }
 
@@ -163,6 +168,15 @@ class ActiveSleepNotificationService : Service() {
     }
   }
 
+  private fun showStatusNotificationFallback() {
+    try {
+      val notification = buildNotification(this, startedAtMillis, startedAtLabel)
+      NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, notification)
+    } catch (_: Exception) {
+      // If even a regular notification cannot be posted, sleep logging must stay unaffected.
+    }
+  }
+
   private fun scheduleNextUpdate() {
     handler.removeCallbacks(updateRunnable)
     handler.postDelayed(updateRunnable, getDelayUntilNextMinute())
@@ -173,18 +187,23 @@ class ActiveSleepNotificationService : Service() {
     return UPDATE_INTERVAL_MS - (elapsedMillis % UPDATE_INTERVAL_MS) + UPDATE_GRACE_MS
   }
 
-  private fun stopTracking() {
+  private fun stopTracking(cancelNotifications: Boolean = true) {
     startedAtMillis = 0L
     startedAtLabel = ""
     handler.removeCallbacks(updateRunnable)
     clearActiveSleep()
-    cancelNotifications(this)
+    if (cancelNotifications) {
+      cancelNotifications(this)
+    }
+    SleepToggleWidgetProvider.refreshAll(this)
 
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-      stopForeground(STOP_FOREGROUND_REMOVE)
-    } else {
-      @Suppress("DEPRECATION")
-      stopForeground(true)
+    if (cancelNotifications) {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        stopForeground(STOP_FOREGROUND_REMOVE)
+      } else {
+        @Suppress("DEPRECATION")
+        stopForeground(true)
+      }
     }
 
     stopSelf()
@@ -278,9 +297,13 @@ class ActiveSleepNotificationService : Service() {
         .setColor(Color.parseColor("#2F5D50"))
         .setOngoing(true)
         .setAutoCancel(false)
+        .setWhen(startedAtMillis)
+        .setShowWhen(true)
+        .setUsesChronometer(true)
+        .setChronometerCountDown(false)
         .setLocalOnly(true)
         .setSilent(true)
-        .setShowWhen(false)
+        .setOnlyAlertOnce(true)
 
       createLaunchIntent(context)?.let { launchIntent ->
         builder.setContentIntent(

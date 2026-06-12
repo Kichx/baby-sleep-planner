@@ -808,6 +808,8 @@ Minute-by-minute notification text can be updated while the JS runtime is alive,
 
 If the notification must show always-current elapsed sleep time while the app is backgrounded, do not use a JS interval or repeated local notification rescheduling as the main mechanism. Use Android's system chronometer in a native notification (`setWhen(startedAt)`, `setShowWhen(true)`, `setUsesChronometer(true)`, `setChronometerCountDown(false)`), so Android updates the visible time without the JS runtime.
 
+Starting an Android foreground service is not proof that the foreground notification was successfully posted. `ContextCompat.startForegroundService(...)` can return successfully while `startForeground(...)` later fails inside the service on a specific Android version, permission state, or OEM policy. Keep a fallback path that posts the same ongoing status notification through `NotificationManagerCompat.notify(...)`, and do not immediately cancel that fallback from service cleanup. Sleep logging must remain successful even when every notification path fails.
+
 For SDK 56, a small Android-only native notification module can be implemented as an Expo inline Kotlin module under `src/notifications`. Enable it with `expo.experiments.inlineModules.watchedDirectories` in `app.json`, keep the Kotlin filename, class name, and module name aligned, and load it from TypeScript with `requireOptionalNativeModule` so Expo Go and builds without the native module degrade safely. After adding or moving an inline module, verify Expo autolinking can see it, for example by using the local `expo-modules-autolinking` inline-module scanner.
 
 TypeScript checks and unit tests do not compile Kotlin inline modules. Any change to `*.kt`, inline module configuration, notification channels, Android permissions, or native notification behavior needs an Android APK/dev build before it can be considered fully verified. Keep reporting this explicitly if only JS checks were run.
@@ -823,6 +825,8 @@ For the Android home-screen sleep widget, keep the user-facing behavior minimal:
 In Expo SDK 56, `expo-widgets` is not the right path for Android home-screen widgets. Use a native Android `AppWidgetProvider` plus `RemoteViews`, registered through the existing config plugin. Keep Android widget XML resources as source files under `native/android/res/...` and have the config plugin copy them into the generated Android project. Do not edit or commit generated `/android` files.
 
 Widget button taps can run while the React/JS runtime is not alive. Do not route the core start/stop action through React state, Expo Router, screen handlers, or selected-day UI arrays. The widget must perform a small native SQLite transaction against the global active sleep state, then refresh itself and the active sleep notification. JS may only request a best-effort widget refresh after normal in-app mutations.
+
+When in-app sleep mutations affect the global active session, refresh the widget from native notification show/hide code as well as from JS best-effort sync. This gives the home-screen widget a native update path even when the optional JS `SleepWidget` module is unavailable, delayed, or swallowed by a non-blocking sync failure.
 
 When native widget code reads the Expo SQLite database, use the Expo SQLite default location: `context.filesDir/SQLite/<DATABASE_NAME>`. Do not use `context.getDatabasePath(DATABASE_NAME)`, because that points at Android's default `/databases` directory and will not see the app's `SQLiteProvider` database.
 
