@@ -713,11 +713,19 @@ export default function ProfileScreen() {
                 ]}>
                 <View style={styles.birthDateTextBlock}>
                   <Text style={styles.compactLabel}>Дата рождения ребёнка</Text>
-                  <Text numberOfLines={1} style={styles.birthDateValue}>
+                  <Text
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.84}
+                    numberOfLines={1}
+                    style={styles.birthDateValue}>
                     {birthDateLabel}
                   </Text>
                 </View>
-                <Text numberOfLines={2} style={styles.ageText}>
+                <Text
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.72}
+                  numberOfLines={1}
+                  style={styles.ageText}>
                   {ageLabel}
                 </Text>
               </Pressable>
@@ -1090,11 +1098,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: spacing.md,
+    gap: spacing.xs,
     borderRadius: radius.sm,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: spacing.sm,
     paddingVertical: spacing.sm,
     backgroundColor: colors.surface,
   },
@@ -1117,7 +1125,8 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   ageText: {
-    maxWidth: 132,
+    flexShrink: 0,
+    maxWidth: '45%',
     color: colors.primary,
     fontSize: 15,
     fontWeight: '900',
