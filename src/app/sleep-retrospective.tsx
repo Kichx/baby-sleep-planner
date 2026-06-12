@@ -8,8 +8,6 @@ import {
   StyleSheet,
   Text,
   View,
-  type DimensionValue,
-  type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -20,7 +18,6 @@ import { colors, radius, spacing } from '@/constants/theme';
 import {
   addMinutes,
   buildSleepDaySummary,
-  buildSleepTimelineSegments,
   dateAtMinutes,
 } from '@/core/sleepCalculations';
 import {
@@ -51,13 +48,12 @@ import {
   listSleepDayTemporaryModes,
   listSleepSessionsInRange,
 } from '@/db';
-import type { SleepDayPlan, SleepSession, SleepTimelineSegment, TargetDayPlan } from '@/types/sleep';
+import type { SleepDayPlan, SleepSession, TargetDayPlan } from '@/types/sleep';
 
 type PeriodDays = 7 | 14 | 21;
 
 type RetrospectiveScreenDay = SleepRetrospectiveDay & {
   dateKey: string;
-  timelineSegments: SleepTimelineSegment[];
 };
 
 const DAY_MINUTES = 24 * 60;
@@ -281,19 +277,6 @@ function getPlanFitValue(day: RetrospectiveScreenDay): string {
   return formatSignedDuration(strongestShift);
 }
 
-function getTimelineSegmentStyle(segment: SleepTimelineSegment): ViewStyle {
-  const leftPercent = Math.max(0, Math.min(100, (segment.startOffsetMinutes / DAY_MINUTES) * 100));
-  const widthPercent = Math.max(
-    0.6,
-    Math.min(100 - leftPercent, (segment.durationMinutes / DAY_MINUTES) * 100),
-  );
-
-  return {
-    left: `${leftPercent}%` as DimensionValue,
-    width: `${widthPercent}%` as DimensionValue,
-  };
-}
-
 function MetricGrid({ stats }: { stats: SleepRetrospectivePeriodStats }) {
   return (
     <View style={styles.metricGrid}>
@@ -360,53 +343,6 @@ function PlanFitChart({ days }: { days: RetrospectiveScreenDay[] }) {
         <View style={styles.legendItem}>
           <View style={[styles.legendDot, styles.statusStronglyShifted]} />
           <Text style={styles.legendText}>заметный сдвиг</Text>
-        </View>
-      </View>
-    </View>
-  );
-}
-
-function SleepTimelineChart({ days }: { days: RetrospectiveScreenDay[] }) {
-  const chronologicalDays = getChronologicalDays(days);
-
-  if (chronologicalDays.length === 0) {
-    return <Text style={styles.chartEmptyText}>Пока нет дней для графика.</Text>;
-  }
-
-  return (
-    <View style={styles.chartRows}>
-      {chronologicalDays.map((day) => (
-        <View key={day.dateKey} style={styles.timelineChartRow}>
-          <Text numberOfLines={1} style={styles.chartDate}>
-            {formatChartDate(day.date)}
-          </Text>
-          <View style={styles.timelineTrack}>
-            {day.timelineSegments.map((segment) => (
-              <View
-                key={segment.id}
-                style={[
-                  styles.timelineSegment,
-                  segment.kind === 'night'
-                    ? styles.timelineNightSegment
-                    : styles.timelineNapSegment,
-                  getTimelineSegmentStyle(segment),
-                ]}
-              />
-            ))}
-          </View>
-          <Text numberOfLines={1} style={styles.timelineValue}>
-            {day.hasRecords ? formatNapCount(day.completedNaps) : '--'}
-          </Text>
-        </View>
-      ))}
-      <View style={styles.chartLegend}>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, styles.timelineNightSegment]} />
-          <Text style={styles.legendText}>Ночь</Text>
-        </View>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, styles.timelineNapSegment]} />
-          <Text style={styles.legendText}>Дневной сон</Text>
         </View>
       </View>
     </View>
@@ -522,14 +458,6 @@ function PeriodStatsModal({
             </View>
 
             <View style={styles.chartPanel}>
-              <Text style={styles.chartTitle}>Сны на шкале суток</Text>
-              <Text style={styles.chartSubtitle}>
-                Видно, когда были ночь, дневные сны, ранний подъём или поздний отбой.
-              </Text>
-              <SleepTimelineChart days={days} />
-            </View>
-
-            <View style={styles.chartPanel}>
               <Text style={styles.chartTitle}>Бодрствование к плану</Text>
               <Text style={styles.chartSubtitle}>
                 Быстрый способ увидеть, повторяется ли сдвиг режима.
@@ -597,14 +525,6 @@ export default function SleepRetrospectiveScreen() {
           loadedAt,
           effectiveDayPlan.plan,
         );
-        const timelineSegments = buildSleepTimelineSegments(
-          daySessions,
-          dayStart,
-          dayEnd,
-          loadedAt,
-          effectiveDayPlan.plan,
-        );
-
         loadedDays.push({
           ...buildSleepRetrospectiveDay({
             date: dayDate,
@@ -612,7 +532,6 @@ export default function SleepRetrospectiveScreen() {
             temporaryModes,
           }),
           dateKey: formatSleepDayDateKey(dayDate),
-          timelineSegments,
         });
       }
 
@@ -1224,48 +1143,6 @@ const styles = StyleSheet.create({
     minHeight: 24,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingTop: spacing.xs,
-  },
-  timelineChartRow: {
-    minHeight: 34,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  timelineTrack: {
-    flex: 1,
-    minWidth: 0,
-    height: 18,
-    overflow: 'hidden',
-    position: 'relative',
-    borderRadius: 9,
-    backgroundColor: colors.surfaceMuted,
-  },
-  timelineSegment: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    minWidth: 2,
-    borderRadius: 9,
-  },
-  timelineNightSegment: {
-    backgroundColor: colors.primary,
-  },
-  timelineNapSegment: {
-    backgroundColor: colors.warning,
-  },
-  timelineValue: {
-    width: 48,
-    color: colors.text,
-    fontSize: 12,
-    fontWeight: '900',
-    textAlign: 'right',
-  },
-  chartLegend: {
-    minHeight: 24,
-    flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
     paddingTop: spacing.xs,
