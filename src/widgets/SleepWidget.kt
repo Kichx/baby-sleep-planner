@@ -103,6 +103,7 @@ class SleepToggleWidgetProvider : AppWidgetProvider() {
     private fun buildRemoteViews(context: Context, state: WidgetState): RemoteViews? {
       val layoutId = resourceId(context, "sleep_toggle_widget", "layout")
       val rootId = resourceId(context, "sleep_widget_root", "id")
+      val iconId = resourceId(context, "sleep_widget_icon", "id")
       val titleId = resourceId(context, "sleep_widget_title", "id")
       val subtitleId = resourceId(context, "sleep_widget_subtitle", "id")
       val buttonId = resourceId(context, "sleep_widget_button", "id")
@@ -112,6 +113,10 @@ class SleepToggleWidgetProvider : AppWidgetProvider() {
       }
 
       val views = RemoteViews(context.packageName, layoutId)
+      val appIconId = context.applicationInfo.icon
+      if (iconId != 0 && appIconId != 0) {
+        views.setImageViewResource(iconId, appIconId)
+      }
       views.setTextViewText(titleId, state.title)
       views.setTextViewText(subtitleId, state.subtitle)
       views.setTextViewText(buttonId, state.button)
@@ -219,16 +224,22 @@ private sealed class WidgetState(
   val subtitle: String,
   val button: String,
 ) {
-  data class Awake(val latestEndedAtMillis: Long?) : WidgetState(
+  data class Awake(
+    val latestEndedAtMillis: Long?,
+    val nowMillis: Long,
+  ) : WidgetState(
     title = "Бодрствует",
-    subtitle = latestEndedAtMillis?.let { "последний сон до ${formatClock(it)}" }
+    subtitle = latestEndedAtMillis?.let { formatSinceWithDuration(it, nowMillis) }
       ?: "записей пока нет",
     button = "Начать сон",
   )
 
-  data class Sleeping(val startedAtMillis: Long) : WidgetState(
+  data class Sleeping(
+    val startedAtMillis: Long,
+    val nowMillis: Long,
+  ) : WidgetState(
     title = "Сон идёт",
-    subtitle = "с ${formatClock(startedAtMillis)}",
+    subtitle = formatSinceWithDuration(startedAtMillis, nowMillis),
     button = "Завершить",
   )
 
@@ -314,10 +325,10 @@ private object SleepWidgetRepository {
 
         val activeSession = queryActiveSleepSession(db)
         if (activeSession != null) {
-          return WidgetState.Sleeping(activeSession.startedAtMillis)
+          return WidgetState.Sleeping(activeSession.startedAtMillis, now.time)
         }
 
-        WidgetState.Awake(queryLatestSleepEndedAt(db))
+        WidgetState.Awake(queryLatestSleepEndedAt(db), now.time)
       }
     } catch (_: Exception) {
       WidgetState.NeedsApp
@@ -897,4 +908,27 @@ private fun formatClock(timestampMillis: Long): String {
   val minutes = calendar.get(Calendar.MINUTE).toString().padStart(2, '0')
 
   return "$hours:$minutes"
+}
+
+private fun formatSinceWithDuration(startedAtMillis: Long, nowMillis: Long): String {
+  return "с ${formatClock(startedAtMillis)}, ${formatDurationSince(startedAtMillis, nowMillis)}"
+}
+
+private fun formatDurationSince(startedAtMillis: Long, nowMillis: Long): String {
+  val durationMinutes = ((nowMillis - startedAtMillis) / 60_000L)
+    .coerceAtLeast(0L)
+    .toInt()
+
+  return formatDurationMinutes(durationMinutes)
+}
+
+private fun formatDurationMinutes(totalMinutes: Int): String {
+  val hours = totalMinutes / 60
+  val minutes = totalMinutes % 60
+
+  return when {
+    hours > 0 && minutes > 0 -> "$hours ч $minutes мин"
+    hours > 0 -> "$hours ч"
+    else -> "$minutes мин"
+  }
 }
