@@ -7,7 +7,7 @@ import {
   useRouter,
 } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
-import { Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { AppState, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/PrimaryButton';
@@ -858,7 +858,7 @@ export default function TodaySleepScreen() {
     [db, loadSelectedDayData],
   );
 
-  function applySelectedDayData(loadedData: LoadedSelectedDayData, currentNow: Date) {
+  const applySelectedDayData = useCallback((loadedData: LoadedSelectedDayData, currentNow: Date) => {
     setNow(currentNow);
     setSleepDayPlan(loadedData.dayPlan);
     setSleepPlan(loadedData.effectivePlan);
@@ -869,9 +869,9 @@ export default function TodaySleepScreen() {
     setLatestBottleFeeding(loadedData.bottleFeedings.latestBottleFeeding);
     setTodayBottleFeedings(loadedData.bottleFeedings.todayFeedings);
     setLatestSleepSessionId(loadedData.sessions.latestSleepSessionId);
-  }
+  }, []);
 
-  function applyMainScreenData(loadedData: LoadedMainScreenData, currentNow: Date) {
+  const applyMainScreenData = useCallback((loadedData: LoadedMainScreenData, currentNow: Date) => {
     setBottleFeedingEnabled(loadedData.profile.bottleFeedingEnabled);
     setBottleFeedingDefaultVolumeMl(loadedData.profile.bottleFeedingDefaultVolumeMl);
     setBottleFeedingTopUpThresholdMl(loadedData.profile.bottleFeedingTopUpThresholdMl);
@@ -884,52 +884,65 @@ export default function TodaySleepScreen() {
       loadedData.eveningPlanPromptDismissedDateKey,
     );
     applySelectedDayData(loadedData, currentNow);
-  }
+  }, [applySelectedDayData]);
+
+  const loadMainScreenIntoState = useCallback(
+    async (
+      referenceDate: Date,
+      options: {
+        isActive: () => boolean;
+        showLoading: boolean;
+      },
+    ) => {
+      const loadedAt = new Date();
+
+      if (options.showLoading && options.isActive()) {
+        setIsLoading(true);
+      }
+
+      try {
+        const onboardingState = await getOnboardingState(db);
+
+        if (onboardingState === 'not_started') {
+          if (options.isActive()) {
+            router.replace(FIRST_RUN_ROUTE);
+          }
+
+          return;
+        }
+
+        const loadedData = await loadMainScreenData(referenceDate, loadedAt);
+
+        if (options.isActive()) {
+          applyMainScreenData(loadedData, loadedAt);
+          setErrorMessage(null);
+        }
+      } catch {
+        if (options.isActive()) {
+          setErrorMessage('Не удалось загрузить сон');
+        }
+      } finally {
+        if (options.showLoading && options.isActive()) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [applyMainScreenData, db, loadMainScreenData, router],
+  );
 
   useFocusEffect(
     useCallback(() => {
       let isActive = true;
 
-      async function loadMainScreen() {
-        const loadedAt = new Date();
-
-        setIsLoading(true);
-
-        try {
-          const onboardingState = await getOnboardingState(db);
-
-          if (onboardingState === 'not_started') {
-            if (isActive) {
-              router.replace(FIRST_RUN_ROUTE);
-              setIsLoading(false);
-            }
-
-            return;
-          }
-
-          const loadedData = await loadMainScreenData(selectedDate, loadedAt);
-
-          if (isActive) {
-            applyMainScreenData(loadedData, loadedAt);
-            setErrorMessage(null);
-          }
-        } catch {
-          if (isActive) {
-            setErrorMessage('Не удалось загрузить сон');
-          }
-        } finally {
-          if (isActive) {
-            setIsLoading(false);
-          }
-        }
-      }
-
-      loadMainScreen();
+      void loadMainScreenIntoState(selectedDate, {
+        isActive: () => isActive,
+        showLoading: true,
+      });
 
       return () => {
         isActive = false;
       };
-    }, [db, loadMainScreenData, router, selectedDate]),
+    }, [loadMainScreenIntoState, selectedDate]),
   );
 
   const dayType = useMemo(() => getSelectedDayType(selectedDate, now), [now, selectedDate]);
@@ -1310,6 +1323,32 @@ export default function TodaySleepScreen() {
       clearInterval(timer);
     };
   }, []);
+
+  useEffect(() => {
+    let isActive = true;
+    let previousAppState = AppState.currentState;
+
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      const returnedToForeground =
+        nextAppState === 'active' &&
+        (previousAppState === 'background' || previousAppState === 'inactive');
+      previousAppState = nextAppState;
+
+      if (!returnedToForeground) {
+        return;
+      }
+
+      void loadMainScreenIntoState(selectedDate, {
+        isActive: () => isActive,
+        showLoading: false,
+      });
+    });
+
+    return () => {
+      isActive = false;
+      subscription.remove();
+    };
+  }, [loadMainScreenIntoState, selectedDate]);
 
   useEffect(() => {
     let isActive = true;

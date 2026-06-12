@@ -828,6 +828,8 @@ Widget button taps can run while the React/JS runtime is not alive. Do not route
 
 When in-app sleep mutations affect the global active session, refresh the widget from native notification show/hide code as well as from JS best-effort sync. This gives the home-screen widget a native update path even when the optional JS `SleepWidget` module is unavailable, delayed, or swallowed by a non-blocking sync failure.
 
+Because the widget can write `sleep_sessions` while the app process is alive but the main React screen is backgrounded, the main `/` screen must reload its SQLite-backed home data on `AppState` return to `active`. Do not rely only on Expo Router focus events for this path: reopening a minimized app can preserve route focus and leave stale React state. Reuse the same coordinated home-screen load path as focus loading, keep the foreground refresh quiet without a full-screen spinner, and keep it read-only apart from normal notification/widget best-effort sync.
+
 When native widget code reads the Expo SQLite database, use the Expo SQLite default location: `context.filesDir/SQLite/<DATABASE_NAME>`. Do not use `context.getDatabasePath(DATABASE_NAME)`, because that points at Android's default `/databases` directory and will not see the app's `SQLiteProvider` database.
 
 Before allowing the widget to write, check `PRAGMA user_version >= DATABASE_VERSION`. If the database does not exist or is older than the bundled schema, show `Откройте приложение` and avoid writing. The app migration should refresh the widget after `migrateDatabase` completes.
