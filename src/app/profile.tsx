@@ -29,7 +29,9 @@ import { SleepPlanIcon } from '@/components/SleepPlanIcon';
 import { DEFAULT_CHILD_NAME } from '@/constants/sleep';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
+  CHILD_NAME_INPUT_PLACEHOLDER,
   CHILD_NAME_MAX_LENGTH,
+  getChildNameDraftValue,
   getChildNameValidationError,
   normalizeChildName,
 } from '@/core/childProfile';
@@ -215,7 +217,7 @@ export default function ProfileScreen() {
   const [profileName, setProfileName] = useState(DEFAULT_CHILD_NAME);
   const [birthDate, setBirthDate] = useState<string | null>(null);
   const [profilePhotoUri, setProfilePhotoUri] = useState<string | null>(null);
-  const [draftName, setDraftName] = useState(DEFAULT_CHILD_NAME);
+  const [draftName, setDraftName] = useState('');
   const [draftBirthDate, setDraftBirthDate] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -257,7 +259,7 @@ export default function ProfileScreen() {
     setProfileName(profile.name);
     setBirthDate(profile.birthDate);
     setProfilePhotoUri(profile.photoUri);
-    setDraftName(profile.name);
+    setDraftName(getChildNameDraftValue(profile.name, DEFAULT_CHILD_NAME));
     setDraftBirthDate(profile.birthDate);
   }
 
@@ -696,7 +698,7 @@ export default function ProfileScreen() {
                   setMessage(null);
                   setErrorMessage(null);
                 }}
-                placeholder="Имя ребёнка"
+                placeholder={CHILD_NAME_INPUT_PLACEHOLDER}
                 placeholderTextColor={colors.textMuted}
                 returnKeyType="done"
                 style={styles.nameInput}

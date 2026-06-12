@@ -33,7 +33,9 @@ import {
   type AgeSleepPlanPresetTemplateOption,
 } from '@/core/ageSleepPlanPresetTemplates';
 import {
+  CHILD_NAME_INPUT_PLACEHOLDER,
   CHILD_NAME_MAX_LENGTH,
+  getChildNameDraftValue,
   getChildNameValidationError,
   normalizeChildName,
 } from '@/core/childProfile';
@@ -2268,7 +2270,7 @@ function ChildProfilePromptModal({
                 editable={!isBusy}
                 maxLength={CHILD_NAME_MAX_LENGTH}
                 onChangeText={onChangeName}
-                placeholder="Имя ребёнка"
+                placeholder={CHILD_NAME_INPUT_PLACEHOLDER}
                 placeholderTextColor={colors.textMuted}
                 returnKeyType="done"
                 style={styles.profilePromptInput}
@@ -2359,7 +2361,7 @@ export default function SleepPlanScreen() {
   const [newPlanName, setNewPlanName] = useState('');
   const [childName, setChildName] = useState(DEFAULT_CHILD_NAME);
   const [childBirthDate, setChildBirthDate] = useState<string | null>(null);
-  const [profileDraftName, setProfileDraftName] = useState(DEFAULT_CHILD_NAME);
+  const [profileDraftName, setProfileDraftName] = useState('');
   const [profileDraftBirthDate, setProfileDraftBirthDate] = useState<string | null>(null);
   const [isProfilePromptVisible, setIsProfilePromptVisible] = useState(false);
   const [manualAgeBandId, setManualAgeBandId] =
@@ -2408,7 +2410,7 @@ export default function SleepPlanScreen() {
         if (isMounted) {
           setChildName(profile.name);
           setChildBirthDate(profile.birthDate);
-          setProfileDraftName(profile.name);
+          setProfileDraftName(getChildNameDraftValue(profile.name, DEFAULT_CHILD_NAME));
           setProfileDraftBirthDate(profile.birthDate);
           setPlans(sortPlansForDisplay(loadedPlans));
           setSelectedPlanId(planToSelect?.id ?? null);
@@ -2688,7 +2690,7 @@ export default function SleepPlanScreen() {
       return;
     }
 
-    setProfileDraftName(childName);
+    setProfileDraftName(getChildNameDraftValue(childName, DEFAULT_CHILD_NAME));
     setProfileDraftBirthDate(childBirthDate);
     setProfilePromptError(null);
     setErrorMessage(null);

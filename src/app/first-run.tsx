@@ -19,6 +19,7 @@ import { BottomSheetSafeArea } from '@/components/BottomSheetSafeArea';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { colors, radius, spacing } from '@/constants/theme';
 import {
+  CHILD_NAME_INPUT_PLACEHOLDER,
   CHILD_NAME_MAX_LENGTH,
   getChildNameValidationError,
   normalizeChildName,
@@ -208,7 +209,7 @@ export default function FirstRunScreen() {
                 setChildName(value);
                 setErrorMessage(null);
               }}
-              placeholder="Имя ребёнка"
+              placeholder={CHILD_NAME_INPUT_PLACEHOLDER}
               placeholderTextColor={colors.textMuted}
               returnKeyType="done"
               style={styles.nameInput}
