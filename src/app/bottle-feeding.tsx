@@ -32,6 +32,7 @@ import {
   getBottleFeedingCalendarDayRange,
   getLast24HoursBottleFeedingRange,
   getBottleFeedingTrendDateRange,
+  hasNightSleepStartedInCalendarDay,
   isBottleFeedingTopUp,
   type BottleFeedingDailyTrendPoint,
 } from '@/core/bottleFeeding';
@@ -48,6 +49,7 @@ import {
   getChildProfile,
   getLatestBottleFeeding,
   listBottleFeedingsInRange,
+  listSleepSessionsInRange,
   updateBottleFeeding,
 } from '@/db';
 import { syncSleepNotificationsFromDatabase } from '@/notifications/sleepNotifications';
@@ -419,6 +421,9 @@ export default function BottleFeedingScreen() {
     DEFAULT_TREND_PERIOD_DAYS,
   );
   const [trendFeedings, setTrendFeedings] = useState<BottleFeeding[]>([]);
+  const [todayNightSleepStarted, setTodayNightSleepStarted] = useState(false);
+  const [todayNightSleepReferenceDate, setTodayNightSleepReferenceDate] =
+    useState<Date | null>(null);
   const [defaultVolumeMl, setDefaultVolumeMl] = useState(DEFAULT_BOTTLE_FEEDING_VOLUME_ML);
   const [topUpThresholdMl, setTopUpThresholdMl] = useState(
     DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML,
@@ -447,6 +452,8 @@ export default function BottleFeedingScreen() {
             setLast24HoursStats(EMPTY_BOTTLE_FEEDING_STATS);
             setSelectedDayFeedings([]);
             setTrendFeedings([]);
+            setTodayNightSleepStarted(false);
+            setTodayNightSleepReferenceDate(null);
             setDefaultVolumeMl(DEFAULT_BOTTLE_FEEDING_VOLUME_ML);
             setTopUpThresholdMl(DEFAULT_BOTTLE_FEEDING_TOP_UP_THRESHOLD_ML);
             router.replace(HOME_ROUTE);
@@ -462,13 +469,20 @@ export default function BottleFeedingScreen() {
         const selectedDayRange = getBottleFeedingCalendarDayRange(referenceDate);
         const last24HoursRange = getLast24HoursBottleFeedingRange(loadedAt);
         const trendRange = getBottleFeedingTrendDateRange(loadedAt, trendPeriodDays);
-        const [loadedLatestFeeding, selectedFeedings, last24HourFeedings, loadedTrendFeedings] =
-          await Promise.all([
-            getLatestBottleFeeding(db),
-            listBottleFeedingsInRange(db, selectedDayRange.start, selectedDayRange.end),
-            listBottleFeedingsInRange(db, last24HoursRange.start, last24HoursRange.end),
-            listBottleFeedingsInRange(db, trendRange.start, trendRange.end),
-          ]);
+        const todaySleepRange = getBottleFeedingCalendarDayRange(loadedAt);
+        const [
+          loadedLatestFeeding,
+          selectedFeedings,
+          last24HourFeedings,
+          loadedTrendFeedings,
+          todaySleepSessions,
+        ] = await Promise.all([
+          getLatestBottleFeeding(db),
+          listBottleFeedingsInRange(db, selectedDayRange.start, selectedDayRange.end),
+          listBottleFeedingsInRange(db, last24HoursRange.start, last24HoursRange.end),
+          listBottleFeedingsInRange(db, trendRange.start, trendRange.end),
+          listSleepSessionsInRange(db, todaySleepRange.start, todaySleepRange.end),
+        ]);
 
         if (shouldApply()) {
           setLatestFeeding(loadedLatestFeeding);
@@ -476,6 +490,10 @@ export default function BottleFeedingScreen() {
           setLast24HoursStats(calculateBottleFeedingStats(last24HourFeedings));
           setSelectedDayFeedings(sortFeedingsNewestFirst(selectedFeedings));
           setTrendFeedings(loadedTrendFeedings);
+          setTodayNightSleepStarted(
+            hasNightSleepStartedInCalendarDay(todaySleepSessions, loadedAt),
+          );
+          setTodayNightSleepReferenceDate(loadedAt);
           setDefaultVolumeMl(profile.bottleFeedingDefaultVolumeMl);
           setTopUpThresholdMl(profile.bottleFeedingTopUpThresholdMl);
           setNow(loadedAt);
@@ -648,8 +666,17 @@ export default function BottleFeedingScreen() {
       ? 'нет записей'
       : `Всего ${formatBottleFeedingCount(displayedFeedingCount)}`;
   const trendPoints = useMemo(
-    () => buildBottleFeedingDailyTrend(trendFeedings, now, trendPeriodDays),
-    [now, trendFeedings, trendPeriodDays],
+    () => {
+      const canIncludeEndDateInAverages =
+        todayNightSleepStarted &&
+        todayNightSleepReferenceDate !== null &&
+        isSameCalendarDay(todayNightSleepReferenceDate, now);
+
+      return buildBottleFeedingDailyTrend(trendFeedings, now, trendPeriodDays, undefined, {
+        includeEndDateInAverages: canIncludeEndDateInAverages,
+      });
+    },
+    [now, todayNightSleepReferenceDate, todayNightSleepStarted, trendFeedings, trendPeriodDays],
   );
 
   function renderDateShortcut(label: string, dayOffset: -1 | 0) {

@@ -27,6 +27,7 @@ import {
   getLast24HoursBottleFeedingRange,
   getBottleFeedingTrendDateRange,
   getTodayBottleFeedingRange,
+  hasNightSleepStartedInCalendarDay,
   isBottleFeedingTopUp,
   isBottleFeedingTopUpVolume,
 } from '@/core/bottleFeeding';
@@ -35,6 +36,7 @@ import {
   formatLocalDateLabel,
 } from '@/core/localDateTime';
 import type { BottleFeeding } from '@/types/bottleFeeding';
+import type { SleepSession } from '@/types/sleep';
 
 function feeding(id: string, startedAt: string, volumeMl: number): BottleFeeding {
   return {
@@ -44,6 +46,21 @@ function feeding(id: string, startedAt: string, volumeMl: number): BottleFeeding
     startedAt,
     updatedAt: startedAt,
     volumeMl,
+  };
+}
+
+function sleepSession(
+  id: string,
+  kind: SleepSession['kind'],
+  startedAt: string,
+  endedAt: string | null = null,
+): SleepSession {
+  return {
+    childId: 'default-child',
+    endedAt,
+    id,
+    kind,
+    startedAt,
   };
 }
 
@@ -184,6 +201,66 @@ describe('bottle feeding calculations', () => {
     expect(formatBottleFeedingDailyTrendAverageCountLine(averages)).toBe(
       'Ср. 1,3 кормления',
     );
+  });
+
+  it('excludes the current trend day from averages when night sleep has not started', () => {
+    const now = new Date('2026-06-09T10:00:00.000Z');
+    const feedings = [
+      feeding('yesterday-a', '2026-06-08T06:00:00.000Z', 120),
+      feeding('yesterday-b', '2026-06-08T08:00:00.000Z', 90),
+      feeding('today', '2026-06-09T07:00:00.000Z', 100),
+    ];
+
+    const points = buildBottleFeedingDailyTrend(feedings, now, 2, 'Europe/Moscow', {
+      includeEndDateInAverages: false,
+    });
+    const averages = calculateBottleFeedingDailyTrendAverages(points);
+
+    expect(points.map((point) => point.includeInAverage)).toEqual([true, false]);
+    expect(averages.recordedDays).toBe(1);
+    expect(averages.averageTotalVolumeMl).toBe(210);
+    expect(averages.averageCount).toBe(2);
+  });
+
+  it('includes the current trend day in averages after night sleep has started', () => {
+    const now = new Date('2026-06-09T10:00:00.000Z');
+    const feedings = [
+      feeding('yesterday-a', '2026-06-08T06:00:00.000Z', 120),
+      feeding('yesterday-b', '2026-06-08T08:00:00.000Z', 90),
+      feeding('today', '2026-06-09T07:00:00.000Z', 100),
+    ];
+
+    const points = buildBottleFeedingDailyTrend(feedings, now, 2, 'Europe/Moscow', {
+      includeEndDateInAverages: true,
+    });
+    const averages = calculateBottleFeedingDailyTrendAverages(points);
+
+    expect(points.map((point) => point.includeInAverage)).toEqual([true, true]);
+    expect(averages.recordedDays).toBe(2);
+    expect(averages.averageTotalVolumeMl).toBe(155);
+    expect(averages.averageCount).toBe(1.5);
+  });
+
+  it('detects night sleep only when it starts in the same feeding calendar day', () => {
+    const today = new Date('2026-06-09T10:00:00.000Z');
+
+    expect(
+      hasNightSleepStartedInCalendarDay(
+        [
+          sleepSession('nap', 'nap', '2026-06-09T08:00:00.000Z'),
+          sleepSession('previous-night', 'night', '2026-06-08T20:30:00.000Z', null),
+        ],
+        today,
+        'Europe/Moscow',
+      ),
+    ).toBe(false);
+    expect(
+      hasNightSleepStartedInCalendarDay(
+        [sleepSession('today-night', 'night', '2026-06-09T18:30:00.000Z')],
+        today,
+        'Europe/Moscow',
+      ),
+    ).toBe(true);
   });
 
   it('keeps daily trend averages empty when all days have no records', () => {

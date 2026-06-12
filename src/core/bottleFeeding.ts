@@ -6,6 +6,7 @@ import {
   startOfLocalCalendarDay,
 } from '@/core/localDateTime';
 import type { BottleFeeding, BottleFeedingStats } from '@/types/bottleFeeding';
+import type { SleepSession } from '@/types/sleep';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 export const BOTTLE_FEEDING_EMPTY_TEXT = 'Записей пока нет';
@@ -19,6 +20,7 @@ export interface BottleFeedingDailyTrendPoint {
   count: number;
   date: Date;
   hasRecords: boolean;
+  includeInAverage?: boolean;
   totalVolumeMl: number;
 }
 
@@ -26,6 +28,10 @@ export interface BottleFeedingDailyTrendAverages {
   averageCount: number | null;
   averageTotalVolumeMl: number | null;
   recordedDays: number;
+}
+
+export interface BuildBottleFeedingDailyTrendOptions {
+  includeEndDateInAverages?: boolean;
 }
 
 export function getBottleFeedingCalendarDayRange(
@@ -95,6 +101,37 @@ export function filterBottleFeedingsInCalendarDay(
   return filterBottleFeedingsInRange(feedings, range.start, range.end);
 }
 
+function isSameBottleFeedingCalendarDay(
+  first: Date,
+  second: Date,
+  timeZone?: string,
+): boolean {
+  return (
+    startOfLocalCalendarDay(first, timeZone).getTime() ===
+    startOfLocalCalendarDay(second, timeZone).getTime()
+  );
+}
+
+export function hasNightSleepStartedInCalendarDay(
+  sessions: readonly Pick<SleepSession, 'kind' | 'startedAt'>[],
+  date: Date,
+  timeZone?: string,
+): boolean {
+  const range = getBottleFeedingCalendarDayRange(date, timeZone);
+  const rangeStartTime = range.start.getTime();
+  const rangeEndTime = range.end.getTime();
+
+  return sessions.some((session) => {
+    if (session.kind !== 'night') {
+      return false;
+    }
+
+    const startedAtTime = new Date(session.startedAt).getTime();
+
+    return startedAtTime >= rangeStartTime && startedAtTime < rangeEndTime;
+  });
+}
+
 export function calculateBottleFeedingStats(
   feedings: readonly Pick<BottleFeeding, 'volumeMl'>[],
 ): BottleFeedingStats {
@@ -149,6 +186,7 @@ export function buildBottleFeedingDailyTrend(
   endDate: Date,
   periodDays: number,
   timeZone?: string,
+  options: BuildBottleFeedingDailyTrendOptions = {},
 ): BottleFeedingDailyTrendPoint[] {
   if (!Number.isInteger(periodDays) || periodDays <= 0) {
     throw new Error('Bottle feeding trend period must be a positive integer');
@@ -159,11 +197,14 @@ export function buildBottleFeedingDailyTrend(
     const date = addLocalCalendarDays(endDate, dayOffset, timeZone);
     const dayFeedings = filterBottleFeedingsInCalendarDay(feedings, date, timeZone);
     const stats = calculateBottleFeedingStats(dayFeedings);
+    const isEndDatePoint = isSameBottleFeedingCalendarDay(date, endDate, timeZone);
 
     return {
       count: stats.count,
       date,
       hasRecords: stats.count > 0,
+      includeInAverage:
+        !isEndDatePoint || options.includeEndDateInAverages !== false,
       totalVolumeMl: stats.totalVolumeMl,
     };
   });
@@ -172,7 +213,9 @@ export function buildBottleFeedingDailyTrend(
 export function calculateBottleFeedingDailyTrendAverages(
   points: readonly BottleFeedingDailyTrendPoint[],
 ): BottleFeedingDailyTrendAverages {
-  const recordedPoints = points.filter((point) => point.hasRecords);
+  const recordedPoints = points.filter(
+    (point) => point.hasRecords && point.includeInAverage !== false,
+  );
   const recordedDays = recordedPoints.length;
 
   if (recordedDays === 0) {
