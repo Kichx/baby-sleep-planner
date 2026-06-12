@@ -418,21 +418,21 @@ describe('buildSleepCoachCardVm', () => {
     expectVisibleCardBasics(card);
   });
 
-  it('shows an awake calm recommendation when the sleep window is not close yet', () => {
+  it('shows an awake normal recommendation when the sleep window is not close yet', () => {
     const card = buildCard();
 
     expect(card).toMatchObject({
       anchor: 'Следующий сон около 09:30 · через 1 ч 30 мин',
-      body: 'До следующего сна ещё есть время. Пока лучше спокойное бодрствование: обычные дела и подготовка ближе к окну.',
-      title: 'Пока бодрствуем спокойно',
+      body: 'До следующего сна ещё есть время. Можно заниматься обычными делами, а спокойный ритм оставить ближе к окну.',
+      title: 'Пока бодрствуем как обычно',
       tone: 'calm',
       visible: true,
     });
-    expect(card.body).toContain('спокойное бодрствование');
+    expect(card.body).not.toContain('спокойное бодрствование');
     expectVisibleCardBasics(card);
   });
 
-  it('keeps the calm recommendation when the sleep window is more than 15 minutes away', () => {
+  it('keeps the normal-awake recommendation when the sleep window is more than 15 minutes away', () => {
     const card = buildCard({
       now: at(8, 40),
       snapshot: baseSnapshot({
@@ -444,11 +444,12 @@ describe('buildSleepCoachCardVm', () => {
 
     expect(card).toMatchObject({
       anchor: 'Следующий сон около 09:00 · через 20 мин',
-      body: 'До следующего сна ещё есть время. Пока лучше спокойное бодрствование: обычные дела и подготовка ближе к окну.',
-      title: 'Пока бодрствуем спокойно',
+      body: 'До следующего сна ещё есть время. Можно заниматься обычными делами, а спокойный ритм оставить ближе к окну.',
+      title: 'Пока бодрствуем как обычно',
       tone: 'calm',
       visible: true,
     });
+    expect(card.body).not.toContain('спокойное бодрствование');
     expectVisibleCardBasics(card);
   });
 
@@ -510,11 +511,12 @@ describe('buildSleepCoachCardVm', () => {
 
     expect(card).toMatchObject({
       anchor: 'Следующий сон в 09:00 (через 15 минут)',
-      body: 'Окно бодрствования уже близко к ориентиру. Лучше начать укладывание спокойно, без спешки.',
+      body: 'Окно бодрствования уже близко к ориентиру. Пора перейти на спокойное бодрствование и начать укладывание без спешки.',
       title: 'Пора готовиться ко сну',
       tone: 'prepare',
       visible: true,
     });
+    expect(card.body).toContain('спокойное бодрствование');
     expect(card.body).toContain('укладывание');
     expectVisibleCardBasics(card);
   });
@@ -951,7 +953,23 @@ describe('buildSleepCoachWhySheetVm', () => {
       'Отбой пока около 20:30 (через 12 часов 30 минут).',
     );
     expect(sheet.summary).toBe(
-      'Поэтому пока можно спокойно бодрствовать, а ближе к окну перейти к подготовке.',
+      'Поэтому пока можно бодрствовать как обычно, а спокойный ритм оставить ближе к окну сна.',
+    );
+    expectWhySheetStringsSafe(sheet);
+  });
+
+  it('uses calm-awake preparation wording when the sleep window is close', () => {
+    const sheet = buildWhySheet({
+      now: at(8, 45),
+      snapshot: baseSnapshot({
+        currentDurationMinutes: 105,
+        nextSleepAt: at(9, 0),
+        statusStartedAt: at(7, 0),
+      }),
+    });
+
+    expect(sheet.summary).toBe(
+      'Поэтому лучше перейти на спокойное бодрствование и начать подготовку ко сну сейчас, без спешки.',
     );
     expectWhySheetStringsSafe(sheet);
   });
