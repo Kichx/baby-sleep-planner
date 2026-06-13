@@ -11,6 +11,7 @@ const pkg = require('../package.json');
 
 const SERVICE_NAME = 'notifications.ActiveSleepNotificationService';
 const WIDGET_RECEIVER_NAME = 'widgets.SleepToggleWidgetProvider';
+const ENABLE_SLEEP_TOGGLE_WIDGET = false;
 const SPECIAL_USE_PROPERTY_NAME = 'android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE';
 const SPECIAL_USE_PROPERTY_VALUE = 'active_sleep_timer';
 const ANDROID_WIDGET_RESOURCES = [
@@ -129,6 +130,17 @@ function ensureSleepToggleWidgetReceiver(androidManifest) {
   upsertMetaData(receiver, 'android.appwidget.provider', '@xml/sleep_toggle_widget_info');
 }
 
+function removeSleepToggleWidgetReceiver(androidManifest) {
+  const application = AndroidConfig.Manifest.getMainApplicationOrThrow(androidManifest);
+  if (!application.receiver) {
+    return;
+  }
+
+  application.receiver = application.receiver.filter(
+    (item) => item.$?.['android:name'] !== WIDGET_RECEIVER_NAME,
+  );
+}
+
 function copyAndroidWidgetResources(projectRoot, platformProjectRoot) {
   for (const [sourceRelativePath, targetRelativePath] of ANDROID_WIDGET_RESOURCES) {
     const sourcePath = path.join(projectRoot, sourceRelativePath);
@@ -146,7 +158,11 @@ function withActiveSleepNotificationService(config) {
       FOREGROUND_SERVICE_PERMISSIONS,
     );
     ensureActiveSleepService(config.modResults);
-    ensureSleepToggleWidgetReceiver(config.modResults);
+    if (ENABLE_SLEEP_TOGGLE_WIDGET) {
+      ensureSleepToggleWidgetReceiver(config.modResults);
+    } else {
+      removeSleepToggleWidgetReceiver(config.modResults);
+    }
 
     return config;
   });
@@ -154,10 +170,12 @@ function withActiveSleepNotificationService(config) {
   return withDangerousMod(configWithManifest, [
     'android',
     (config) => {
-      copyAndroidWidgetResources(
-        config.modRequest.projectRoot,
-        config.modRequest.platformProjectRoot,
-      );
+      if (ENABLE_SLEEP_TOGGLE_WIDGET) {
+        copyAndroidWidgetResources(
+          config.modRequest.projectRoot,
+          config.modRequest.platformProjectRoot,
+        );
+      }
 
       return config;
     },

@@ -8,8 +8,14 @@ interface SleepWidgetModule {
 
 let sleepWidgetModule: SleepWidgetModule | null | undefined;
 
+const ENABLE_ANDROID_SLEEP_WIDGET = false;
+
 function canUseAndroidSleepWidget(): boolean {
-  return Platform.OS === 'android' && Constants.appOwnership !== AppOwnership.Expo;
+  return (
+    ENABLE_ANDROID_SLEEP_WIDGET &&
+    Platform.OS === 'android' &&
+    Constants.appOwnership !== AppOwnership.Expo
+  );
 }
 
 function getSleepWidgetModule(): SleepWidgetModule | null {

@@ -26,11 +26,17 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 import notifications.ActiveSleepNotificationService
 
+private const val ENABLE_SLEEP_TOGGLE_WIDGET = false
+
 class SleepWidget : Module() {
   override fun definition() = ModuleDefinition {
     Name("SleepWidget")
 
     Function("refresh") {
+      if (!ENABLE_SLEEP_TOGGLE_WIDGET) {
+        return@Function false
+      }
+
       val reactContext = appContext.reactContext ?: return@Function false
       SleepToggleWidgetProvider.refreshAll(reactContext.applicationContext)
       return@Function true
@@ -44,10 +50,18 @@ class SleepToggleWidgetProvider : AppWidgetProvider() {
     appWidgetManager: AppWidgetManager,
     appWidgetIds: IntArray,
   ) {
+    if (!ENABLE_SLEEP_TOGGLE_WIDGET) {
+      return
+    }
+
     updateWidgets(context, appWidgetManager, appWidgetIds)
   }
 
   override fun onReceive(context: Context, intent: Intent) {
+    if (!ENABLE_SLEEP_TOGGLE_WIDGET) {
+      return
+    }
+
     super.onReceive(context, intent)
 
     if (intent.action != ACTION_TOGGLE_SLEEP) {
@@ -76,6 +90,10 @@ class SleepToggleWidgetProvider : AppWidgetProvider() {
     private const val LAUNCH_REQUEST_CODE = 2402
 
     fun refreshAll(context: Context) {
+      if (!ENABLE_SLEEP_TOGGLE_WIDGET) {
+        return
+      }
+
       val appWidgetManager = AppWidgetManager.getInstance(context)
       val componentName = ComponentName(context, SleepToggleWidgetProvider::class.java)
       val appWidgetIds = appWidgetManager.getAppWidgetIds(componentName)
