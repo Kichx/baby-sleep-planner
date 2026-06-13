@@ -247,6 +247,31 @@ Use `react-native-safe-area-context` for this:
 
 When changing a screen with bottom actions, smoke-test the relevant view on Android or at least in a narrow Expo web viewport, and explicitly check that the lowest actionable button remains fully visible and tappable above the navigation area.
 
+## Implementation lessons from Android widget and SQLite foreground sync
+
+The Android home-screen widget writes sleep sessions from native Kotlin code directly into the same SQLite database file that Expo uses. When the React Native app process is alive but backgrounded, the `useSQLiteContext()` connection can stay stale after a widget write.
+
+Do not assume that an `AppState` `change` or Android `focus` refresh through the existing SQLite context will see native widget writes. Also do not remount the root `SQLiteProvider` on every foreground event to force a reconnect: Expo closes the previous database asynchronously, and the next provider init/migration can race with it and crash with `database is locked`.
+
+For app paths that must observe native widget writes while the process stays alive, use a short-lived fresh Expo SQLite connection:
+- open it with `openDatabaseAsync(DATABASE_NAME, { useNewConnection: true })`;
+- set a small `PRAGMA busy_timeout`;
+- retry only `database is locked` failures with short backoff;
+- close the fresh connection in `finally`.
+
+Keep the root `SQLiteProvider` configured with stable `options={{ useNewConnection: true }}` when needed, but treat that as connection isolation, not as a complete widget-sync solution.
+
+For the main `/` screen, prefer a minimal external sleep-state sync over a full app/screen reload after widget actions. Poll or recheck the latest sleep session with a fresh connection, and update only the screen facts that drive the current status, such as `latestSleepSessionId`, `nearbySessions`, and `now`. Do not reset navigation or recompute unrelated persisted plan state just because the widget started or stopped sleep.
+
+When testing widget-to-app sync on a real Android device, verify both directions with the real launcher widget:
+- app open, then Home, widget starts sleep, app resumes and shows `Спит` with the widget start time;
+- app open, then Home, widget stops sleep, app resumes and shows `Бодрствует` with the widget stop time;
+- the app PID stays the same across Home/widget/resume, proving this is not a cold start;
+- the widget text and app hero status agree;
+- `logcat -b crash` is empty and logs do not show `database is locked`.
+
+On some vivo devices, `adb shell am start` may leave focus on the launcher and `uiautomator dump` may fail to reach idle while timers/polling are active. Prefer launcher-style resume with `monkey -p <package> -c android.intent.category.LAUNCHER 1`, use `uiautomator dump --compressed` when needed, and fall back to screenshots for visual confirmation.
+
 ## Implementation lessons from effective sleep day plan work
 
 Temporary day modes such as `soft_day` and `early_wake` are effective-plan overlays for one sleep day. They must not rewrite the permanent `target_day_plan`, saved sleep-day snapshots, SQLite schema, or user history unless a later task explicitly asks for persistence changes.

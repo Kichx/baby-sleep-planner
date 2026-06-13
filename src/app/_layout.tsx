@@ -15,6 +15,10 @@ import { DATABASE_NAME, migrateDatabase } from '@/db';
 import { ActiveSleepNotificationSync } from '@/notifications/ActiveSleepNotificationSync';
 import { refreshSleepWidgetInBackground } from '@/widgets/sleepWidget';
 
+const sqliteOpenOptions = {
+  useNewConnection: true,
+};
+
 async function initializeDatabase(db: Parameters<typeof migrateDatabase>[0]) {
   await migrateDatabase(db);
   refreshSleepWidgetInBackground();
@@ -104,7 +108,10 @@ function AppShell() {
 export default function RootLayout() {
   return (
     <SafeAreaProvider initialMetrics={initialWindowMetrics}>
-      <SQLiteProvider databaseName={DATABASE_NAME} onInit={initializeDatabase}>
+      <SQLiteProvider
+        databaseName={DATABASE_NAME}
+        onInit={initializeDatabase}
+        options={sqliteOpenOptions}>
         <ActiveSleepNotificationSync />
         <AppShell />
       </SQLiteProvider>

@@ -6,7 +6,7 @@ import {
   useLocalSearchParams,
   useRouter,
 } from 'expo-router';
-import { useSQLiteContext } from 'expo-sqlite';
+import { openDatabaseAsync, useSQLiteContext, type SQLiteDatabase } from 'expo-sqlite';
 import { AppState, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -104,6 +104,7 @@ import {
   dismissEveningPlanPrompt,
   dismissSleepDayTemporaryModeSuggestion,
   enableSleepDayTemporaryMode,
+  DATABASE_NAME,
   getAppSettings,
   getLatestBottleFeeding,
   getChildProfile,
@@ -204,12 +205,70 @@ const ACTIVE_SLEEP_DETAIL_REFRESH_MS = 1_000;
 const HOME_HEADER_CONTENT_HEIGHT = 44;
 const TIMELINE_ROW_HEIGHT = 62;
 const MAX_PAST_DAY_FEEDBACK_LINES = 3;
+const FOREGROUND_REFRESH_DEBOUNCE_MS = 750;
+const EXTERNAL_SLEEP_SYNC_POLL_INTERVAL_MS = 1_500;
+const FRESH_DATABASE_BUSY_TIMEOUT_MS = 2_000;
+const FRESH_DATABASE_RETRY_DELAYS_MS = [120, 300, 600];
 const FIRST_RUN_ROUTE = '/first-run' as Href;
 const EVENING_PROMPT_SLEEP_PLAN_ROUTE =
   '/sleep-plan?source=evening-prompt&returnTo=home' as Href;
 const BOTTLE_FEEDING_ROUTE = '/bottle-feeding' as Href;
 const OFFICIAL_SLEEP_SOURCE_SUMMARY =
   'Источники: ВОЗ, CDC, AASM, Australian/Canadian 24-Hour';
+const freshDatabaseOpenOptions = {
+  useNewConnection: true,
+};
+
+function wait(delayMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, delayMs);
+  });
+}
+
+function isDatabaseLockedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+
+  return message.toLowerCase().includes('database is locked');
+}
+
+async function withFreshDatabase<T>(
+  operation: (database: SQLiteDatabase) => Promise<T>,
+): Promise<T> {
+  let lastError: unknown;
+
+  for (
+    let attemptIndex = 0;
+    attemptIndex <= FRESH_DATABASE_RETRY_DELAYS_MS.length;
+    attemptIndex += 1
+  ) {
+    let freshDatabase: SQLiteDatabase | null = null;
+
+    try {
+      freshDatabase = await openDatabaseAsync(DATABASE_NAME, freshDatabaseOpenOptions);
+      await freshDatabase.execAsync(`
+        PRAGMA busy_timeout = ${FRESH_DATABASE_BUSY_TIMEOUT_MS};
+        PRAGMA foreign_keys = ON;
+      `);
+
+      return await operation(freshDatabase);
+    } catch (error) {
+      lastError = error;
+
+      if (
+        !isDatabaseLockedError(error) ||
+        attemptIndex >= FRESH_DATABASE_RETRY_DELAYS_MS.length
+      ) {
+        throw error;
+      }
+
+      await wait(FRESH_DATABASE_RETRY_DELAYS_MS[attemptIndex]);
+    } finally {
+      await freshDatabase?.closeAsync().catch(() => undefined);
+    }
+  }
+
+  throw lastError;
+}
 
 function formatClock(date: Date): string {
   return formatLocalClock(date);
@@ -710,6 +769,7 @@ export default function TodaySleepScreen() {
 
   const fetchSessionsForDate = useCallback(
     async (
+      database: SQLiteDatabase,
       referenceDate: Date,
       currentNow: Date,
       plan: SleepPlanPreset,
@@ -717,8 +777,8 @@ export default function TodaySleepScreen() {
       const dayStart = getSleepDayStartForSelection(referenceDate, currentNow, plan);
       const dayEnd = addMinutes(dayStart, DAY_MINUTES);
       const previousDayStart = addMinutes(dayStart, -DAY_MINUTES);
-      const loadedSessions = await listSleepSessionsInRange(db, previousDayStart, dayEnd);
-      const latestSleepSession = await getLatestSleepSession(db);
+      const loadedSessions = await listSleepSessionsInRange(database, previousDayStart, dayEnd);
+      const latestSleepSession = await getLatestSleepSession(database);
       const nearbySessionsForDisplay = filterSleepSessionsForDisplayedDay(
         loadedSessions,
         previousDayStart,
@@ -731,11 +791,12 @@ export default function TodaySleepScreen() {
         nearbySessions: nearbySessionsForDisplay,
       };
     },
-    [db],
+    [],
   );
 
   const fetchBottleFeedingsForDate = useCallback(
     async (
+      database: SQLiteDatabase,
       referenceDate: Date,
       currentNow: Date,
       enabled: boolean,
@@ -755,12 +816,12 @@ export default function TodaySleepScreen() {
       );
       const [loadedFeedings, todayFeedings, latestFeeding] = await Promise.all([
         listBottleFeedingsInRange(
-          db,
+          database,
           previousFeedingRange.start,
           selectedFeedingRange.end,
         ),
-        listBottleFeedingsInRange(db, todayFeedingRange.start, todayFeedingRange.end),
-        getLatestBottleFeeding(db),
+        listBottleFeedingsInRange(database, todayFeedingRange.start, todayFeedingRange.end),
+        getLatestBottleFeeding(database),
       ]);
 
       return {
@@ -769,18 +830,20 @@ export default function TodaySleepScreen() {
         todayFeedings,
       };
     },
-    [db],
+    [],
   );
 
   const loadSelectedDayData = useCallback(
     async (
+      database: SQLiteDatabase,
       referenceDate: Date,
       currentNow: Date,
       isBottleFeedingEnabled: boolean,
       hasActiveTargetPlanForDay: boolean,
     ): Promise<LoadedSelectedDayData> => {
-      const loadedDayPlan = await getSleepDayPlan(db, referenceDate, currentNow);
+      const loadedDayPlan = await getSleepDayPlan(database, referenceDate, currentNow);
       const loadedSessions = await fetchSessionsForDate(
+        database,
         referenceDate,
         currentNow,
         loadedDayPlan.plan,
@@ -794,7 +857,7 @@ export default function TodaySleepScreen() {
         getSelectedDayType(referenceDate, currentNow) === 'today'
       ) {
         temporaryModes = await listSleepDayTemporaryModes(
-          db,
+          database,
           loadedDayPlan.childId,
           loadedDayPlan.sleepDayDate,
         );
@@ -812,6 +875,7 @@ export default function TodaySleepScreen() {
       }
 
       const loadedBottleFeedings = await fetchBottleFeedingsForDate(
+        database,
         referenceDate,
         currentNow,
         isBottleFeedingEnabled,
@@ -826,18 +890,23 @@ export default function TodaySleepScreen() {
         temporaryModes,
       };
     },
-    [db, fetchBottleFeedingsForDate, fetchSessionsForDate],
+    [fetchBottleFeedingsForDate, fetchSessionsForDate],
   );
 
   const loadMainScreenData = useCallback(
-    async (referenceDate: Date, currentNow: Date): Promise<LoadedMainScreenData> => {
-      const profile = await getChildProfile(db).catch(() => buildFallbackChildProfile());
+    async (
+      database: SQLiteDatabase,
+      referenceDate: Date,
+      currentNow: Date,
+    ): Promise<LoadedMainScreenData> => {
+      const profile = await getChildProfile(database).catch(() => buildFallbackChildProfile());
       const [appSettings, plans] = await Promise.all([
-        getAppSettings(db),
-        listTargetDayPlans(db).catch(() => []),
+        getAppSettings(database),
+        listTargetDayPlans(database).catch(() => []),
       ]);
       const hasActivePlan = plans.some((plan) => plan.isActive);
       const selectedDayData = await loadSelectedDayData(
+        database,
         referenceDate,
         currentNow,
         profile.bottleFeedingEnabled,
@@ -855,7 +924,7 @@ export default function TodaySleepScreen() {
         profile,
       };
     },
-    [db, loadSelectedDayData],
+    [loadSelectedDayData],
   );
 
   const applySelectedDayData = useCallback((loadedData: LoadedSelectedDayData, currentNow: Date) => {
@@ -892,6 +961,7 @@ export default function TodaySleepScreen() {
       options: {
         isActive: () => boolean;
         showLoading: boolean;
+        useFreshDatabase?: boolean;
       },
     ) => {
       const loadedAt = new Date();
@@ -901,7 +971,26 @@ export default function TodaySleepScreen() {
       }
 
       try {
-        const onboardingState = await getOnboardingState(db);
+        const loadWithDatabase = async (database: SQLiteDatabase) => {
+          const onboardingState = await getOnboardingState(database);
+
+          if (onboardingState === 'not_started') {
+            return {
+              loadedData: null,
+              onboardingState,
+            };
+          }
+
+          const loadedData = await loadMainScreenData(database, referenceDate, loadedAt);
+
+          return {
+            loadedData,
+            onboardingState,
+          };
+        };
+        const { loadedData, onboardingState } = options.useFreshDatabase
+          ? await withFreshDatabase(loadWithDatabase)
+          : await loadWithDatabase(db);
 
         if (onboardingState === 'not_started') {
           if (options.isActive()) {
@@ -911,9 +1000,7 @@ export default function TodaySleepScreen() {
           return;
         }
 
-        const loadedData = await loadMainScreenData(referenceDate, loadedAt);
-
-        if (options.isActive()) {
+        if (loadedData && options.isActive()) {
           applyMainScreenData(loadedData, loadedAt);
           setErrorMessage(null);
         }
@@ -1327,8 +1414,24 @@ export default function TodaySleepScreen() {
   useEffect(() => {
     let isActive = true;
     let previousAppState = AppState.currentState;
+    let lastForegroundRefreshAt = 0;
 
-    const subscription = AppState.addEventListener('change', (nextAppState) => {
+    const refreshAfterForeground = () => {
+      const refreshAt = Date.now();
+
+      if (refreshAt - lastForegroundRefreshAt < FOREGROUND_REFRESH_DEBOUNCE_MS) {
+        return;
+      }
+
+      lastForegroundRefreshAt = refreshAt;
+
+      void loadMainScreenIntoState(selectedDate, {
+        isActive: () => isActive,
+        showLoading: false,
+      });
+    };
+
+    const changeSubscription = AppState.addEventListener('change', (nextAppState) => {
       const returnedToForeground =
         nextAppState === 'active' &&
         (previousAppState === 'background' || previousAppState === 'inactive');
@@ -1338,17 +1441,84 @@ export default function TodaySleepScreen() {
         return;
       }
 
-      void loadMainScreenIntoState(selectedDate, {
-        isActive: () => isActive,
-        showLoading: false,
-      });
+      refreshAfterForeground();
     });
+    const focusSubscription = AppState.addEventListener('focus', refreshAfterForeground);
 
     return () => {
       isActive = false;
-      subscription.remove();
+      changeSubscription.remove();
+      focusSubscription.remove();
     };
   }, [loadMainScreenIntoState, selectedDate]);
+
+  useEffect(() => {
+    let isMounted = true;
+    let isChecking = false;
+
+    const reloadIfExternalSleepStateChanged = async () => {
+      if (!isToday || isChecking) {
+        return;
+      }
+
+      isChecking = true;
+
+      try {
+        const latestSession = await withFreshDatabase((database) =>
+          getLatestSleepSession(database),
+        );
+        const latestSessionId = latestSession?.id ?? null;
+        const latestSessionIsActive = latestSession?.endedAt === null;
+        const sleepStateChanged =
+          latestSessionId !== latestSleepSessionId || latestSessionIsActive !== isSleeping;
+
+        if (!sleepStateChanged) {
+          return;
+        }
+
+        if (!isMounted) {
+          return;
+        }
+
+        setNow(new Date());
+        setLatestSleepSessionId(latestSessionId);
+
+        if (latestSession) {
+          setNearbySessions((currentSessions) => {
+            const existingSessionIndex = currentSessions.findIndex(
+              (session) => session.id === latestSession.id,
+            );
+
+            if (existingSessionIndex === -1) {
+              return [...currentSessions, latestSession];
+            }
+
+            return currentSessions.map((session, index) =>
+              index === existingSessionIndex ? latestSession : session,
+            );
+          });
+        }
+
+        setErrorMessage(null);
+      } catch {
+        // External sync is best effort; explicit screen loads own user-facing errors.
+      } finally {
+        isChecking = false;
+      }
+    };
+
+    const pollTimer = setInterval(
+      () => {
+        void reloadIfExternalSleepStateChanged();
+      },
+      EXTERNAL_SLEEP_SYNC_POLL_INTERVAL_MS,
+    );
+
+    return () => {
+      isMounted = false;
+      clearInterval(pollTimer);
+    };
+  }, [isSleeping, isToday, latestSleepSessionId]);
 
   useEffect(() => {
     let isActive = true;
@@ -1393,8 +1563,13 @@ export default function TodaySleepScreen() {
     });
   }
 
-  async function reloadSelectedDay(referenceDate: Date, currentNow: Date) {
+  async function reloadSelectedDay(
+    referenceDate: Date,
+    currentNow: Date,
+    database: SQLiteDatabase = db,
+  ) {
     const loadedData = await loadSelectedDayData(
+      database,
       referenceDate,
       currentNow,
       bottleFeedingEnabled,
@@ -1477,7 +1652,9 @@ export default function TodaySleepScreen() {
   }
 
   function syncNotificationsInBackground(actionAt: Date) {
-    void syncSleepNotificationsFromDatabase(db, actionAt).catch(() => undefined);
+    void withFreshDatabase((database) =>
+      syncSleepNotificationsFromDatabase(database, actionAt),
+    ).catch(() => undefined);
   }
 
   async function handleDismissEveningPlanPrompt() {
@@ -1516,22 +1693,24 @@ export default function TodaySleepScreen() {
     setNow(actionAt);
 
     try {
-      if (isSleeping) {
-        const activeSession = selectedSessionsForDay.find((session) => session.endedAt === null);
-        const sleepKind = activeSession
-          ? inferSleepKindForInterval(
-              new Date(activeSession.startedAt),
-              actionAt,
-              sleepPlan,
-            )
-          : undefined;
+      await withFreshDatabase(async (database) => {
+        if (isSleeping) {
+          const activeSession = selectedSessionsForDay.find((session) => session.endedAt === null);
+          const sleepKind = activeSession
+            ? inferSleepKindForInterval(
+                new Date(activeSession.startedAt),
+                actionAt,
+                sleepPlan,
+              )
+            : undefined;
 
-        await stopActiveSleepSession(db, actionAt, sleepKind);
-      } else {
-        await startSleepSession(db, inferSleepKindForStart(actionAt, sleepPlan), actionAt);
-      }
+          await stopActiveSleepSession(database, actionAt, sleepKind);
+        } else {
+          await startSleepSession(database, inferSleepKindForStart(actionAt, sleepPlan), actionAt);
+        }
 
-      await reloadSelectedDay(selectedDate, actionAt);
+        await reloadSelectedDay(selectedDate, actionAt, database);
+      });
       syncNotificationsInBackground(actionAt);
     } catch {
       setErrorMessage('Не удалось сохранить сон');
