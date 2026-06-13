@@ -8,10 +8,14 @@ web-build/
 expo-env.d.ts
 
 # Codex/local workspace artifacts
+.codex-android-temp/
+.codex-gradle-home/
+.codex-logs/
 .codex-remote-attachments/
 .codex-remote-attachments/**
 /.codex-remote-attachments/
 /.codex-remote-attachments/**
+.codex-widget-host/
 .claude/
 .vscode/
 
@@ -19,6 +23,8 @@ expo-env.d.ts
 .kotlin/
 /ios/
 /android/
+credentials.json
+secrets/
 *.orig.*
 *.jks
 *.p8

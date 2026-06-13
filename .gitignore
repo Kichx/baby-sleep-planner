@@ -10,12 +10,18 @@ web-build/
 expo-env.d.ts
 
 # Codex/local workspace artifacts
+.codex-android-temp/
+.codex-gradle-home/
+.codex-logs/
 .codex-remote-attachments/
 .codex-remote-attachments/**
+.codex-widget-host/
 .claude/
 
 # Native
 .kotlin/
+credentials.json
+secrets/
 *.orig.*
 *.jks
 *.p8

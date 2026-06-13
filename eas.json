@@ -14,6 +14,18 @@
       "android": {
         "buildType": "apk"
       }
+    },
+    "rustore-aab": {
+      "environment": "production",
+      "distribution": "store",
+      "credentialsSource": "local",
+      "autoIncrement": true,
+      "env": {
+        "EAS_USE_CACHE": "1"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      }
     }
   }
 }

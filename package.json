@@ -39,6 +39,8 @@
     "verify": "npm run typecheck && npm test && npm run doctor",
     "eas:build:android:preview": "npm run verify && npx --yes eas-cli@20.0.0 build --platform android --profile preview --non-interactive",
     "eas:build:android:preview:no-wait": "npm run verify && npx --yes eas-cli@20.0.0 build --platform android --profile preview --non-interactive --no-wait",
+    "eas:build:android:rustore-aab": "npm run verify && npx --yes eas-cli@20.0.0 build --platform android --profile rustore-aab --non-interactive",
+    "eas:build:android:rustore-aab:no-wait": "npm run verify && npx --yes eas-cli@20.0.0 build --platform android --profile rustore-aab --non-interactive --no-wait",
     "eas:build:view": "npx --yes eas-cli@20.0.0 build:view",
     "lint": "expo lint"
   },
