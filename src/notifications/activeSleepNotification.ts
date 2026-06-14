@@ -64,7 +64,7 @@ function getActiveSleepDurationMinutes(startedAt: Date, now: Date): number {
 export function canSyncActiveSleepNotificationForOnboardingState(
   onboardingState: OnboardingState | null,
 ): boolean {
-  return onboardingState === 'tracking_only' || onboardingState === 'plan_saved';
+  return onboardingState === 'plan_saved';
 }
 
 async function ensureActiveSleepNotificationsReady(): Promise<NotificationsModule | null> {

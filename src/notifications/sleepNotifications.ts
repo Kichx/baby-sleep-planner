@@ -2,7 +2,6 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getOnboardingState } from '@/db';
 import {
-  canSyncActiveSleepNotificationForOnboardingState,
   hideActiveSleepNotification,
   syncActiveSleepNotificationFromDatabase,
 } from '@/notifications/activeSleepNotification';
@@ -19,7 +18,6 @@ import {
   hideSleepReminderNotification,
   syncSleepReminderNotificationFromDatabase,
 } from '@/notifications/sleepReminderNotification';
-import { refreshSleepWidgetInBackground } from '@/widgets/sleepWidget';
 
 export interface SleepNotificationSyncOptions {
   showOverdueBottleFeedingReminder?: boolean;
@@ -31,18 +29,12 @@ export async function syncSleepNotificationsFromDatabase(
   options: SleepNotificationSyncOptions = {},
 ) {
   const onboardingState = await getOnboardingState(db).catch(() => null);
-  refreshSleepWidgetInBackground();
-
-  if (!canSyncActiveSleepNotificationForOnboardingState(onboardingState)) {
-    return;
-  }
-
-  await syncActiveSleepNotificationFromDatabase(db, now);
 
   if (onboardingState !== 'plan_saved') {
     return;
   }
 
+  await syncActiveSleepNotificationFromDatabase(db, now);
   await syncSleepReminderNotificationFromDatabase(db, now);
   await syncBottleFeedingReminderNotificationFromDatabase(db, now, {
     showOverdueReminder: options.showOverdueBottleFeedingReminder,
@@ -52,7 +44,6 @@ export async function syncSleepNotificationsFromDatabase(
 export async function cancelAllLocalSleepNotifications(): Promise<void> {
   resetBottleFeedingReminderNotificationRuntimeState();
   resetExpoNotificationRuntimeState();
-  refreshSleepWidgetInBackground();
 
   await Promise.allSettled([
     hideActiveSleepNotification(),

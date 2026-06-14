@@ -35,16 +35,28 @@ class ActiveSleepChronometer : Module() {
       }
 
       return@Function try {
-        val intent = ActiveSleepNotificationService.createShowIntent(
+        val startedAtMillisLong = startedAtMillis.toLong()
+
+        ActiveSleepNotificationService.showStatusNotification(
           context,
-          startedAtMillis.toLong(),
+          startedAtMillisLong,
           startedAtLabel,
         )
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-          ContextCompat.startForegroundService(context, intent)
-        } else {
-          context.startService(intent)
+        val intent = ActiveSleepNotificationService.createShowIntent(
+          context,
+          startedAtMillisLong,
+          startedAtLabel,
+        )
+
+        try {
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ContextCompat.startForegroundService(context, intent)
+          } else {
+            context.startService(intent)
+          }
+        } catch (_: Exception) {
+          // The status notification above is enough when foreground service startup is blocked.
         }
 
         true
@@ -166,8 +178,7 @@ class ActiveSleepNotificationService : Service() {
 
   private fun showStatusNotificationFallback() {
     try {
-      val notification = buildNotification(this, startedAtMillis, startedAtLabel)
-      NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, notification)
+      showStatusNotification(this, startedAtMillis, startedAtLabel)
     } catch (_: Exception) {
       // If even a regular notification cannot be posted, sleep logging must stay unaffected.
     }
@@ -268,6 +279,16 @@ class ActiveSleepNotificationService : Service() {
         cancel(NOTIFICATION_ID)
         cancel(LEGACY_NOTIFICATION_TAG, LEGACY_NOTIFICATION_ID)
       }
+    }
+
+    fun showStatusNotification(
+      context: Context,
+      startedAtMillis: Long,
+      startedAtLabel: String,
+    ) {
+      ensureChannel(context)
+      val notification = buildNotification(context, startedAtMillis, startedAtLabel)
+      NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
     }
 
     private fun cancelLegacyNotification(context: Context) {

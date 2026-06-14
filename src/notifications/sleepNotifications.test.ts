@@ -10,7 +10,6 @@ const syncMocks = vi.hoisted(() => ({
   hideBottleFeedingReminderNotification: vi.fn(async () => undefined),
   hideSleepReminderNotification: vi.fn(async () => undefined),
   loadExpoNotificationsModule: vi.fn(),
-  refreshSleepWidgetInBackground: vi.fn(),
   resetBottleFeedingReminderNotificationRuntimeState: vi.fn(),
   resetExpoNotificationRuntimeState: vi.fn(),
   syncActiveSleepNotificationFromDatabase: vi.fn(async () => undefined),
@@ -21,8 +20,6 @@ const syncMocks = vi.hoisted(() => ({
 vi.mock('@/db', () => dbMocks);
 
 vi.mock('@/notifications/activeSleepNotification', () => ({
-  canSyncActiveSleepNotificationForOnboardingState: (onboardingState: string | null) =>
-    onboardingState === 'tracking_only' || onboardingState === 'plan_saved',
   hideActiveSleepNotification: syncMocks.hideActiveSleepNotification,
   syncActiveSleepNotificationFromDatabase:
     syncMocks.syncActiveSleepNotificationFromDatabase,
@@ -46,10 +43,6 @@ vi.mock('@/notifications/sleepReminderNotification', () => ({
   hideSleepReminderNotification: syncMocks.hideSleepReminderNotification,
   syncSleepReminderNotificationFromDatabase:
     syncMocks.syncSleepReminderNotificationFromDatabase,
-}));
-
-vi.mock('@/widgets/sleepWidget', () => ({
-  refreshSleepWidgetInBackground: syncMocks.refreshSleepWidgetInBackground,
 }));
 
 const db = {} as SQLiteDatabase;
@@ -80,10 +73,9 @@ describe('sleep notification sync', () => {
     expect(syncMocks.syncActiveSleepNotificationFromDatabase).not.toHaveBeenCalled();
     expect(syncMocks.syncBottleFeedingReminderNotificationFromDatabase).not.toHaveBeenCalled();
     expect(syncMocks.syncSleepReminderNotificationFromDatabase).not.toHaveBeenCalled();
-    expect(syncMocks.refreshSleepWidgetInBackground).toHaveBeenCalledTimes(1);
   });
 
-  it('syncs only active sleep notification while onboarding is tracking-only', async () => {
+  it('does not sync notifications while onboarding is tracking-only', async () => {
     const now = new Date('2026-06-05T08:00:00.000Z');
     dbMocks.getOnboardingState.mockResolvedValue('tracking_only');
     const { syncSleepNotificationsFromDatabase } = await loadSubject();
@@ -91,8 +83,7 @@ describe('sleep notification sync', () => {
     await syncSleepNotificationsFromDatabase(db, now);
 
     expect(dbMocks.getOnboardingState).toHaveBeenCalledTimes(1);
-    expect(syncMocks.refreshSleepWidgetInBackground).toHaveBeenCalledTimes(1);
-    expect(syncMocks.syncActiveSleepNotificationFromDatabase).toHaveBeenCalledWith(db, now);
+    expect(syncMocks.syncActiveSleepNotificationFromDatabase).not.toHaveBeenCalled();
     expect(syncMocks.syncSleepReminderNotificationFromDatabase).not.toHaveBeenCalled();
     expect(syncMocks.syncBottleFeedingReminderNotificationFromDatabase).not.toHaveBeenCalled();
   });
@@ -106,7 +97,6 @@ describe('sleep notification sync', () => {
     });
 
     expect(dbMocks.getOnboardingState).toHaveBeenCalledTimes(1);
-    expect(syncMocks.refreshSleepWidgetInBackground).toHaveBeenCalledTimes(1);
     expect(syncMocks.syncActiveSleepNotificationFromDatabase).toHaveBeenCalledWith(db, now);
     expect(syncMocks.syncSleepReminderNotificationFromDatabase).toHaveBeenCalledWith(db, now);
     expect(syncMocks.syncBottleFeedingReminderNotificationFromDatabase).toHaveBeenCalledWith(
@@ -130,7 +120,6 @@ describe('sleep notification sync', () => {
 
     expect(syncMocks.resetBottleFeedingReminderNotificationRuntimeState).toHaveBeenCalledTimes(1);
     expect(syncMocks.resetExpoNotificationRuntimeState).toHaveBeenCalledTimes(1);
-    expect(syncMocks.refreshSleepWidgetInBackground).toHaveBeenCalledTimes(1);
     expect(syncMocks.hideActiveSleepNotification).toHaveBeenCalledTimes(1);
     expect(syncMocks.hideSleepReminderNotification).toHaveBeenCalledTimes(1);
     expect(syncMocks.hideBottleFeedingReminderNotification).toHaveBeenCalledTimes(1);
