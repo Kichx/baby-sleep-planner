@@ -5,6 +5,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { getOnboardingState } from '@/db';
 import {
   ACTIVE_SLEEP_NOTIFICATION_REFRESH_MS,
+  canSyncActiveSleepNotificationForOnboardingState,
   configureActiveSleepNotificationHandler,
   syncActiveSleepNotificationFromDatabase,
 } from '@/notifications/activeSleepNotification';
@@ -20,7 +21,7 @@ export function ActiveSleepNotificationSync() {
   const configureNotificationHandler = useCallback(() => {
     void getOnboardingState(db)
       .then((onboardingState) => {
-        if (onboardingState === 'plan_saved') {
+        if (canSyncActiveSleepNotificationForOnboardingState(onboardingState)) {
           configureActiveSleepNotificationHandler();
         }
       })

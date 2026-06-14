@@ -21,7 +21,6 @@ import androidx.core.content.ContextCompat
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import kotlin.math.max
-import widgets.SleepToggleWidgetProvider
 
 class ActiveSleepChronometer : Module() {
   override fun definition() = ModuleDefinition {
@@ -48,7 +47,6 @@ class ActiveSleepChronometer : Module() {
           context.startService(intent)
         }
 
-        SleepToggleWidgetProvider.refreshAll(context)
         true
       } catch (_: Exception) {
         false
@@ -60,7 +58,6 @@ class ActiveSleepChronometer : Module() {
       val context = reactContext.applicationContext
 
       ActiveSleepNotificationService.cancelNotifications(context)
-      SleepToggleWidgetProvider.refreshAll(context)
 
       try {
         context.startService(ActiveSleepNotificationService.createHideIntent(context))
@@ -127,7 +124,6 @@ class ActiveSleepNotificationService : Service() {
       startActiveForeground()
       cancelLegacyNotification(this)
       scheduleNextUpdate()
-      SleepToggleWidgetProvider.refreshAll(this)
     } catch (_: Exception) {
       showStatusNotificationFallback()
       stopTracking(cancelNotifications = false)
@@ -195,7 +191,6 @@ class ActiveSleepNotificationService : Service() {
     if (cancelNotifications) {
       cancelNotifications(this)
     }
-    SleepToggleWidgetProvider.refreshAll(this)
 
     if (cancelNotifications) {
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {

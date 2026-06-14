@@ -11,6 +11,7 @@ import {
   loadExpoNotificationsModule,
   type NotificationsModule,
 } from '@/notifications/expoNotifications';
+import type { OnboardingState } from '@/types/appSettings';
 import type { SleepSession } from '@/types/sleep';
 
 export const ACTIVE_SLEEP_NOTIFICATION_REFRESH_MS = 60_000;
@@ -58,6 +59,12 @@ function formatDuration(minutes: number): string {
 
 function getActiveSleepDurationMinutes(startedAt: Date, now: Date): number {
   return Math.max(0, Math.floor((now.getTime() - startedAt.getTime()) / 60_000));
+}
+
+export function canSyncActiveSleepNotificationForOnboardingState(
+  onboardingState: OnboardingState | null,
+): boolean {
+  return onboardingState === 'tracking_only' || onboardingState === 'plan_saved';
 }
 
 async function ensureActiveSleepNotificationsReady(): Promise<NotificationsModule | null> {
@@ -164,7 +171,7 @@ export async function syncActiveSleepNotificationFromDatabase(
   try {
     const onboardingState = await getOnboardingState(db);
 
-    if (onboardingState !== 'plan_saved') {
+    if (!canSyncActiveSleepNotificationForOnboardingState(onboardingState)) {
       return;
     }
 

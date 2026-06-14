@@ -2,6 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getOnboardingState } from '@/db';
 import {
+  canSyncActiveSleepNotificationForOnboardingState,
   hideActiveSleepNotification,
   syncActiveSleepNotificationFromDatabase,
 } from '@/notifications/activeSleepNotification';
@@ -32,11 +33,16 @@ export async function syncSleepNotificationsFromDatabase(
   const onboardingState = await getOnboardingState(db).catch(() => null);
   refreshSleepWidgetInBackground();
 
-  if (onboardingState !== 'plan_saved') {
+  if (!canSyncActiveSleepNotificationForOnboardingState(onboardingState)) {
     return;
   }
 
   await syncActiveSleepNotificationFromDatabase(db, now);
+
+  if (onboardingState !== 'plan_saved') {
+    return;
+  }
+
   await syncSleepReminderNotificationFromDatabase(db, now);
   await syncBottleFeedingReminderNotificationFromDatabase(db, now, {
     showOverdueReminder: options.showOverdueBottleFeedingReminder,

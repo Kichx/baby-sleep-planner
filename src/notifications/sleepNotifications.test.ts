@@ -21,6 +21,8 @@ const syncMocks = vi.hoisted(() => ({
 vi.mock('@/db', () => dbMocks);
 
 vi.mock('@/notifications/activeSleepNotification', () => ({
+  canSyncActiveSleepNotificationForOnboardingState: (onboardingState: string | null) =>
+    onboardingState === 'tracking_only' || onboardingState === 'plan_saved',
   hideActiveSleepNotification: syncMocks.hideActiveSleepNotification,
   syncActiveSleepNotificationFromDatabase:
     syncMocks.syncActiveSleepNotificationFromDatabase,
@@ -68,23 +70,32 @@ describe('sleep notification sync', () => {
     });
   });
 
-  it.each(['not_started', 'tracking_only'] as const)(
-    'does not sync notifications while onboarding is %s',
-    async (onboardingState) => {
-      dbMocks.getOnboardingState.mockResolvedValue(onboardingState);
-      const { syncSleepNotificationsFromDatabase } = await loadSubject();
+  it('does not sync notifications before onboarding is completed', async () => {
+    dbMocks.getOnboardingState.mockResolvedValue('not_started');
+    const { syncSleepNotificationsFromDatabase } = await loadSubject();
 
-      await syncSleepNotificationsFromDatabase(db);
+    await syncSleepNotificationsFromDatabase(db);
 
-      expect(dbMocks.getOnboardingState).toHaveBeenCalledTimes(1);
-      expect(syncMocks.syncActiveSleepNotificationFromDatabase).not.toHaveBeenCalled();
-      expect(
-        syncMocks.syncBottleFeedingReminderNotificationFromDatabase,
-      ).not.toHaveBeenCalled();
-      expect(syncMocks.syncSleepReminderNotificationFromDatabase).not.toHaveBeenCalled();
-      expect(syncMocks.refreshSleepWidgetInBackground).toHaveBeenCalledTimes(1);
-    },
-  );
+    expect(dbMocks.getOnboardingState).toHaveBeenCalledTimes(1);
+    expect(syncMocks.syncActiveSleepNotificationFromDatabase).not.toHaveBeenCalled();
+    expect(syncMocks.syncBottleFeedingReminderNotificationFromDatabase).not.toHaveBeenCalled();
+    expect(syncMocks.syncSleepReminderNotificationFromDatabase).not.toHaveBeenCalled();
+    expect(syncMocks.refreshSleepWidgetInBackground).toHaveBeenCalledTimes(1);
+  });
+
+  it('syncs only active sleep notification while onboarding is tracking-only', async () => {
+    const now = new Date('2026-06-05T08:00:00.000Z');
+    dbMocks.getOnboardingState.mockResolvedValue('tracking_only');
+    const { syncSleepNotificationsFromDatabase } = await loadSubject();
+
+    await syncSleepNotificationsFromDatabase(db, now);
+
+    expect(dbMocks.getOnboardingState).toHaveBeenCalledTimes(1);
+    expect(syncMocks.refreshSleepWidgetInBackground).toHaveBeenCalledTimes(1);
+    expect(syncMocks.syncActiveSleepNotificationFromDatabase).toHaveBeenCalledWith(db, now);
+    expect(syncMocks.syncSleepReminderNotificationFromDatabase).not.toHaveBeenCalled();
+    expect(syncMocks.syncBottleFeedingReminderNotificationFromDatabase).not.toHaveBeenCalled();
+  });
 
   it('syncs notifications after a day plan is saved', async () => {
     const now = new Date('2026-06-05T08:00:00.000Z');
