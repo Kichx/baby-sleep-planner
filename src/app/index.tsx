@@ -121,6 +121,10 @@ import {
 } from '@/db';
 import { syncSleepNotificationsFromDatabase } from '@/notifications/sleepNotifications';
 import {
+  hideActiveSleepNotification,
+  showActiveSleepNotification,
+} from '@/notifications/activeSleepNotification';
+import {
   canAskForNotificationPermission,
   requestNotificationPermission,
 } from '@/notifications/expoNotifications';
@@ -1479,9 +1483,16 @@ export default function TodaySleepScreen() {
     void syncSleepNotificationsFromDatabase(db, actionAt).catch(() => undefined);
   }
 
-  async function prepareActiveSleepNotificationAfterStart(actionAt: Date) {
-    await syncSleepNotificationsFromDatabase(db, actionAt).catch(() => undefined);
+  async function prepareActiveSleepNotificationAfterStart(
+    session: SleepSession,
+    actionAt: Date,
+  ) {
     await requestNotificationPermission().catch(() => false);
+    await showActiveSleepNotification(session, actionAt).catch(() => undefined);
+  }
+
+  async function clearActiveSleepNotificationAfterStop() {
+    await hideActiveSleepNotification().catch(() => undefined);
   }
 
   async function handleDismissEveningPlanPrompt() {
@@ -1515,6 +1526,7 @@ export default function TodaySleepScreen() {
 
     const actionAt = new Date();
     const wasSleeping = isSleeping;
+    let startedSession: SleepSession | null = null;
 
     setIsSaving(true);
     setErrorMessage(null);
@@ -1533,11 +1545,17 @@ export default function TodaySleepScreen() {
 
         await stopActiveSleepSession(db, actionAt, sleepKind);
       } else {
-        await startSleepSession(db, inferSleepKindForStart(actionAt, sleepPlan), actionAt);
+        startedSession = await startSleepSession(
+          db,
+          inferSleepKindForStart(actionAt, sleepPlan),
+          actionAt,
+        );
       }
 
-      if (!wasSleeping) {
-        await prepareActiveSleepNotificationAfterStart(actionAt);
+      if (startedSession) {
+        await prepareActiveSleepNotificationAfterStart(startedSession, actionAt);
+      } else if (wasSleeping) {
+        await clearActiveSleepNotificationAfterStop();
       }
 
       await reloadSelectedDay(selectedDate, actionAt);
@@ -1558,7 +1576,7 @@ export default function TodaySleepScreen() {
       ...input,
       kind: inferSleepKindForInterval(input.startedAt, input.endedAt, sleepPlan),
     };
-    let startedOpenSession = false;
+    let startedOpenSession: SleepSession | null = null;
 
     setIsSaving(true);
     setErrorMessage(null);
@@ -1568,14 +1586,13 @@ export default function TodaySleepScreen() {
       if (editorState?.mode === 'edit') {
         await updateSleepSession(db, editorState.session.id, inputWithKind);
       } else if (!input.endedAt) {
-        await startSleepSession(db, inputWithKind.kind, input.startedAt);
-        startedOpenSession = true;
+        startedOpenSession = await startSleepSession(db, inputWithKind.kind, input.startedAt);
       } else {
         await createSleepSession(db, inputWithKind);
       }
 
       if (startedOpenSession) {
-        await prepareActiveSleepNotificationAfterStart(actionAt);
+        await prepareActiveSleepNotificationAfterStart(startedOpenSession, actionAt);
       }
 
       await reloadSelectedDay(selectedDate, actionAt);

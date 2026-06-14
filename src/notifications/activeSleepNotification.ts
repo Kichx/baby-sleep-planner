@@ -135,16 +135,16 @@ async function getPermittedNotificationsModule(): Promise<NotificationsModule | 
 }
 
 export async function showActiveSleepNotification(session: SleepSession, now = new Date()) {
-  const Notifications = await getPermittedNotificationsModule();
-
-  if (!Notifications) {
-    return;
-  }
-
   const startedAt = new Date(session.startedAt);
   const durationMinutes = getActiveSleepDurationMinutes(startedAt, now);
 
   if (showNativeActiveSleepNotification(startedAt.getTime(), formatClock(startedAt))) {
+    return;
+  }
+
+  const Notifications = await getPermittedNotificationsModule();
+
+  if (!Notifications) {
     return;
   }
 

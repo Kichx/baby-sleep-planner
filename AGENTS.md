@@ -833,11 +833,21 @@ Minute-by-minute notification text can be updated while the JS runtime is alive,
 
 If the notification must show always-current elapsed sleep time while the app is backgrounded, do not use a JS interval or repeated local notification rescheduling as the main mechanism. Use Android's system chronometer in a native notification (`setWhen(startedAt)`, `setShowWhen(true)`, `setUsesChronometer(true)`, `setChronometerCountDown(false)`), so Android updates the visible time without the JS runtime.
 
+When showing an active sleep notification, try the native Android chronometer path before loading or permission-checking `expo-notifications`. The native foreground notification is the primary path for the live sleep timer, and `expo-notifications` is only a fallback. Do not let an unavailable Expo notifications module, Expo Go guard, channel setup failure, or permission helper failure prevent the native chronometer from starting.
+
+After an in-app start-sleep action, pass the `SleepSession` returned by `startSleepSession` directly into `showActiveSleepNotification(...)`. Do not re-query the current active session just to show the notification before the UI reloads, because SQLite context freshness, selected-day filtering, or foreground refresh timing can hide the just-started session. After an in-app stop-sleep action, call `hideActiveSleepNotification(...)` directly after `stopActiveSleepSession(...)` succeeds, then run the broader background notification sync.
+
 Starting an Android foreground service is not proof that the foreground notification was successfully posted. `ContextCompat.startForegroundService(...)` can return successfully while `startForeground(...)` later fails inside the service on a specific Android version, permission state, or OEM policy. Keep a fallback path that posts the same ongoing status notification through `NotificationManagerCompat.notify(...)`, and do not immediately cancel that fallback from service cleanup. Sleep logging must remain successful even when every notification path fails.
 
 For SDK 56, a small Android-only native notification module can be implemented as an Expo inline Kotlin module under `src/notifications`. Enable it with `expo.experiments.inlineModules.watchedDirectories` in `app.json`, keep the Kotlin filename, class name, and module name aligned, and load it from TypeScript with `requireOptionalNativeModule` so Expo Go and builds without the native module degrade safely. After adding or moving an inline module, verify Expo autolinking can see it, for example by using the local `expo-modules-autolinking` inline-module scanner.
 
 TypeScript checks and unit tests do not compile Kotlin inline modules. Any change to `*.kt`, inline module configuration, notification channels, Android permissions, or native notification behavior needs an Android APK/dev build before it can be considered fully verified. Keep reporting this explicitly if only JS checks were run.
+
+On Windows local Android builds with Expo inline modules, generated `android/gradle.properties` can pass `expo.inlineModules.watchedDirectories=["src"]` to Gradle/Node as invalid JSON (`[src]`). If `mirror-kotlin-inline-modules` fails with a JSON parse error, escape that generated property as `expo.inlineModules.watchedDirectories=[\\\"src\\\"]` before building the ignored `/android` project. This is a local generated-file workaround; keep the source `app.json` inline module config unchanged.
+
+If a local Gradle 9 build fails before project configuration with `foojay-resolver-convention` / `JvmVendorSpec.IBM_SEMERU`, check the ignored `node_modules/@react-native/gradle-plugin/settings.gradle.kts` plugin version. Updating the local resolver plugin from `0.5.0` to `1.0.0` can unblock a local APK build, but do not commit `node_modules` changes.
+
+When smoke-testing on vivo Android devices, `uiautomator dump` may report a stale hierarchy or fail with `could not get idle state` while React timers are active. Use screenshots plus `dumpsys notification --noredact` and `dumpsys activity services <package>` as the source of truth for active sleep UI/notification verification.
 
 Before considering active sleep notifications done, verify:
 - Expo Go still starts without importing or crashing on `expo-notifications`;

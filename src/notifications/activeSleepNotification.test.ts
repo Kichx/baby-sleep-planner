@@ -26,6 +26,7 @@ function createNotificationsModuleMock() {
 async function loadSubject(
   onboardingState: OnboardingState,
   options: {
+    expoNotificationsAvailable?: boolean;
     nativeChronometer?: NativeChronometerMock | null;
     notificationPermission?: boolean;
   } = {},
@@ -42,7 +43,9 @@ async function loadSubject(
     kind: 'nap',
     startedAt: '2026-06-05T15:00:00.000Z',
   }));
-  const ensureExpoNotificationHandlerConfigured = vi.fn(async () => Notifications);
+  const ensureExpoNotificationHandlerConfigured = vi.fn(async () =>
+    options.expoNotificationsAvailable === false ? null : Notifications,
+  );
   const hasNotificationPermission = vi.fn(async () => options.notificationPermission ?? true);
   const loadExpoNotificationsModule = vi.fn(async () => Notifications);
   const requireOptionalNativeModule = vi.fn(() => nativeChronometer);
@@ -154,6 +157,30 @@ describe('active sleep notification sync', () => {
       new Date('2026-06-05T15:00:00.000Z').getTime(),
       expect.any(String),
     );
+    expect(Notifications.scheduleNotificationAsync).not.toHaveBeenCalled();
+  });
+
+  it('tries native chronometer before loading the Expo notification module', async () => {
+    const nativeChronometer = {
+      hide: vi.fn(() => true),
+      show: vi.fn(() => true),
+    };
+    const {
+      hasNotificationPermission,
+      Notifications,
+      syncActiveSleepNotificationFromDatabase,
+    } = await loadSubject('plan_saved', {
+      expoNotificationsAvailable: false,
+      nativeChronometer,
+    });
+
+    await syncActiveSleepNotificationFromDatabase(
+      {} as SQLiteDatabase,
+      new Date('2026-06-05T15:12:00.000Z'),
+    );
+
+    expect(nativeChronometer.show).toHaveBeenCalledTimes(1);
+    expect(hasNotificationPermission).not.toHaveBeenCalled();
     expect(Notifications.scheduleNotificationAsync).not.toHaveBeenCalled();
   });
 
