@@ -61,10 +61,29 @@ function getActiveSleepDurationMinutes(startedAt: Date, now: Date): number {
   return Math.max(0, Math.floor((now.getTime() - startedAt.getTime()) / 60_000));
 }
 
+function showNativeActiveSleepNotification(
+  startedAtMillis: number,
+  startedAtLabel: string,
+): boolean {
+  try {
+    return getActiveSleepChronometerModule()?.show(startedAtMillis, startedAtLabel) === true;
+  } catch {
+    return false;
+  }
+}
+
+function hideNativeActiveSleepNotification(): void {
+  try {
+    getActiveSleepChronometerModule()?.hide();
+  } catch {
+    // Expo fallback cleanup below should still run.
+  }
+}
+
 export function canSyncActiveSleepNotificationForOnboardingState(
   onboardingState: OnboardingState | null,
 ): boolean {
-  return onboardingState === 'plan_saved';
+  return onboardingState === 'tracking_only' || onboardingState === 'plan_saved';
 }
 
 async function ensureActiveSleepNotificationsReady(): Promise<NotificationsModule | null> {
@@ -124,9 +143,8 @@ export async function showActiveSleepNotification(session: SleepSession, now = n
 
   const startedAt = new Date(session.startedAt);
   const durationMinutes = getActiveSleepDurationMinutes(startedAt, now);
-  const activeSleepChronometerModule = getActiveSleepChronometerModule();
 
-  if (activeSleepChronometerModule?.show(startedAt.getTime(), formatClock(startedAt))) {
+  if (showNativeActiveSleepNotification(startedAt.getTime(), formatClock(startedAt))) {
     return;
   }
 
@@ -153,7 +171,7 @@ export async function showActiveSleepNotification(session: SleepSession, now = n
 }
 
 export async function hideActiveSleepNotification() {
-  getActiveSleepChronometerModule()?.hide();
+  hideNativeActiveSleepNotification();
 
   const Notifications = await loadExpoNotificationsModule();
 
@@ -161,7 +179,10 @@ export async function hideActiveSleepNotification() {
     return;
   }
 
-  await Notifications.dismissNotificationAsync(ACTIVE_SLEEP_NOTIFICATION_ID);
+  await Promise.allSettled([
+    Notifications.cancelScheduledNotificationAsync(ACTIVE_SLEEP_NOTIFICATION_ID),
+    Notifications.dismissNotificationAsync(ACTIVE_SLEEP_NOTIFICATION_ID),
+  ]);
 }
 
 export async function syncActiveSleepNotificationFromDatabase(

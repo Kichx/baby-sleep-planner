@@ -16,6 +16,7 @@ function createNotificationsModuleMock() {
     AndroidNotificationPriority: {
       LOW: 'low',
     },
+    cancelScheduledNotificationAsync: vi.fn(async () => undefined),
     dismissNotificationAsync: vi.fn(async () => undefined),
     scheduleNotificationAsync: vi.fn(async () => 'active-sleep-notification'),
     setNotificationChannelAsync: vi.fn(async () => null),
@@ -94,57 +95,43 @@ describe('active sleep notification sync', () => {
     expect(hasNotificationPermission).not.toHaveBeenCalled();
   });
 
-  it('does not sync active sleep notification in tracking-only mode', async () => {
-    const {
-      ensureExpoNotificationHandlerConfigured,
-      getActiveSleepSession,
-      getOnboardingState,
-      hasNotificationPermission,
-      syncActiveSleepNotificationFromDatabase,
-    } = await loadSubject('tracking_only');
+  it.each(['tracking_only', 'plan_saved'] as const)(
+    'syncs active sleep notification while onboarding is %s',
+    async (onboardingState) => {
+      const {
+        getActiveSleepSession,
+        getOnboardingState,
+        hasNotificationPermission,
+        Notifications,
+        syncActiveSleepNotificationFromDatabase,
+      } = await loadSubject(onboardingState);
 
-    await syncActiveSleepNotificationFromDatabase({} as SQLiteDatabase);
+      await syncActiveSleepNotificationFromDatabase(
+        {} as SQLiteDatabase,
+        new Date('2026-06-05T15:12:00.000Z'),
+      );
 
-    expect(getOnboardingState).toHaveBeenCalledTimes(1);
-    expect(getActiveSleepSession).not.toHaveBeenCalled();
-    expect(ensureExpoNotificationHandlerConfigured).not.toHaveBeenCalled();
-    expect(hasNotificationPermission).not.toHaveBeenCalled();
-  });
-
-  it('syncs active sleep notification after a day plan is saved', async () => {
-    const {
-      getActiveSleepSession,
-      getOnboardingState,
-      hasNotificationPermission,
-      Notifications,
-      syncActiveSleepNotificationFromDatabase,
-    } = await loadSubject('plan_saved');
-
-    await syncActiveSleepNotificationFromDatabase(
-      {} as SQLiteDatabase,
-      new Date('2026-06-05T15:12:00.000Z'),
-    );
-
-    expect(getOnboardingState).toHaveBeenCalledTimes(1);
-    expect(getActiveSleepSession).toHaveBeenCalledTimes(1);
-    expect(hasNotificationPermission).toHaveBeenCalledTimes(1);
-    expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: expect.objectContaining({
-          autoDismiss: false,
-          data: expect.objectContaining({
-            sessionId: 'sleep-1',
-            type: 'activeSleep',
+      expect(getOnboardingState).toHaveBeenCalledTimes(1);
+      expect(getActiveSleepSession).toHaveBeenCalledTimes(1);
+      expect(hasNotificationPermission).toHaveBeenCalledTimes(1);
+      expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          content: expect.objectContaining({
+            autoDismiss: false,
+            data: expect.objectContaining({
+              sessionId: 'sleep-1',
+              type: 'activeSleep',
+            }),
+            sticky: true,
           }),
-          sticky: true,
+          identifier: 'active-sleep-notification',
+          trigger: {
+            channelId: 'active-sleep',
+          },
         }),
-        identifier: 'active-sleep-notification',
-        trigger: {
-          channelId: 'active-sleep',
-        },
-      }),
-    );
-  });
+      );
+    },
+  );
 
   it('uses native chronometer instead of Expo fallback when it starts', async () => {
     const nativeChronometer = {
@@ -168,5 +155,32 @@ describe('active sleep notification sync', () => {
       expect.any(String),
     );
     expect(Notifications.scheduleNotificationAsync).not.toHaveBeenCalled();
+  });
+
+  it('falls back to Expo notification when native chronometer throws', async () => {
+    const nativeChronometer = {
+      hide: vi.fn(() => true),
+      show: vi.fn(() => {
+        throw new Error('Native bridge failed');
+      }),
+    };
+    const {
+      Notifications,
+      syncActiveSleepNotificationFromDatabase,
+    } = await loadSubject('plan_saved', {
+      nativeChronometer,
+    });
+
+    await syncActiveSleepNotificationFromDatabase(
+      {} as SQLiteDatabase,
+      new Date('2026-06-05T15:12:00.000Z'),
+    );
+
+    expect(nativeChronometer.show).toHaveBeenCalledTimes(1);
+    expect(Notifications.scheduleNotificationAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        identifier: 'active-sleep-notification',
+      }),
+    );
   });
 });

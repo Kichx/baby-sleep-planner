@@ -1479,6 +1479,11 @@ export default function TodaySleepScreen() {
     void syncSleepNotificationsFromDatabase(db, actionAt).catch(() => undefined);
   }
 
+  async function prepareActiveSleepNotificationAfterStart(actionAt: Date) {
+    await syncSleepNotificationsFromDatabase(db, actionAt).catch(() => undefined);
+    await requestNotificationPermission().catch(() => false);
+  }
+
   async function handleDismissEveningPlanPrompt() {
     if (!mainScreenSleepUi.canShowEveningPlanPrompt || !currentSleepDayDateKey) {
       return;
@@ -1509,13 +1514,14 @@ export default function TodaySleepScreen() {
     }
 
     const actionAt = new Date();
+    const wasSleeping = isSleeping;
 
     setIsSaving(true);
     setErrorMessage(null);
     setNow(actionAt);
 
     try {
-      if (isSleeping) {
+      if (wasSleeping) {
         const activeSession = selectedSessionsForDay.find((session) => session.endedAt === null);
         const sleepKind = activeSession
           ? inferSleepKindForInterval(
@@ -1528,6 +1534,10 @@ export default function TodaySleepScreen() {
         await stopActiveSleepSession(db, actionAt, sleepKind);
       } else {
         await startSleepSession(db, inferSleepKindForStart(actionAt, sleepPlan), actionAt);
+      }
+
+      if (!wasSleeping) {
+        await prepareActiveSleepNotificationAfterStart(actionAt);
       }
 
       await reloadSelectedDay(selectedDate, actionAt);
@@ -1548,6 +1558,7 @@ export default function TodaySleepScreen() {
       ...input,
       kind: inferSleepKindForInterval(input.startedAt, input.endedAt, sleepPlan),
     };
+    let startedOpenSession = false;
 
     setIsSaving(true);
     setErrorMessage(null);
@@ -1558,8 +1569,13 @@ export default function TodaySleepScreen() {
         await updateSleepSession(db, editorState.session.id, inputWithKind);
       } else if (!input.endedAt) {
         await startSleepSession(db, inputWithKind.kind, input.startedAt);
+        startedOpenSession = true;
       } else {
         await createSleepSession(db, inputWithKind);
+      }
+
+      if (startedOpenSession) {
+        await prepareActiveSleepNotificationAfterStart(actionAt);
       }
 
       await reloadSelectedDay(selectedDate, actionAt);
