@@ -97,6 +97,9 @@ const WHY_FALLBACK_SUMMARY =
   'Пока мало данных для точного объяснения. После следующей записи сна расчёт станет понятнее.';
 const DAY_MINUTES = 24 * 60;
 const PREPARE_THRESHOLD_MINUTES = 15;
+const ACTIVE_SLEEP_WRAP_UP_GRACE_MINUTES = 5;
+
+type ActiveSleepAdvice = 'continue' | 'wrapUp' | 'finishSoon';
 
 const HIDDEN_SLEEP_COACH_CARD_VM: SleepCoachCardVm = {
   visible: false,
@@ -304,7 +307,7 @@ function getCurrentSleepAverageEndAt(input: {
     eveningLimitRemainingMinutes,
   );
 
-  if (input.snapshot.projectedRemainingDaySleepMinutes > 0) {
+  if (input.snapshot.projectedRemainingDaySleepMinutes >= 0) {
     currentNapRemainingMinutes = Math.min(
       currentNapRemainingMinutes,
       input.snapshot.projectedRemainingDaySleepMinutes,
@@ -331,7 +334,13 @@ function getCurrentSleepAverageEndAnchor(input: {
     return undefined;
   }
 
-  const remainingDuration = formatDurationForWhy(minutesBetween(input.now, endAt));
+  const remainingMinutes = minutesBetween(input.now, endAt);
+
+  if (input.snapshot.nextSleepKind !== 'night' && remainingMinutes <= 0) {
+    return `Средний ориентир: уже сейчас`;
+  }
+
+  const remainingDuration = formatDurationForWhy(remainingMinutes);
 
   if (!remainingDuration) {
     return undefined;
@@ -344,20 +353,30 @@ function getTargetNapMinutes(plan: SleepPlanPreset): number {
   return Math.max(0, Math.round(plan.targetDaySleepMinutes / Math.max(1, plan.napCount)));
 }
 
-function canActiveSleepContinue(snapshot: SleepSnapshot, plan: SleepPlanPreset): boolean {
+function getActiveSleepAdvice(snapshot: SleepSnapshot, plan: SleepPlanPreset): ActiveSleepAdvice {
   if (snapshot.nextSleepKind === 'night') {
-    return true;
+    return 'continue';
   }
 
-  const shortNapLimitMinutes = Math.max(
-    1,
-    Math.min(getTargetNapMinutes(plan), plan.maxEveningNapMinutes),
-  );
+  if (snapshot.projectedRemainingDaySleepMinutes > ACTIVE_SLEEP_WRAP_UP_GRACE_MINUTES) {
+    return 'continue';
+  }
 
-  return (
-    snapshot.projectedRemainingDaySleepMinutes > 0 ||
-    snapshot.currentDurationMinutes < shortNapLimitMinutes
-  );
+  const targetNapMinutes = getTargetNapMinutes(plan);
+
+  if (snapshot.currentDurationMinutes > targetNapMinutes + ACTIVE_SLEEP_WRAP_UP_GRACE_MINUTES) {
+    return 'finishSoon';
+  }
+
+  return 'wrapUp';
+}
+
+function getActiveSleepWrapUpAnchor(): string {
+  const graceDuration =
+    formatDurationForWhy(ACTIVE_SLEEP_WRAP_UP_GRACE_MINUTES) ??
+    `${ACTIVE_SLEEP_WRAP_UP_GRACE_MINUTES} мин`;
+
+  return `Ориентир сна: сейчас или в ближайшие ${graceDuration}`;
 }
 
 function formatDurationForWhy(minutes: number): string | null {
@@ -573,14 +592,14 @@ function getActiveSleepShiftLine(input: {
   scenario: RecommendationScenario;
   snapshot: SleepSnapshot;
 }): string | null {
-  const sleepCanContinue = canActiveSleepContinue(input.snapshot, input.plan);
+  const advice = getActiveSleepAdvice(input.snapshot, input.plan);
   const scenarioText = `${input.scenario.title} ${input.scenario.detail}`.toLowerCase();
   const scenarioMentionsEveningShift =
     scenarioText.includes('позже') ||
     scenarioText.includes('сдвин') ||
     scenarioText.includes('вечер');
 
-  if (!sleepCanContinue || scenarioMentionsEveningShift) {
+  if (advice === 'finishSoon' || scenarioMentionsEveningShift) {
     return 'Если сон продлится ещё, отбой может сдвинуться.';
   }
 
@@ -663,8 +682,14 @@ function getActiveSleepWhySummary(input: {
   scenarioId: RecommendationScenarioId;
   snapshot: SleepSnapshot;
 }): string {
-  if (!canActiveSleepContinue(input.snapshot, input.plan)) {
+  const advice = getActiveSleepAdvice(input.snapshot, input.plan);
+
+  if (advice === 'finishSoon') {
     return 'Поэтому сейчас лучше мягко завершить сон в ближайшее время, чтобы вечер остался спокойным.';
+  }
+
+  if (advice === 'wrapUp') {
+    return 'Поэтому можно подождать до 5 минут, а если ребёнок не проснётся сам, мягко завершить сон.';
   }
 
   if (input.scenarioId === 'capLastNap') {
@@ -836,9 +861,9 @@ function buildActiveSleepCard(input: {
       prefix: 'Отбой пока около',
       snapshot: input.snapshot,
     });
-  const sleepCanContinue = canActiveSleepContinue(input.snapshot, input.plan);
+  const advice = getActiveSleepAdvice(input.snapshot, input.plan);
 
-  if (sleepCanContinue) {
+  if (advice === 'continue') {
     return withCommonFields({
       ...input.metadata,
       anchor,
@@ -847,6 +872,19 @@ function buildActiveSleepCard(input: {
       primaryActionLabel: 'Завершить сон',
       secondaryActionLabel: 'Внести сон',
       title: 'Дать поспать ещё',
+      tone: 'calm',
+    });
+  }
+
+  if (advice === 'wrapUp') {
+    return withCommonFields({
+      ...input.metadata,
+      anchor: getActiveSleepWrapUpAnchor(),
+      badge: input.badge,
+      body: 'Ориентир уже на границе. Можно подождать до 5 минут, вдруг проснётся сам. Если нет, мягко завершаем сон.',
+      primaryActionLabel: 'Завершить сон',
+      secondaryActionLabel: 'Внести сон',
+      title: 'Окно сна почти закончилось',
       tone: 'calm',
     });
   }

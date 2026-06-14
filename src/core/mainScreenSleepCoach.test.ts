@@ -352,7 +352,7 @@ describe('buildSleepCoachCardVm', () => {
     expectVisibleCardBasics(card);
   });
 
-  it('suggests softly ending an active nap when it can shift the evening', () => {
+  it('wraps up an active nap softly when the sleep window is on the edge', () => {
     const card = buildCard({
       now: at(18, 10),
       snapshot: baseSnapshot({
@@ -366,7 +366,30 @@ describe('buildSleepCoachCardVm', () => {
     });
 
     expect(card).toMatchObject({
-      anchor: 'Средний ориентир: до 18:10, осталось 0 мин',
+      anchor: 'Ориентир сна: сейчас или в ближайшие 5 мин',
+      body: 'Ориентир уже на границе. Можно подождать до 5 минут, вдруг проснётся сам. Если нет, мягко завершаем сон.',
+      title: 'Окно сна почти закончилось',
+      tone: 'calm',
+      visible: true,
+    });
+    expectVisibleCardBasics(card);
+  });
+
+  it('suggests softly ending an active nap after the wrap-up grace', () => {
+    const card = buildCard({
+      now: at(18, 20),
+      snapshot: baseSnapshot({
+        currentDurationMinutes: 80,
+        nextSleepAt: at(18, 20),
+        predictedBedtimeAt: at(21, 0),
+        projectedRemainingDaySleepMinutes: 0,
+        state: 'sleeping',
+        statusStartedAt: at(17, 0),
+      }),
+    });
+
+    expect(card).toMatchObject({
+      anchor: 'Средний ориентир: уже сейчас',
       body: 'Если сон сильно затянется, отбой может уйти позже. Лучше мягко завершить сон в ближайшее время.',
       title: 'Скоро завершить сон',
       tone: 'adjustDay',
@@ -398,7 +421,7 @@ describe('buildSleepCoachCardVm', () => {
     expectUserStringsSafe(card);
   });
 
-  it('keeps a short active nap calm even when no projected day sleep remains', () => {
+  it('keeps a short active nap wrap-up calm even when no projected day sleep remains', () => {
     const card = buildCard({
       now: at(16, 15),
       snapshot: baseSnapshot({
@@ -411,7 +434,8 @@ describe('buildSleepCoachCardVm', () => {
     });
 
     expect(card).toMatchObject({
-      title: 'Дать поспать ещё',
+      anchor: 'Ориентир сна: сейчас или в ближайшие 5 мин',
+      title: 'Окно сна почти закончилось',
       tone: 'calm',
       visible: true,
     });
@@ -911,20 +935,23 @@ describe('buildSleepCoachWhySheetVm', () => {
       }),
     });
     const shiftSheet = buildWhySheet({
-      now: at(18, 10),
+      now: at(18, 20),
       snapshot: baseSnapshot({
-        currentDurationMinutes: 70,
-        nextSleepAt: at(18, 10),
+        currentDurationMinutes: 80,
+        nextSleepAt: at(18, 20),
         predictedBedtimeAt: at(21, 0),
         projectedRemainingDaySleepMinutes: 0,
         state: 'sleeping',
         statusStartedAt: at(17, 0),
-        totalDaySleepMinutes: 70,
+        totalDaySleepMinutes: 80,
       }),
     });
 
     expect(getWhySheetLines(calmSheet)).not.toContain(
       'Если сон продлится ещё, отбой может сдвинуться.',
+    );
+    expect(calmSheet.summary).toBe(
+      'Поэтому можно подождать до 5 минут, а если ребёнок не проснётся сам, мягко завершить сон.',
     );
     expect(getWhySheetLines(shiftSheet)).toContain(
       'Если сон продлится ещё, отбой может сдвинуться.',
