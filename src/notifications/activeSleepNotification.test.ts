@@ -2,6 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { OnboardingState } from '@/types/appSettings';
+import type { SleepSession } from '@/types/sleep';
 
 interface NativeChronometerMock {
   hide: ReturnType<typeof vi.fn>;
@@ -23,46 +24,66 @@ function createNotificationsModuleMock() {
   };
 }
 
+const activeSleepSessionFixture: SleepSession = {
+  childId: 'default-child',
+  endedAt: null,
+  id: 'sleep-1',
+  kind: 'nap',
+  startedAt: '2026-06-05T15:00:00.000Z',
+};
+
 async function loadSubject(
   onboardingState: OnboardingState,
   options: {
+    activeSleepSession?: SleepSession | null;
     expoNotificationsAvailable?: boolean;
+    liveActivityStarts?: boolean;
     nativeChronometer?: NativeChronometerMock | null;
     notificationPermission?: boolean;
+    platform?: 'android' | 'ios';
   } = {},
 ) {
   vi.resetModules();
 
+  const platform = options.platform ?? 'android';
   const Notifications = createNotificationsModuleMock();
   const nativeChronometer = options.nativeChronometer ?? null;
   const getOnboardingState = vi.fn(async () => onboardingState);
-  const getActiveSleepSession = vi.fn(async () => ({
-    childId: 'default-child',
-    endedAt: null,
-    id: 'sleep-1',
-    kind: 'nap',
-    startedAt: '2026-06-05T15:00:00.000Z',
-  }));
+  const getActiveSleepSession = vi.fn(async () =>
+    options.activeSleepSession === undefined
+      ? activeSleepSessionFixture
+      : options.activeSleepSession,
+  );
   const ensureExpoNotificationHandlerConfigured = vi.fn(async () =>
     options.expoNotificationsAvailable === false ? null : Notifications,
   );
   const hasNotificationPermission = vi.fn(async () => options.notificationPermission ?? true);
   const loadExpoNotificationsModule = vi.fn(async () => Notifications);
   const requireOptionalNativeModule = vi.fn(() => nativeChronometer);
+  const liveActivityMocks = {
+    hideActiveSleepLiveActivity: vi.fn(async () => undefined),
+    showActiveSleepLiveActivity: vi.fn(async () => options.liveActivityStarts ?? true),
+  };
 
   vi.doMock('expo', () => ({
     requireOptionalNativeModule,
+  }));
+  vi.doMock('react-native', () => ({
+    Platform: {
+      OS: platform,
+    },
   }));
   vi.doMock('@/db', () => ({
     getActiveSleepSession,
     getOnboardingState,
   }));
   vi.doMock('@/notifications/expoNotifications', () => ({
-    canUseAndroidNativeNotifications: vi.fn(() => true),
+    canUseAndroidNativeNotifications: vi.fn(() => platform === 'android'),
     ensureExpoNotificationHandlerConfigured,
     hasNotificationPermission,
     loadExpoNotificationsModule,
   }));
+  vi.doMock('@/notifications/activeSleepLiveActivity', () => liveActivityMocks);
 
   const { syncActiveSleepNotificationFromDatabase } = await import(
     '@/notifications/activeSleepNotification'
@@ -73,6 +94,7 @@ async function loadSubject(
     getActiveSleepSession,
     getOnboardingState,
     hasNotificationPermission,
+    liveActivityMocks,
     nativeChronometer,
     Notifications,
     requireOptionalNativeModule,
@@ -209,5 +231,67 @@ describe('active sleep notification sync', () => {
         identifier: 'active-sleep-notification',
       }),
     );
+  });
+
+  it('starts iOS Live Activity without using Android native chronometer or Expo fallback', async () => {
+    const {
+      hasNotificationPermission,
+      liveActivityMocks,
+      Notifications,
+      requireOptionalNativeModule,
+      syncActiveSleepNotificationFromDatabase,
+    } = await loadSubject('plan_saved', {
+      platform: 'ios',
+    });
+
+    await syncActiveSleepNotificationFromDatabase(
+      {} as SQLiteDatabase,
+      new Date('2026-06-05T15:12:00.000Z'),
+    );
+
+    expect(liveActivityMocks.showActiveSleepLiveActivity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'sleep-1',
+      }),
+    );
+    expect(requireOptionalNativeModule).not.toHaveBeenCalled();
+    expect(hasNotificationPermission).not.toHaveBeenCalled();
+    expect(Notifications.scheduleNotificationAsync).not.toHaveBeenCalled();
+  });
+
+  it('does not use Expo fallback on iOS when Live Activity start fails', async () => {
+    const {
+      hasNotificationPermission,
+      liveActivityMocks,
+      Notifications,
+      syncActiveSleepNotificationFromDatabase,
+    } = await loadSubject('plan_saved', {
+      liveActivityStarts: false,
+      platform: 'ios',
+    });
+
+    await syncActiveSleepNotificationFromDatabase(
+      {} as SQLiteDatabase,
+      new Date('2026-06-05T15:12:00.000Z'),
+    );
+
+    expect(liveActivityMocks.showActiveSleepLiveActivity).toHaveBeenCalledTimes(1);
+    expect(hasNotificationPermission).not.toHaveBeenCalled();
+    expect(Notifications.scheduleNotificationAsync).not.toHaveBeenCalled();
+  });
+
+  it('ends iOS Live Activity when there is no active sleep session', async () => {
+    const {
+      liveActivityMocks,
+      syncActiveSleepNotificationFromDatabase,
+    } = await loadSubject('plan_saved', {
+      activeSleepSession: null,
+      platform: 'ios',
+    });
+
+    await syncActiveSleepNotificationFromDatabase({} as SQLiteDatabase);
+
+    expect(liveActivityMocks.hideActiveSleepLiveActivity).toHaveBeenCalledTimes(1);
+    expect(liveActivityMocks.showActiveSleepLiveActivity).not.toHaveBeenCalled();
   });
 });

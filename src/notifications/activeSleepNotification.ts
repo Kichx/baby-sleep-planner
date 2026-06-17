@@ -1,5 +1,6 @@
 import { requireOptionalNativeModule } from 'expo';
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { Platform } from 'react-native';
 
 import { colors } from '@/constants/theme';
 import { formatLocalClock } from '@/core/localDateTime';
@@ -26,6 +27,11 @@ interface ActiveSleepChronometerModule {
 
 let activeSleepChronometerModule: ActiveSleepChronometerModule | null | undefined;
 let isAndroidChannelConfigured = false;
+
+type ActiveSleepLiveActivityModule = typeof import('@/notifications/activeSleepLiveActivity');
+
+let activeSleepLiveActivityModulePromise: Promise<ActiveSleepLiveActivityModule | null> | null =
+  null;
 
 function getActiveSleepChronometerModule(): ActiveSleepChronometerModule | null {
   if (!canUseAndroidNativeNotifications()) {
@@ -78,6 +84,30 @@ function hideNativeActiveSleepNotification(): void {
   } catch {
     // Expo fallback cleanup below should still run.
   }
+}
+
+async function loadActiveSleepLiveActivityModule(): Promise<ActiveSleepLiveActivityModule | null> {
+  if (Platform.OS !== 'ios') {
+    return null;
+  }
+
+  activeSleepLiveActivityModulePromise ??= import(
+    '@/notifications/activeSleepLiveActivity'
+  ).catch(() => null);
+
+  return activeSleepLiveActivityModulePromise;
+}
+
+async function showLiveActivityActiveSleepNotification(
+  session: SleepSession,
+): Promise<boolean> {
+  const liveActivity = await loadActiveSleepLiveActivityModule();
+  return liveActivity?.showActiveSleepLiveActivity(session) ?? false;
+}
+
+async function hideLiveActivityActiveSleepNotification(): Promise<void> {
+  const liveActivity = await loadActiveSleepLiveActivityModule();
+  await liveActivity?.hideActiveSleepLiveActivity();
 }
 
 export function canSyncActiveSleepNotificationForOnboardingState(
@@ -142,6 +172,10 @@ export async function showActiveSleepNotification(session: SleepSession, now = n
     return;
   }
 
+  if (await showLiveActivityActiveSleepNotification(session)) {
+    return;
+  }
+
   const Notifications = await getPermittedNotificationsModule();
 
   if (!Notifications) {
@@ -172,6 +206,7 @@ export async function showActiveSleepNotification(session: SleepSession, now = n
 
 export async function hideActiveSleepNotification() {
   hideNativeActiveSleepNotification();
+  await hideLiveActivityActiveSleepNotification();
 
   const Notifications = await loadExpoNotificationsModule();
 

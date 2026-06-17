@@ -17,6 +17,13 @@
       },
       "predictiveBackGestureEnabled": false
     },
+    "ios": {
+      "bundleIdentifier": "com.kichx.babysleepplanner",
+      "supportsTablet": false,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
@@ -58,7 +65,14 @@
         }
       ],
       "./plugins/withActiveSleepNotificationService",
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-widgets",
+        {
+          "enablePushNotifications": false,
+          "widgets": []
+        }
+      ]
     ],
     "experiments": {
       "inlineModules": {

@@ -1791,6 +1791,27 @@ When using the Atlassian Rovo MCP tools for Confluence:
 - The page key/URL segment remains `BSP`, but the create/update API field is numeric. Keep `cloudId` as `aa03fc2f-4fb7-4d70-ac83-74792e1a5f8c`.
 - After creating or updating a page, read it back with `_getconfluencepage` in markdown format and confirm the key headings/tables are present.
 
+## Implementation lessons from iOS active sleep Live Activity
+
+iOS cannot show an Android-style sticky active-sleep notification in Notification Center. For the active sleep timer on iPhone, use a Live Activity through `expo-widgets`; it appears on the Lock Screen and in Dynamic Island when the device supports it. Do not add push notifications, APNs, backend services, `expo-dev-client`, a home-screen widget, or TestFlight/App Store work unless explicitly requested.
+
+Keep the iOS Live Activity path inside `src/notifications` and lazy-load it from the shared active-sleep notification sync so Android does not import or initialize `expo-widgets` for the native chronometer path. Android behavior stays separate: native chronometer first, then Expo notification fallback.
+
+For `expo-widgets` with SDK 56:
+- read `https://docs.expo.dev/versions/v56.0.0/sdk/widgets/` before changing it;
+- configure the plugin in `app.json` with `enablePushNotifications: false`;
+- keep `widgets: []` when the task needs only Live Activities and no home/lock screen widget gallery entry;
+- create the Live Activity by name in JS/TS with `createLiveActivity('ActiveSleepActivity', ...)`;
+- use `Text date={startedAt} dateStyle="timer"` for the live elapsed timer instead of JS intervals.
+
+Active sleep Live Activity sync rules:
+- on iOS start/reopen/sync, update the first existing `ActiveSleepActivity` when present and end any extras with `end('immediate')`;
+- on sleep stop, no active session, or cleanup, end all active `ActiveSleepActivity` instances with `end('immediate')`;
+- swallow Live Activity errors so notification state never blocks SQLite sleep logging;
+- cover iOS branch behavior with unit tests: no Android native chronometer, no Expo notification fallback, duplicate sync cleanup, and immediate end on stop/no active session.
+
+Expo Go cannot verify this feature. Before considering it done, run `npm run verify`, then smoke-test an iOS EAS internal build on a registered iPhone: start sleep, lock the phone, confirm the timer increments, reopen without duplicate Live Activities, stop sleep, confirm the Live Activity disappears. Android still needs its existing active sleep notification smoke check when notification code changes.
+
 ## Language
 
 The agent must always answer the user and ask clarification questions in Russian.

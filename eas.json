@@ -15,6 +15,10 @@
         "buildType": "apk"
       }
     },
+    "ios-preview": {
+      "distribution": "internal",
+      "autoIncrement": true
+    },
     "rustore-aab": {
       "environment": "production",
       "distribution": "store",
