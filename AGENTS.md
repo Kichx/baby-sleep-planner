@@ -1636,6 +1636,42 @@ When the user asks to "собери новый билд", "собери APK", or
 
 After an Android APK build that affects native modules, notification behavior, permissions, app config, or build plugins, the build is not fully verified until it has been installed on Android and smoke-tested. At minimum, verify the main sleep start/stop flow, active sleep notification behavior, manual ongoing sleep sync, denied notification permission behavior, and app relaunch with existing local data.
 
+## Implementation lessons from RuStore AAB publishing
+
+RuStore release work is store distribution work, not the normal phone-test APK flow. Use the dedicated `rustore-aab` EAS profile and keep the normal `preview` APK profile for direct device testing.
+
+Before a RuStore AAB build:
+- read the Expo SDK 56 docs and current EAS docs for AAB/local credentials;
+- run `git status --short --branch`;
+- run `cmd /c npm run verify`;
+- confirm `eas.json` has `rustore-aab` with `distribution: "store"`, `android.buildType: "app-bundle"`, and `credentialsSource: "local"`;
+- confirm `credentials.json`, `secrets/`, generated AAB files, local Codex folders, logs, and native generated folders are ignored by both git and EAS upload where appropriate.
+
+For RuStore signing, keep the key roles separate:
+- `secrets/rustore/rustore-app-signing.jks` with alias `app-signing` is the app signing key used only to produce the PEPK ZIP for RuStore;
+- `secrets/rustore/rustore-upload.jks` with alias `upload` is the upload key used by EAS through `credentials.json`;
+- `secrets/rustore/rustore-upload-cert.pem` is the upload certificate to upload in RuStore Console;
+- `secrets/rustore/passwords.txt` is only a local password note and must never be printed, committed, uploaded, or copied into docs.
+
+When creating the PEPK ZIP for RuStore, use the exact `--encryptionkey` shown in the current RuStore Console command for that app/signature upload. Do not invent or reuse an old encryption key if the console shows a new one. The command should export from `rustore-app-signing.jks`, alias `app-signing`, include `--include-cert`, and write `secrets/rustore/pepk_out.zip`. After creation, verify the ZIP contains `encryptedPrivateKey` and `certificate.pem`. Upload only `pepk_out.zip` and `rustore-upload-cert.pem` in the signature dialog; never upload `.jks`, `credentials.json`, or `passwords.txt`.
+
+When building the RuStore AAB:
+- start exactly one build with `cmd /c npm run eas:build:android:rustore-aab -- --message "<message>"` or the no-wait variant if explicitly requested;
+- capture the build id as soon as EAS prints it;
+- if local waiting times out or network/DNS fails, poll the same build id with `cmd /c npm run eas:build:view -- <build-id> --json` before considering any retry;
+- do not start a duplicate build until confirming the remote build failed or was canceled, because `autoIncrement` consumes another Android `versionCode`;
+- after success, download the `.aab` to `dist/rustore/baby-sleep-planner-v<appVersion>-build-<versionCode>-rustore.aab`;
+- create a release record in `docs/releases/` with profile `rustore-aab`, platform `Android AAB`, the stable EAS build page URL, the direct AAB URL, local AAB path, `appVersion`, Android `versionCode`, checks, and smoke-check status.
+
+AAB files are not directly installable like APKs. Mark Android smoke-check items as `not checked` unless the AAB has been processed through RuStore/test track or a separate APK was installed and tested.
+
+For RuStore listing assets and metadata:
+- export the current app icon from `assets/images/icon.png` to a 512x512 PNG under `dist/rustore/`, keeping it below 1 MB for the RuStore icon field;
+- short store description should mention sleep planning and bottle-feeding tracking if that feature is present in the submitted build;
+- main store description should mention offline/local storage, no accounts, no backend, and no data transmission to the developer;
+- category should be `Родителям`; optional secondary category can be `Здоровье` only when it fits the available RuStore options;
+- requested data should include only what the app actually handles locally: child profile name/birth date, sleep records, bottle-feeding records, optional profile photo, and backup import/export files. Do not select location, contacts, identifiers, finance, messages, audio, calendar, browser history, or account data unless the app actually starts using them.
+
 ## Git workflow
 
 The default workflow is optimized for fast local testing in Expo Go.

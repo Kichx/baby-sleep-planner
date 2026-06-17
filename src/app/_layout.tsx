@@ -88,6 +88,12 @@ function AppShell() {
               title: 'Справка',
             }}
           />
+          <Stack.Screen
+            name="legal"
+            options={{
+              title: 'Документы',
+            }}
+          />
         </Stack>
       </View>
       {shouldShowBottomNavigation ? <MainBottomNavigation /> : null}

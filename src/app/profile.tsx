@@ -58,6 +58,8 @@ import {
 
 const SLEEP_PLAN_ROUTE = '/sleep-plan' as Href;
 const INFO_ROUTE = '/info' as Href;
+const PRIVACY_POLICY_ROUTE = '/legal?document=privacy-policy' as Href;
+const TERMS_OF_USE_ROUTE = '/legal?document=terms-of-use' as Href;
 const FIRST_RUN_ROUTE = '/first-run' as Href;
 
 type ResetConfirmationStep = 'hidden' | 'first' | 'second';
@@ -589,6 +591,14 @@ export default function ProfileScreen() {
     router.push(INFO_ROUTE);
   }
 
+  function openPrivacyPolicy() {
+    router.push(PRIVACY_POLICY_ROUTE);
+  }
+
+  function openTermsOfUse() {
+    router.push(TERMS_OF_USE_ROUTE);
+  }
+
   function openResetConfirmation() {
     if (isBusy) {
       return;
@@ -893,6 +903,34 @@ export default function ProfileScreen() {
                 <View style={styles.planLinkTextBlock}>
                   <Text style={styles.planLinkTitle}>Справка</Text>
                   <Text style={styles.planLinkSubtitle}>Информация о работе приложения</Text>
+                </View>
+                <Text style={styles.planLinkArrow}>{'>'}</Text>
+              </Pressable>
+              <Pressable
+                accessibilityLabel="Открыть политику конфиденциальности"
+                accessibilityRole="button"
+                onPress={openPrivacyPolicy}
+                style={({ pressed }) => [styles.planLink, pressed ? styles.planLinkPressed : null]}>
+                <View style={styles.planLinkIcon}>
+                  <InfoIcon />
+                </View>
+                <View style={styles.planLinkTextBlock}>
+                  <Text style={styles.planLinkTitle}>Политика конфиденциальности</Text>
+                  <Text style={styles.planLinkSubtitle}>Как хранятся и удаляются данные</Text>
+                </View>
+                <Text style={styles.planLinkArrow}>{'>'}</Text>
+              </Pressable>
+              <Pressable
+                accessibilityLabel="Открыть условия использования"
+                accessibilityRole="button"
+                onPress={openTermsOfUse}
+                style={({ pressed }) => [styles.planLink, pressed ? styles.planLinkPressed : null]}>
+                <View style={styles.planLinkIcon}>
+                  <InfoIcon />
+                </View>
+                <View style={styles.planLinkTextBlock}>
+                  <Text style={styles.planLinkTitle}>Условия использования</Text>
+                  <Text style={styles.planLinkSubtitle}>Правила использования Режимки</Text>
                 </View>
                 <Text style={styles.planLinkArrow}>{'>'}</Text>
               </Pressable>
