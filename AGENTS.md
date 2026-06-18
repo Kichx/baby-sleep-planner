@@ -462,10 +462,12 @@ The main `/` screen should use one compact `Сегодня коротко` block
 
 Keep `src/components/TodayShortSummary.tsx` presentational. It should accept `TodayShortSummaryVm`, return `null` when `vm.visible=false`, render only rows provided by the VM, and receive the `Подробнее` callback from the screen. Do not put sleep calculations, SQLite calls, feeding writes, temporary-mode writes, or direct Expo Router calls inside the component.
 
-For today with an active plan, show `Сегодня коротко` after `SleepCoachCard` and before plan detail blocks, bottle-feeding cards, and the timeline. It may show 2-4 short rows when data exists:
+For today with an active plan, show `Сегодня коротко` after `SleepCoachCard` and before plan detail blocks, bottle-feeding cards, and the timeline. It may show short rows when data exists:
 - `Следующий сон в HH:MM (через X часов Y минут)` only while the child is awake and a next nap target is available;
 - `Отбой: около HH:MM (через X часов Y минут)` only when predicted bedtime is available;
-- `Дневной сон: X` only when factual day-sleep summary is available;
+- `ВБ: X из Y` from `snapshot.totalAwakeMinutes` and the effective plan's `targetAwakeMinutes`;
+- `Осталось ВБ: X` from `snapshot.remainingAwakeMinutes`;
+- `Дневной сон: X из Y` from `snapshot.totalDaySleepMinutes` and the effective plan's `targetDaySleepMinutes`;
 - `Кормление: X назад` only when bottle feeding is enabled and a latest feeding exists.
 
 During an active sleep, do not show a first-level next-sleep row or card such as `Следующий сон: после сна`. Use calm copy like `После пробуждения покажем следующее окно`, while bedtime and factual day-sleep rows may still be shown if available.
@@ -474,12 +476,13 @@ The `Подробнее` action should reuse an existing read-only bottom sheet 
 
 For `tracking_only` without an active persisted target plan, `Сегодня коротко` must not show plan-based rows such as next sleep, bedtime, scenarios, or remaining awake time. It may show factual rows only, such as day sleep or latest bottle feeding, when those facts already exist.
 
-Keep `До цели бодрств.` and summed 24-hour awake time off the first-level main screen. Detailed `Бодрствование за 24 часа (ВБ)` belongs in expanded `/sleep-plan` checks; the main screen must not reintroduce it through `Сегодня коротко`.
+Keep separate `До цели бодрств.` cards and summed 24-hour awake time off the first-level main screen. A compact `Осталось ВБ: X` row is allowed inside `Сегодня коротко` only for today with an active plan, because it answers the day-balance question without adding another card. Detailed `Бодрствование за 24 часа (ВБ)` belongs in expanded `/sleep-plan` checks; the main screen must not reintroduce it through `Сегодня коротко`.
 
 When changing `Сегодня коротко`, cover at least:
 - today + active plan shows available compact forecast and factual rows;
 - next sleep uses one target clock time from `snapshot.nextSleepAt` with a long relative duration, not a min/max minute range;
 - bedtime uses one predicted clock time from `snapshot.predictedBedtimeAt` with a long relative duration and stays aligned with the coach card wording;
+- active-plan rows show awake progress, remaining awake, and day-sleep progress against effective-plan targets;
 - active sleep does not show `Следующий сон: после сна`;
 - `tracking_only` without active plan hides plan rows and can keep factual rows;
 - bottle feeding stays secondary and does not affect sleep calculations or recommendations;

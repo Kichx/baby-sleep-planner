@@ -8,10 +8,12 @@ import type { SleepDaySummary, SleepPlanPreset, SleepSnapshot } from '@/types/sl
 
 export type TodayShortSummaryRowId =
   | 'activeSleepNextWindow'
+  | 'awakeProgress'
   | 'bedtime'
   | 'daySleep'
   | 'feeding'
-  | 'nextSleep';
+  | 'nextSleep'
+  | 'remainingAwake';
 
 export type TodayShortSummaryRowTone = 'primary' | 'secondary';
 
@@ -201,6 +203,43 @@ function buildDaySleepRow(
   return text ? { id: 'daySleep', text, tone: 'primary' } : null;
 }
 
+function buildAwakeProgressRow(input: {
+  plan: SleepPlanPreset;
+  snapshot: SleepSnapshot;
+}): TodayShortSummaryRowVm | null {
+  const totalAwake = formatDuration(input.snapshot.totalAwakeMinutes);
+  const targetAwake = formatDuration(input.plan.targetAwakeMinutes);
+  const text = normalizeLine(
+    totalAwake && targetAwake ? `ВБ: ${totalAwake} из ${targetAwake}` : null,
+  );
+
+  return text ? { id: 'awakeProgress', text, tone: 'primary' } : null;
+}
+
+function buildRemainingAwakeRow(snapshot: SleepSnapshot): TodayShortSummaryRowVm | null {
+  const remainingAwake = formatDuration(snapshot.remainingAwakeMinutes);
+  const text = normalizeLine(
+    remainingAwake ? `Осталось ВБ: ${remainingAwake}` : null,
+  );
+
+  return text ? { id: 'remainingAwake', text, tone: 'primary' } : null;
+}
+
+function buildDaySleepProgressRow(input: {
+  plan: SleepPlanPreset;
+  snapshot: SleepSnapshot;
+}): TodayShortSummaryRowVm | null {
+  const totalDaySleep = formatDuration(input.snapshot.totalDaySleepMinutes);
+  const targetDaySleep = formatDuration(input.plan.targetDaySleepMinutes);
+  const text = normalizeLine(
+    totalDaySleep && targetDaySleep
+      ? `Дневной сон: ${totalDaySleep} из ${targetDaySleep}`
+      : null,
+  );
+
+  return text ? { id: 'daySleep', text, tone: 'primary' } : null;
+}
+
 function buildFeedingRow(input: {
   bottleFeedingEnabled: boolean;
   latestBottleFeeding: Pick<BottleFeeding, 'startedAt'> | null;
@@ -245,11 +284,20 @@ export function buildTodayShortSummaryVm(
           now: input.now,
           snapshot: input.snapshot,
         }),
+        buildAwakeProgressRow({
+          plan: input.plan,
+          snapshot: input.snapshot,
+        }),
+        buildRemainingAwakeRow(input.snapshot),
+        buildDaySleepProgressRow({
+          plan: input.plan,
+          snapshot: input.snapshot,
+        }),
       ])
     : [];
   const rows = compactRows([
     ...planRows,
-    buildDaySleepRow(input.daySummary),
+    canShowPlanRows(input) ? null : buildDaySleepRow(input.daySummary),
     buildFeedingRow({
       bottleFeedingEnabled: input.bottleFeedingEnabled,
       latestBottleFeeding: input.latestBottleFeeding,

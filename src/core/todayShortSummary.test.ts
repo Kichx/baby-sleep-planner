@@ -147,7 +147,9 @@ describe('buildTodayShortSummaryVm', () => {
     expect(rowTexts(summary)).toEqual([
       'Следующий сон в 09:30 (через 1 час 30 минут)',
       'Отбой: около 20:30 (через 12 часов 30 минут)',
-      'Дневной сон: 30 мин',
+      'ВБ: 1 ч из 10 ч 15 мин',
+      'Осталось ВБ: 8 ч',
+      'Дневной сон: 30 мин из 3 ч 15 мин',
       'Кормление: 45 мин назад',
     ]);
     expect(summary.rows.find((row) => row.id === 'feeding')?.tone).toBe('secondary');
@@ -186,6 +188,9 @@ describe('buildTodayShortSummaryVm', () => {
     expect(rowTexts(summary)).toContain(
       'Отбой: около 20:30 (через 10 часов 30 минут)',
     );
+    expect(rowTexts(summary)).toContain('ВБ: 1 ч из 10 ч 15 мин');
+    expect(rowTexts(summary)).toContain('Осталось ВБ: 8 ч');
+    expect(rowTexts(summary)).toContain('Дневной сон: 30 мин из 3 ч 15 мин');
     expect(rowTexts(summary).join(' ')).not.toContain('Следующий сон: после сна');
     expect(rowTexts(summary).join(' ')).not.toContain('после сна');
     expectUserStringsSafe(summary);
